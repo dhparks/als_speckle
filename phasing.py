@@ -90,9 +90,9 @@ class CPUPR:
         self.support = update
         
     def save(self,savepath,savename,n,save_estimate=True,save_diffraction=False,save_support=False):
-        if save_estimate:    io2.save_fits(savepath+'/'+savename+' '+str(iteration)+'.fits',             self.estimate,          components=['mag','phase'], overwrite=True)
-        if save_support:     io2.save_fits(savepath+'/'+savename+' '+str(iteration)+' support.fits',     self.support,           components=['mag'], overwrite=True)
-        if save_diffraction: io2.save_fits(savepath+'/'+savename+' '+str(iteration)+' diffraction.fits', speckle(self.estimate), components=['mag'], overwrite=True)
+        if save_estimate:    io.save_fits(savepath+'/'+savename+' '+str(iteration)+'.fits',             self.estimate,          components=['mag','phase'], overwrite=True)
+        if save_support:     io.save_fits(savepath+'/'+savename+' '+str(iteration)+' support.fits',     self.support,           components=['mag'], overwrite=True)
+        if save_diffraction: io.save_fits(savepath+'/'+savename+' '+str(iteration)+' diffraction.fits', speckle(self.estimate), components=['mag'], overwrite=True)
             
 class GPUPR:
 
@@ -242,12 +242,8 @@ class GPUPR:
         m = (threshold*cl_array.max(self.blur_temp_max).get()).astype('float32')
         self.support_threshold(self.blur_temp,self.support,m).wait()
         
-        io2.save_fits('%s/%s updated support %s.fits'%(savepath,savename,iteration), self.support.get(), components=['mag'], overwrite=True)
-        
         # enforce the condition that the support shouldnt expand in size
         if retain_bounds: self.bound_support(self.support,self.support0)
-        
-        io2.save_fits('%s/%s updated support bounded %s.fits'%(savepath,savename,iteration), self.support.get(), components=['mag'], overwrite=True)
         
         print "updated"
          
@@ -272,9 +268,9 @@ class GPUPR:
         
     def save(self,savepath,savename,n,save_estimate=True,save_diffraction=False,save_support=False):
         
-        if save_estimate:    io2.save_fits(savepath+'/'+savename+' '+str(iteration)+'.fits',             self.psi_in.get(),          components=['mag','phase'], overwrite=True)
-        if save_support:     io2.save_fits(savepath+'/'+savename+' '+str(iteration)+' support.fits',     self.support.get(),         components=['mag'], overwrite=True)
-        if save_diffraction: io2.save_fits(savepath+'/'+savename+' '+str(iteration)+' diffraction.fits', speckle(self.psi_in.get()), components=['mag'], overwrite=True)
+        if save_estimate:    io.save_fits(savepath+'/'+savename+' '+str(iteration)+'.fits',             self.psi_in.get(),          components=['mag','phase'], overwrite=True)
+        if save_support:     io.save_fits(savepath+'/'+savename+' '+str(iteration)+' support.fits',     self.support.get(),         components=['mag'], overwrite=True)
+        if save_diffraction: io.save_fits(savepath+'/'+savename+' '+str(iteration)+' diffraction.fits', speckle(self.psi_in.get()), components=['mag'], overwrite=True)
         
 def _do_iterations(reconstruction):
     global iteration
@@ -293,12 +289,12 @@ def _do_iterations(reconstruction):
 if __name__== "__main__":
     # allow execution of the following code only when the phasing.py script is invoked directly
     
-    data = io2.openfits(dataname)
-    support = io2.openfits(supportname)
+    data = io.openfits(dataname)
+    support = io.openfits(supportname)
     
     if data_is_intensity:
         if darkname != None:
-            dark = io2.openfits(darkname)
+            dark = io.openfits(darkname)
         else:
             dark = None
         data = condition_data(data,dark)
