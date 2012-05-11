@@ -111,7 +111,6 @@ class Context:
 		return self._queue
 
 	def wait(self):
-		#print self._queue
 		self._queue.finish()
 
 	def flush(self):
@@ -128,7 +127,7 @@ def Plan(*args, **kwds):
 
 	context_obj = kwds.pop('context', None)
 	queue_obj = kwds.pop('queue', None)
-	
+
 	if queue_obj is not None:
 		wait_for_finish = False
 		context_obj = queue_obj.context

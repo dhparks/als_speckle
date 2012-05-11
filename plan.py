@@ -20,7 +20,6 @@ class _FFTParams:
 		self.context = context
 		self.fast_math = fast_math
 		
-		
 		# check that the transformed axes are the right size
 		if 0 in axes:
 			if 2**log2(self.x) != self.x:
@@ -105,7 +104,7 @@ class FFTPlan:
 		self._wait_for_finish = wait_for_finish
 		self._axes = axes
 
-		self._tempmemobj    = None
+		self._tempmemobj = None
 		self._tempmemobj_re = None
 		self._tempmemobj_im = None
 
@@ -123,7 +122,6 @@ class FFTPlan:
 		"""Create and compile FFT kernels"""
 
 		self._kernels = []
-		
 		if self._dim == _FFT_1D:
 			self._kernels.extend(self._fft1D(X_DIRECTION))
 		elif self._dim == _FFT_2D:
