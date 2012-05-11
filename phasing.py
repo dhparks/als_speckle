@@ -15,27 +15,219 @@ import io2
 
 from phasing_parameters import *
 
-def condition_data(intensity,dark=None):
+def init_gpu():
+    # create the queue and context so that they are available as pointers?
+    
+    platforms = cl.get_platforms();
+    if len(platforms) == 0: print "Failed to find any OpenCL platforms."; exit()
+
+    devices = platforms[0].get_devices(cl.device_type.GPU)
+    if len(devices) == 0: print "Could not find any GPU device"; exit()
+    device = devices[0]
+
+    context = cl.Context([devices[0]]) # Create a context using the first gpu in the list of devices
+    queue = cl.CommandQueue(context) # Create a command queue for that device
+    
+    return context, queue, device
+
+def condition_subtract_bg(data,dark):
+    print "    bg"
+    
+    # right now this assumes that the total integration time is the same.
+    # this part of the analysis should be altered to read the header of data and dark
+    # and scale them appropriately.
+    
+    x = 20
+    dc = float(scipy.sum(data[0:x,0:x])/x**2)
+    data = abs(data-dc)
+    
+    
+    if dark == None:
+        pass
+    else:
+        bg = float(scipy.sum(dark[0:x,0:x])/x**2)
+        dark = abs(dark-bg)
+        data = abs(data-dark*dc/bg)
+    return data
+
+def condition_remove_hot(data,t=2):
+    from scipy.signal import medfilt
+    print "    rh"
+
+    for m in range(1):
+        median = medfilt(data)+.1
+        Q = scipy.where(data/median > t,1,0)
+        data = data*(1-Q)+median*Q
+
+    return data
+
+def condition_correlation_sum(data,t):
+    
+    frames = data.shape[0]
+    dfts = scipy.zeros_like(data).astype('complex')
+    ACs = scipy.zeros(frames,float)
+        
+    # precompute the dfts and autocorrelation-maxes
+    for n in range(frames):
+        dft     = DFT(data[n].astype('float'))
+        dfts[n] = dft
+        ACs[n]  = abs(IDFT(dft*scipy.conjugate(dft))).max()
+          
+    # calculate the pair-wise normalized covariances  
+    covars = scipy.zeros((frames,frames),float)
+        
+    for j in range(frames):
+        for k in range(frames):
+            ac = ACs[j]
+            bc = ACs[k]
+            cc = abs(IDFT(dfts[j]*scipy.conjugate(dfts[k]))).max()
+            covars[j,k] = cc/scipy.sqrt(ac*bc)
+                
+    # now figure out which frame is most similar to the other frames by
+    # counting how many pair-wise covars involving each frame pass the
+    # threshold
+    similars = scipy.zeros(frames,int)
+    for n in range(frames): similars[n] = scipy.sum(scipy.where(covars[n,:] > t,1,0))
+    best = similars.argmax()
+        
+    sum_list = scipy.where(covars[best,:] > t,1,0)
+    
+    return sum_list, covars  
+
+def condition_data(dataname,darkname,align_params=None,threshold=0.9):
+    
     # data coming in here is assumed to be ill-conditioned because it is basically right off the ccd.
     # this function applies some routine conditioning to try to get the data into a suitable form to be
     # passed to the reconstructer.
     
-    pass
+    # 1. optimally subtract dark frame from each image by looking at DC in corners
+    # 2. do hot-pixel removal on each frame
+    # 3. select a subarray and align each frame to a reference (probably the zero frame)
+    # 4. to deal with drift, cross-correlate each frame with every other frame. only those frames which
+    #    are sufficiently similar will be included in the sum
+    # 4. sum along the frame axis
+
+    if darkname == None: dark = None
+        
+    else:
+        print "opening dark"
+        dark = io.openfits(darkname)
+        print "opened"
+        assert type(dark) == scipy.ndarray, "dark must be array"
+        assert dark.ndim in [2,3], "dark must be 2d or 3d"
+        if dark.ndim == 3: dark = scipy.average(dark,axis=0)
+        print "flattened dark"
+    
+    # open the data from the data paths/names
+    intensity = io.openfits(dataname)
+    
+    # check assumptions about incoming data
+    assert type(intensity) == scipy.ndarray,                                   "intensity must be ndarray"
+    assert intensity.ndim in [2,3],                                            "intensity must be 2d or 3d"
+    assert intensity.shape[-1] == intensity.shape[-2],                         "intensity frames must be square"
+    assert type(dark) in [NoneType,scipy.ndarray],                             "dark must be none or ndarray"
+    assert dark.shape[-2:] == intensity.shape[-2:],                            "dark and intensity must have same frame shapes"
+    assert type(align_params) in [NoneType,ListType,TupleType,scipy.ndarray],  "subarray must be None or iterable"
+    if type(align_params) != NoneType:
+        assert len(align_params) == 4,                                         "subarray must be length-4"
+        for n in range(4):
+            assert align_params[n] in [IntType,FloatType],                     "all data in subarray must be float or int"
+    assert type(threshold) == FloatType, "threshold must be float"
+    # done checking types
+
+    # if the data is 2d, conditioning is extremely simple
+    if intensity.ndim == 2:
+        intensity = condition_subtract_bg(intensity,dark)
+        intensity = condition_remove_hot(intensity)
+        return intensity
+        
+    # if the data is 3d, each frame must be conditioned, and then the frames must be aligned and summed
+    if intensity.ndim == 3:
+        print "conditioning data"
+        frames = intensity.shape[0]
+        for n in range(frames):
+            print "  ",n
+            intensity[n] = condition_subtract_bg(intensity[n],dark)
+            #intensity[n] = condition_remove_hot(intensity[n])
+        
+        # get info about the subarray from the subarray tuple. use this to slice intensity and then pass
+        # the sliced array to the aligner
+        if align_params == None:
+            # choose sensible defaults
+            maxloc = intensity[0].argmax()
+            maxrow,maxcol = maxloc/intensity.shape[1],maxloc%intensity.shape[1]
+            rmin,rmax,cmin,cmax = maxrow-64,maxrow+64,maxcol-64,maxcol+64
+        else: rmin,rmax,cmin,cmax = align_params
+        
+        to_align = intensity[:,rmin:rmax,cmin:cmax]
+        align_coords = align_frames(to_align,return_type='coordinates')
+        for n in range(frames):
+            rolls = align_coords[n]
+            intensity[n] = scipy.roll(scipy.roll(intensity[n],rolls[0],axis=0),rolls[1],axis=1)
+            
+        ### now build the correlation square to determine which frames get summed. this can be time consuming
+        
+        # make rmin, rmax, cmin, cmax. because we use ffts next, this has to be square.
+        delta_r,delta_c = rmax-rmin,cmax-cmin
+        ave_r,ave_c = int((rmax+rmin)/2),int((cmax+cmin)/2)
+        
+        if delta_r > delta_c:
+            if delta_r%2 == 1:
+                delta_r += 1
+                if rmin > 0:  rmin += -1
+                if rmin == 0: rmax += 1
+            cmin,cmax = ave_c-delta_r/2,ave_c+delta_r/2
+            
+        if delta_c > delta_r:
+            if delta_c%2 == 1:
+                delta_c += 1
+                if cmin > 0:  cmin += -1
+                if cmin == 0: cmax += 1
+            rmin,rmax = ave_r-delta_c/2,ave_r+delta_c/2
+
+        to_correlate = intensity[:,rmin:rmax,cmin:cmax]
+        sum_list, correlation_matrix = condition_correlation_sum(to_correlate,threshold) # the correlation matrix is returned here in case anyone wants it
+        
+        summed = scipy.zeros_like(intensity[0])
+        print scipy.sum(sum_list)
+        for n in range(frames):
+            if sum_list[n]: summed += intensity[n]
+        summed = condition_remove_hot(summed)
+        
+        # finally, roll the data so that the max is at the corners and then take the square root to make it modulus instead of mod**2
+        maxloc = summed.argmax()
+        maxrow, maxcol = maxloc/len(summed),maxloc%len(summed)
+        summed = scipy.roll(scipy.roll(summed,-maxrow,axis=0),-maxcol,axis=1)
+        return scipy.sqrt(summed), correlation_matrix
 
 def speckle(input):
+    # return coherent speckle pattern of input
     return fftshift(abs(DFT(self.estimate))**2)
+
+def roll_phase(data):
+    # Phase retrieval is degenerate to a global phase factor. This function tries to align the global phase rotation
+    # by minimizing the amount of power in the imag component. Real component could also be minimized with no effect
+    # on the outcome.
     
-def build_kernel_file(c, d, fileName):
-    kernelFile = open(fileName, 'r')
-    kernelStr = kernelFile.read()
-
-    # Load the program source
-    program = cl.Program(c, kernelStr)
-
-    # Build the program and check for errors
-    program.build(devices=[d])
-
-    return program
+    # check types
+    assert type(data) == scipy.ndarray, "data must be array"
+    assert data.ndim in [2,3], "data must be 2d or 3d"
+    
+    imag_component = lambda p,x: (x*scipy.exp(complex(0,1)*p)).imag
+    
+    from scipy.optimize import leastsq
+    if data.ndim == 2:
+        p = 0
+        p = leastsq(imag_component,p,args=(data.ravel()))[0]
+        data *= scipy.exp(complex(0,1)*p)
+        
+    if data.ndim == 3:
+        for frame in data:
+            p = 0
+            p = leastsq(imag_component,p,args=(frame.ravel()))[0]
+            frame *= scipy.exp(complex(0,1)*p)
+    
+    return data
 
 class CPUPR:
     
@@ -96,36 +288,20 @@ class CPUPR:
             
 class GPUPR:
 
-    def __init__(self,N):
+    def __init__(self,context,queue,device,N,bounds=None):
         self.N = N
+        self.queue = queue
+        self.context = context
+        self.device = device
 
-        ### initialize all the crap needed for gpu computations: context, commandqueue, fftplan, program kernels
-        if verbose:
-            print "pyopencl version: %s"%str(cl.VERSION)
-            print "pyfft version:    %s"%str(pyfft.VERSION)
-        
-        # 1. set up the context and queue; adapted from OpenCL book. requires a gpu to run; no cpu fallback
-        if verbose: print "making context"
-        platforms = cl.get_platforms();
-        if len(platforms) == 0: print "Failed to find any OpenCL platforms."; exit()
-        if verbose: print "  Platform: %s"%platforms[0]
-
-        devices = platforms[0].get_devices(cl.device_type.GPU)
-        if len(devices) == 0: print "Could not find any GPU device"; exit()
-        self.device = devices[0]
-        #print "  Device:   %s"%devices[0]
-
-        self.ctx = cl.Context([devices[0]]) # Create a context using the first gpu in the list of devices
-        self.queue = cl.CommandQueue(self.ctx) # Create a command queue for that device
-        
-        # 2. make fft plan for a 2d array with length N
+        # 1. make fft plan for a 2d array with length N
         if verbose: print "making fft plan"
         from pyfft.cl import Plan
         self.fftplan = Plan((self.N, self.N), queue=self.queue)
         
-        # 3. make the kernels to enforce the fourier and real-space constraints
+        # 2. make the kernels to enforce the fourier and real-space constraints
         if verbose: print "compling kernels"
-        self.fourier_constraint = ElementwiseKernel(self.ctx,
+        self.fourier_constraint = ElementwiseKernel(self.context,
             "float2 *psi, "                        # current estimate of the solution
             "float  *modulus, "                    # known fourier modulus
             "float2 *out",                         # output destination
@@ -134,9 +310,8 @@ class GPUPR:
             preamble = """
             #define rescale(a,b) (float2)(a.x/hypot(a.x,a.y)*b,a.y/hypot(a.x,a.y)*b)
             """)
-        if verbose: print "  fourier-space constraint"
         
-        self.realspace_constraint_hio = ElementwiseKernel(self.ctx,
+        self.realspace_constraint_hio = ElementwiseKernel(self.context,
             "float beta, "       # feedback parameter
             "float *support, "   # support constraint array
             "float2 *psi_in, "   # estimate of solution before modulus replacement
@@ -144,21 +319,46 @@ class GPUPR:
             "float2 *out",       # output destination
             "out[i] = (1-support[i])*(psi_in[i]-beta*psi_out[i])+support[i]*psi_out[i]",
             "hio")
-        if verbose: print "  real-space constraint (hio algorithm)"
         
-        self.realspace_constraint_er = ElementwiseKernel(self.ctx,
-
+        self.realspace_constraint_er = ElementwiseKernel(self.context,
             "float *support, "   # support constraint array
             "float2 *psi_out, "  # estimate of solution after modulus replacement
             "float2 *out",       # output destination
             "out[i] = support[i]*psi_out[i]",
             "hio")
-        if verbose: print "  real-space constraint (hio algorithm)"
         
+        if save_to_buffer:
+            
+            # set up the buffer which will store the reconstructions. this has to be done in __init__ rather than
+            # load_data because load_data gets called for each trial, but this buffer stores teh outcome of all the trials
+            
+            self.bounds = bounds
+            self.rows = int(bounds[1]-bounds[0])
+            self.cols = int(bounds[3]-bounds[2])
+            self.x0 = scipy.int32(bounds[2])
+            self.y0 = scipy.int32(bounds[0])
+            t = int(trials)
+            
+            self.save_buffer = cl_array.empty(self.queue,(t,self.rows,self.cols),scipy.complex64)
+            
+            # this copies a subarray from a 2d array into the 3d self.save_buffer
+            self.copy_to_buffer = cl.Program(self.context,
+            """__kernel void execute(__global float2 *dst, __global float2 *src, int x0, int y0, int rows, int cols, int n, int N)
+            {
+                int i_dst = get_global_id(0);
+                int j_dst = get_global_id(1);
+            
+                // i_dst and j_dst are the coordinates of the destination. we "simply" need to turn them into 
+                // the correct indices to move values from src to dst.
+                
+                int dst_index = (n*rows*cols)+(j_dst*rows)+i_dst; // (frames)+(rows)+cols
+                int src_index = (i_dst+x0)+(j_dst+y0)*N; // (cols)+(rows)
+                
+                dst[dst_index] = src[src_index];
+            }""").build(devices=[self.device])
+
         # if the support will be updated with shrinkwrap, initialize some additional gpu kernels
         if shrinkwrap:
-            
-            #self.support_threshold = build_kernel_file(self.ctx, self.device, "%s/support_threshold.cl"%kernel_path)
             
             self.set_zero = ElementwiseKernel(self.ctx,
                 "float2 *buff",
@@ -212,8 +412,8 @@ class GPUPR:
         
         # initialize gpu arrays for fourier constraint satisfaction
         self.psi_in      = cl_array.to_device(self.queue,random_complex)
-        self.psi_out     = cl_array.empty(self.queue,(N,N),scipy.complex64) # need both in and out for hio algorithm
-        self.psi_fourier = cl_array.empty(self.queue,(N,N),scipy.complex64) # to store fourier transforms of psi
+        self.psi_out     = cl_array.empty(self.queue,(self.N,self.N),scipy.complex64) # need both in and out for hio algorithm
+        self.psi_fourier = cl_array.empty(self.queue,(self.N,self.N),scipy.complex64) # to store fourier transforms of psi
         
         if update_sigma != None:
             
@@ -222,8 +422,8 @@ class GPUPR:
             assert type(update_sigma) in (IntType,FloatType), "update_sigma must be float or int"
             blurkernel = abs(DFT(fftshift(shape.gaussian((self.N,self.N),(update_sigma,update_sigma),center=None,normalization=None))))
             self.blur_kernel   = cl_array.to_device(self.queue,blurkernel.astype('float32'))
-            self.blur_temp     = cl_array.empty(self.queue,(N,N),scipy.complex64) # for holding the blurred estimate
-            self.blur_temp_max = cl_array.empty(self.queue,(N,N),scipy.float32)
+            self.blur_temp     = cl_array.empty(self.queue,(self.N,self.N),scipy.complex64) # for holding the blurred estimate
+            self.blur_temp_max = cl_array.empty(self.queue,(self.N,self.N),scipy.float32)
  
     def update_support(self,threshold = 0.2,retain_bounds=True):
             
@@ -268,9 +468,18 @@ class GPUPR:
         
     def save(self,savepath,savename,n,save_estimate=True,save_diffraction=False,save_support=False):
         
-        if save_estimate:    io.save_fits(savepath+'/'+savename+' '+str(iteration)+'.fits',             self.psi_in.get(),          components=['mag','phase'], overwrite=True)
-        if save_support:     io.save_fits(savepath+'/'+savename+' '+str(iteration)+' support.fits',     self.support.get(),         components=['mag'], overwrite=True)
-        if save_diffraction: io.save_fits(savepath+'/'+savename+' '+str(iteration)+' diffraction.fits', speckle(self.psi_in.get()), components=['mag'], overwrite=True)
+        if save_to_buffer:
+            self.copy_to_buffer.execute(self.queue,(self.cols,self.rows), # opencl stuff
+                                   self.save_buffer.data,           # destination
+                                   self.psi_in.data,                # source
+                                   self.x0, self.y0,
+                                   scipy.int32(self.rows),scipy.int32(self.cols),
+                                   scipy.int32(trial),scipy.int32(self.N))
+        
+        if save_to_disk:
+            if save_estimate:    io.save_fits(savepath+'/'+savename+' '+str(iteration)+'.fits',             self.psi_in.get(),          components=['mag','phase'], overwrite=True)
+            if save_support:     io.save_fits(savepath+'/'+savename+' '+str(iteration)+' support.fits',     self.support.get(),         components=['mag'], overwrite=True)
+            if save_diffraction: io.save_fits(savepath+'/'+savename+' '+str(iteration)+' diffraction.fits', speckle(self.psi_in.get()), components=['mag'], overwrite=True)
         
 def _do_iterations(reconstruction):
     global iteration
@@ -280,24 +489,159 @@ def _do_iterations(reconstruction):
             reconstruction.update_support()
             reconstruction.iteration('er')
         else:
-            if iteration%100 != 0:
+            if (iteration+1)%100 != 0:
                 reconstruction.iteration('hio')
             else:
                 reconstruction.iteration('er')
         if iteration%100 == 0: print "  iteration ",iteration
         
-if __name__== "__main__":
+def bound(data,threshold=1e-10,force_to_square=False,pad=0):
+    # find the minimally bound non-zero region of the support. useful
+    # for storing arrays so that the zero-padding for oversampling is avoided.
+    
+    data = scipy.where(data > threshold,1,0)
+    rows,cols = data.shape
+    
+    rmin,rmax,cmin,cmax = 0,0,0,0
+    
+    for row in range(rows):
+        if data[row,:].any():
+            rmin = row
+            break
+            
+    for row in range(rows):
+        if data[rows-row-1,:].any():
+            rmax = rows-row
+            break
+            
+    for col in range(cols):
+        if data[:,col].any():
+            cmin = col
+            break
+    
+    for col in range(cols):
+        if data[:,cols-col-1].any():
+            cmax = cols-col
+            break
+        
+    if rmin >= pad: rmin += -pad
+    else: rmin = 0
+    
+    if rows-rmax >= pad: rmax += pad
+    else: rmax = rows
+    
+    if cmin >= pad: cmin += -pad
+    else: cmin = 0
+    
+    if cols-cmax >= pad: cmax += pad
+    else: cmax = cols
+        
+    if force_to_square:
+        delta_r = rmax-rmin
+        delta_c = cmax-cmin
+        
+        if delta_r%2 == 1:
+            delta_r += 1
+            if rmax < rows: rmax += 1
+            else: rmin += -1
+            
+        if delta_c%2 == 1:
+            delta_c += 1
+            if cmax < cols: cmax += 1
+            else: cmin += -1
+            
+        if delta_r > delta_c:
+            average_c = (cmax+cmin)/2
+            cmin = average_c-delta_r/2
+            cmax = average_c+delta_r/2
+            
+        if delta_c > delta_r:
+            average_r = (rmax+rmin)/2
+            rmin = average_r-delta_c/2
+            rmax = average_r+delta_c/2
+            
+        if delta_r == delta_c:
+            pass
+        
+    return scipy.array([rmin,rmax,cmin,cmax]).astype('int32')
+   
+def align_frames(data,align_to=None,method='fft',search=None,use_mag_only=True,return_type='data'):
+    
+    """ Align a sequence of images for precision averaging.
+    
+    Required input:
+    data -- A 2d or 3d ndarray. probably this needs to be real-valued, not complex.
+    
+    Optional input:
+        align_to -- A 2d array used as the alignment reference. If left as None, data must
+                    be 3d and the first frame of data will be the reference.
+                
+        method -- Alignment method, can be either 'fft' or 'diff'. fft attempts to align images through
+                  cross-correlation; 'diff' through method of least differences as an optimization.
+                  Default is fft. 'diff' is not yet implemented.
+              
+        search -- If 'diff' is selected as the method, 'search' is the size of the maximum displacement in
+                  each axis that the candidate will be displaced to calculate the diff. So, if the
+                  candidate and the reference are off by 3 pixels in y and 1 pixel in x, search needs to
+                  be at least 3 to find the correct alignment.
+                  
+        use_mag_only -- Do alignment using only the magnitude component of data. Default is True
+                  
+        return_type -- This function is called from multiple places, some of which expect aligned data to come back
+                        and some which expect just the alignment coordinates to come back. 'data' returns
+                        the aligned data, 'coordinates' returns the alignment coordinates. Default is 'data'.
+              
+    Returns: an array of shape and dtype identical to data, or a list of alignment coordinates."""
+    
+    # check types
+    assert type(data) == scipy.ndarray,                   "data must be ndarray"
+    assert data.ndim in [2,3],                            "data must be 2d or 3d"
+    assert type(align_to) in [NoneType,scipy.ndarray],    "align_to must be None or ndarray"
+    if type(align_to) == NoneType: assert data.ndim == 3, "with align_to as None, data must be 3d"
+    assert method in ['fft','diff'],                      "method must be 'fft' or 'diff'"
+    assert return_type in ['data','coordinates'],         "return_type must be 'data' or 'coordinates'"
+
+    coordinates = []
+
+    if method == 'fft':
+        if data.ndim == 2:
+            if use_mag_only: cc = abs(IDFT(DFT(abs(data))*scipy.conjugate(DFT(align_to))))
+            else: cc = abs(IDFT(DFT(data)*scipy.conjugate(DFT(align_to))))
+                
+            cc_max = cc.argmax()
+            rows,cols = data.shape
+            max_row,max_col = cc_max/cols,cc_max%cols
+            if return_type == 'coordinates': coordinates.append([-max_row,-maxcol])
+            if return_type == 'data': data = scipy.roll(scipy.roll(data,-max_row,axis=0),-max_col,axis=1)
+           
+        if data.ndim == 3: 
+            if align_to == None: align_to = data[0]
+            if use_mag_only: align_to = abs(align_to)
+            align_to_f = scipy.conjugate(DFT(align_to))
+            rows,cols = align_to.shape
+            for n,frame in enumerate(data):
+                if use_mag_only: frame = abs(frame)
+                cc_max = abs(IDFT(DFT(frame)*align_to_f)).argmax()
+                max_row,max_col = cc_max/cols,cc_max%cols
+                if return_type == 'coordinates': coordinates.append([-max_row,-max_col])
+                if return_type == 'data': data[n] = scipy.roll(scipy.roll(data[n],-max_row,axis=0),-max_col,axis=1)
+
+    if return_type == 'coordinates': return coordinates
+    if return_type == 'data': return data
+
+def _example():
+    # canonical code to demonstrate library functions
     # allow execution of the following code only when the phasing.py script is invoked directly
+    global trial
     
     data = io.openfits(dataname)
     support = io.openfits(supportname)
     
-    if data_is_intensity:
-        if darkname != None:
-            dark = io.openfits(darkname)
-        else:
-            dark = None
-        data = condition_data(data,dark)
+    bounds = bound(support,force_to_square=True,pad=4)
+    
+    if raw_data: data,frame_correlations = condition_data(dataname,darkname)
+    io.save_fits('conditioned barker data.fits',data,overwrite=True)
+    io.save_fits('frame correlations barker data.fits',frame_correlations,overwrite=True)
         
     # check sizes
     assert data.ndim == 2, "data has wrong dimensionality"
@@ -306,8 +650,11 @@ if __name__== "__main__":
     
     # initialize the reconstruction
     N = len(data)
-    if device == 'CPU': reconstruction = CPUPR(N)
-    if device == 'GPU': reconstruction = GPUPR(N) # need to supply N in order to build the plan for fft
+    if where == 'CPU':
+        reconstruction = CPUPR(N)
+    if where == 'GPU':
+        context, queue, device = init_gpu()
+        reconstruction = GPUPR(context,queue,device,N,bounds=bounds)
     
     for trial in range(trials):
         
@@ -321,8 +668,27 @@ if __name__== "__main__":
         # iterate
         _do_iterations(reconstruction)
 
-        # save result
+        # save result, either to disk or in a memory buffer depending on phasing_parameters
         reconstruction.save(savepath,savename,trial)
+        
+    # now get the data off the gpu
+    cpu_data = reconstruction.save_buffer.get()
+    io.save_fits(savepath+'/'+savename+'.fits', cpu_data, components=['real','imag'], overwrite=True)
+    
+    # roll the phase to ensure global phase alignment
+    cpu_data = roll_phase(cpu_data)
+    io.save_fits(savepath+'/'+savename+' rolled.fits', cpu_data, components=['real','imag'], overwrite=True)
+    
+    # align the trials
+    print cpu_data.shape
+    cpu_data = align_frames(cpu_data)
+    print cpu_data.shape
+    io.save_fits(savepath+'/'+savename+' aligned.fits', cpu_data, components=['real','imag'], overwrite=True)
+    
+    # propagate the average and calculate the acutance at each 
+        
+if __name__== "__main__": _example()
+
         
         
         
