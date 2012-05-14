@@ -139,8 +139,10 @@ def Plan(*args, **kwds):
 
 	if 'wait_for_finish' not in kwds or kwds['wait_for_finish'] is None:
 		kwds['wait_for_finish'] = wait_for_finish
-	if 'axes' in kwds and type(kwds['axes']) != tuple:
-		kwds['axes'] = (kwds['axes'],)
+	if 'axes' in kwds:
+		if type(kwds['axes']) == int: kwds['axes'] = (kwds['axes'],)
+		if type(kwds['axes']) in [tuple,list]: assert len(kwds['axes']) <= len(args[0]), "too many axes"
+			
 	if 'axes' not in kwds:
 		if len(args[0]) == 1: kwds['axes'] = (0,)
 		if len(args[0]) == 2: kwds['axes'] = (0,1)

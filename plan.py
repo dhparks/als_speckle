@@ -125,12 +125,12 @@ class FFTPlan:
 		if self._dim == _FFT_1D:
 			self._kernels.extend(self._fft1D(X_DIRECTION))
 		elif self._dim == _FFT_2D:
-			if 0 in self._axes: self._kernels.extend(self._fft1D(X_DIRECTION))
-			if 1 in self._axes: self._kernels.extend(self._fft1D(Y_DIRECTION))
+			if 1 in self._axes: self._kernels.extend(self._fft1D(X_DIRECTION))
+			if 0 in self._axes: self._kernels.extend(self._fft1D(Y_DIRECTION))
 		else:
-			if 0 in self._axes: self._kernels.extend(self._fft1D(X_DIRECTION))
+			if 2 in self._axes: self._kernels.extend(self._fft1D(X_DIRECTION))
 			if 1 in self._axes: self._kernels.extend(self._fft1D(Y_DIRECTION))
-			if 2 in self._axes: self._kernels.extend(self._fft1D(Z_DIRECTION))
+			if 0 in self._axes: self._kernels.extend(self._fft1D(Z_DIRECTION))
 
 		# Since we're changing the last kernel, it won't affect
 		# 'chaining' of batch sizes in global kernels
