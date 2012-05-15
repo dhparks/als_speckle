@@ -31,7 +31,6 @@ def init_gpu():
     return context, queue, device
 
 def condition_subtract_bg(data,dark):
-    print "    bg"
     
     # right now this assumes that the total integration time is the same.
     # this part of the analysis should be altered to read the header of data and dark
@@ -52,7 +51,6 @@ def condition_subtract_bg(data,dark):
 
 def condition_remove_hot(data,t=2):
     from scipy.signal import medfilt
-    print "    rh"
 
     for m in range(1):
         median = medfilt(data)+.1
@@ -106,68 +104,73 @@ def condition_data(dataname,darkname,align_params=None,threshold=0.9):
     # 4. to deal with drift, cross-correlate each frame with every other frame. only those frames which
     #    are sufficiently similar will be included in the sum
     # 4. sum along the frame axis
-
-    if darkname == None: dark = None
-        
-    else:
-        print "opening dark"
-        dark = io.openfits(darkname)
-        print "opened"
-        assert type(dark) == scipy.ndarray, "dark must be array"
-        assert dark.ndim in [2,3], "dark must be 2d or 3d"
-        if dark.ndim == 3: dark = scipy.average(dark,axis=0)
-        print "flattened dark"
     
-    # open the data from the data paths/names
-    intensity = io.openfits(dataname)
-    
-    # check assumptions about incoming data
-    assert type(intensity) == scipy.ndarray,                                   "intensity must be ndarray"
-    assert intensity.ndim in [2,3],                                            "intensity must be 2d or 3d"
-    assert intensity.shape[-1] == intensity.shape[-2],                         "intensity frames must be square"
-    assert type(dark) in [NoneType,scipy.ndarray],                             "dark must be none or ndarray"
-    assert dark.shape[-2:] == intensity.shape[-2:],                            "dark and intensity must have same frame shapes"
+    # check some assumptions regarding inputs
     assert type(align_params) in [NoneType,ListType,TupleType,scipy.ndarray],  "subarray must be None or iterable"
     if type(align_params) != NoneType:
         assert len(align_params) == 4,                                         "subarray must be length-4"
         for n in range(4):
             assert align_params[n] in [IntType,FloatType],                     "all data in subarray must be float or int"
-    assert type(threshold) == FloatType, "threshold must be float"
-    # done checking types
-
-    # if the data is 2d, conditioning is extremely simple
-    if intensity.ndim == 2:
-        intensity = condition_subtract_bg(intensity,dark)
-        intensity = condition_remove_hot(intensity)
-        return intensity
+    
+    # check the header of the data file. ensure the file is either 2d or 3d. check that if there is a
+    # dark file, the shape of each frame of data is the same as of dark.
+    data_header = io.openheader(dataname)
+    data_shape = [0,0,0]
+    for n in range(3):
+        try: data_shape[n] = data_header['NAXIS%s'%(3-n)]
+        except: pass
+    print "data shape:",data_shape    
+    
+    if darkname == None:
+        dark = None
+    else:
+        dark_header = io.openheader(darkname)
+        dark_shape = [0,0,0]
+        for n in range(3):
+            try: dark_shape[n] = int(dark_header['NAXIS%s'%(3-n)])
+            except: pass
+        assert data_shape[1:] == dark_shape[1:], "data and dark acquisitions must be same size"
+        print "dark shape:", dark_shape
         
-    # if the data is 3d, each frame must be conditioned, and then the frames must be aligned and summed
-    if intensity.ndim == 3:
-        print "conditioning data"
-        frames = intensity.shape[0]
-        for n in range(frames):
-            print "  ",n
-            intensity[n] = condition_subtract_bg(intensity[n],dark)
-            #intensity[n] = condition_remove_hot(intensity[n])
+        # open the dark as a sum along the frame axis. There is nothing fancy to be done with the dark frames.
+        if dark_shape[0] > 0:
+            dark = scipy.zeros(dark_shape[1:],float)
+            for n in range(dark_shape[0]): dark = io.openframe(darkname,n)
+            dark *= 1./dark_shape[0]
+            
+        if dark_shape[0] == 0: dark = io.openfits(darkname)
+    
+    # process the data file. much more complicated!
+    frames = data_shape[0]
+    if frames == 0: condition_subtract_bg(io.openfits(dataname),dark)
+    if frames > 0:
         
-        # get info about the subarray from the subarray tuple. use this to slice intensity and then pass
-        # the sliced array to the aligner
-        if align_params == None:
-            # choose sensible defaults
-            maxloc = intensity[0].argmax()
-            maxrow,maxcol = maxloc/intensity.shape[1],maxloc%intensity.shape[1]
+        # this algorithm tries to minimize the amount of memory used, which can be problematic when very large datasets
+        # must be conditioned. the cost of this optimization is that some operations must either be inexact or duplicated;
+        # for example, sub-frame cross-correlation alignment done without dark subtraction might be less accurate, but
+        # if dark frame subtraction is done before alignment is also must be done again when the signal is summed across frames.
+        
+        # get the sub-frames for alignment
+        print "doing sub-frame alignment"
+        first_frame = io.openframe(dataname,0)
+        if align_params == None: # choose sensible defaults
+            maxloc = first_frame.argmax()
+            maxrow,maxcol = maxloc/first_frame.shape[1],maxloc%first_frame.shape[1]
             rmin,rmax,cmin,cmax = maxrow-64,maxrow+64,maxcol-64,maxcol+64
         else: rmin,rmax,cmin,cmax = align_params
-        
-        to_align = intensity[:,rmin:rmax,cmin:cmax]
-        align_coords = align_frames(to_align,return_type='coordinates')
+        to_align = scipy.zeros((frames,rmax-rmin,cmax-cmin),float)
+        print "  reading frames"
         for n in range(frames):
-            rolls = align_coords[n]
-            intensity[n] = scipy.roll(scipy.roll(intensity[n],rolls[0],axis=0),rolls[1],axis=1)
+            to_align[n] = io.openframe(dataname,n)[rmin:rmax,cmin:cmax]
             
-        ### now build the correlation square to determine which frames get summed. this can be time consuming
+        # get the alignment coordinates
+        print "  doing analysis"
+        align_coords = align_frames(to_align,return_type='coordinates')
         
-        # make rmin, rmax, cmin, cmax. because we use ffts next, this has to be square.
+        # figure out which frames to sum. this takes largers arrays than the alignment
+        # and all frames must be correlated against each other.
+        print "doing sub-frame cc analysis to sort which frames to sum"
+        f = 1
         delta_r,delta_c = rmax-rmin,cmax-cmin
         ave_r,ave_c = int((rmax+rmin)/2),int((cmax+cmin)/2)
         
@@ -185,19 +188,31 @@ def condition_data(dataname,darkname,align_params=None,threshold=0.9):
                 if cmin == 0: cmax += 1
             rmin,rmax = ave_r-delta_c/2,ave_r+delta_c/2
 
-        to_correlate = intensity[:,rmin:rmax,cmin:cmax]
-        sum_list, correlation_matrix = condition_correlation_sum(to_correlate,threshold) # the correlation matrix is returned here in case anyone wants it
-        
-        summed = scipy.zeros_like(intensity[0])
-        print scipy.sum(sum_list)
+        print "  reading frames"
+        to_correlate = scipy.zeros((frames,delta_r,delta_c),float)
         for n in range(frames):
-            if sum_list[n]: summed += intensity[n]
+            to_correlate[n] = io.openframe(dataname,n)[rmin:rmax,cmin:cmax]
+        print "  doing analysis"
+        to_sum_list, correlation_matrix = condition_correlation_sum(to_correlate,threshold) # the correlation matrix is returned here in case anyone wants it
+
+        # do the summation
+        print "summing frames with dark subtraction"
+        summed = scipy.zeros_like(first_frame)
+        for n in range(frames):
+            if to_sum_list[n]:
+                rolls = align_coords[n]
+                frame = condition_subtract_bg(io.openframe(dataname,n),dark)
+                frame = scipy.roll(scipy.roll(frame,rolls[0],axis=0),rolls[1],axis=1)
+                summed += frame
+        
+        print "removing hot pixels from sum with median filter"
         summed = condition_remove_hot(summed)
         
         # finally, roll the data so that the max is at the corners and then take the square root to make it modulus instead of mod**2
         maxloc = summed.argmax()
         maxrow, maxcol = maxloc/len(summed),maxloc%len(summed)
         summed = scipy.roll(scipy.roll(summed,-maxrow,axis=0),-maxcol,axis=1)
+        print "done"
         return scipy.sqrt(summed), correlation_matrix
 
 def speckle(input):
@@ -614,7 +629,7 @@ def align_frames(data,align_to=None,method='fft',search=None,use_mag_only=True,r
             if return_type == 'coordinates': coordinates.append([-max_row,-maxcol])
             if return_type == 'data': data = scipy.roll(scipy.roll(data,-max_row,axis=0),-max_col,axis=1)
            
-        if data.ndim == 3: 
+        if data.ndim == 3:
             if align_to == None: align_to = data[0]
             if use_mag_only: align_to = abs(align_to)
             align_to_f = scipy.conjugate(DFT(align_to))
@@ -633,15 +648,16 @@ def _example():
     # canonical code to demonstrate library functions
     # allow execution of the following code only when the phasing.py script is invoked directly
     global trial
-    
-    data = io.openfits(dataname)
+
+    if raw_data:
+        data,frame_correlations = condition_data(dataname,darkname)
+        io.save_fits('conditioned barker data.fits',data,overwrite=True)
+        io.save_fits('frame correlations barker data.fits',frame_correlations,overwrite=True)
+    else:
+        data = io.openfits(dataname)
+        
     support = io.openfits(supportname)
-    
     bounds = bound(support,force_to_square=True,pad=4)
-    
-    if raw_data: data,frame_correlations = condition_data(dataname,darkname)
-    io.save_fits('conditioned barker data.fits',data,overwrite=True)
-    io.save_fits('frame correlations barker data.fits',frame_correlations,overwrite=True)
         
     # check sizes
     assert data.ndim == 2, "data has wrong dimensionality"
