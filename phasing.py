@@ -12,6 +12,7 @@ from types import *
 
 import shape
 import io2
+import conditioning
 
 from phasing_parameters import *
 
@@ -30,69 +31,7 @@ def init_gpu():
     
     return context, queue, device
 
-def condition_subtract_bg(data,dark):
-    
-    # right now this assumes that the total integration time is the same.
-    # this part of the analysis should be altered to read the header of data and dark
-    # and scale them appropriately.
-    
-    x = 20
-    dc = float(scipy.sum(data[0:x,0:x])/x**2)
-    data = abs(data-dc)
-    
-    
-    if dark == None:
-        pass
-    else:
-        bg = float(scipy.sum(dark[0:x,0:x])/x**2)
-        dark = abs(dark-bg)
-        data = abs(data-dark*dc/bg)
-    return data
-
-def condition_remove_hot(data,t=2):
-    from scipy.signal import medfilt
-
-    for m in range(1):
-        median = medfilt(data)+.1
-        Q = scipy.where(data/median > t,1,0)
-        data = data*(1-Q)+median*Q
-
-    return data
-
-def condition_correlation_sum(data,t):
-    
-    frames = data.shape[0]
-    dfts = scipy.zeros_like(data).astype('complex')
-    ACs = scipy.zeros(frames,float)
-        
-    # precompute the dfts and autocorrelation-maxes
-    for n in range(frames):
-        dft     = DFT(data[n].astype('float'))
-        dfts[n] = dft
-        ACs[n]  = abs(IDFT(dft*scipy.conjugate(dft))).max()
-          
-    # calculate the pair-wise normalized covariances  
-    covars = scipy.zeros((frames,frames),float)
-        
-    for j in range(frames):
-        for k in range(frames):
-            ac = ACs[j]
-            bc = ACs[k]
-            cc = abs(IDFT(dfts[j]*scipy.conjugate(dfts[k]))).max()
-            covars[j,k] = cc/scipy.sqrt(ac*bc)
-                
-    # now figure out which frame is most similar to the other frames by
-    # counting how many pair-wise covars involving each frame pass the
-    # threshold
-    similars = scipy.zeros(frames,int)
-    for n in range(frames): similars[n] = scipy.sum(scipy.where(covars[n,:] > t,1,0))
-    best = similars.argmax()
-        
-    sum_list = scipy.where(covars[best,:] > t,1,0)
-    
-    return sum_list, covars  
-
-def condition_data(dataname,darkname,align_params=None,threshold=0.9):
+def condition_data(dataname,darkname,dust_plan=None,align_params=None,threshold=0.9):
     
     # data coming in here is assumed to be ill-conditioned because it is basically right off the ccd.
     # this function applies some routine conditioning to try to get the data into a suitable form to be
@@ -114,7 +53,7 @@ def condition_data(dataname,darkname,align_params=None,threshold=0.9):
     
     # check the header of the data file. ensure the file is either 2d or 3d. check that if there is a
     # dark file, the shape of each frame of data is the same as of dark.
-    data_header = io.openheader(dataname)
+    data_header = io2.openheader(dataname)
     data_shape = [0,0,0]
     for n in range(3):
         try: data_shape[n] = data_header['NAXIS%s'%(3-n)]
@@ -124,7 +63,7 @@ def condition_data(dataname,darkname,align_params=None,threshold=0.9):
     if darkname == None:
         dark = None
     else:
-        dark_header = io.openheader(darkname)
+        dark_header = io2.openheader(darkname)
         dark_shape = [0,0,0]
         for n in range(3):
             try: dark_shape[n] = int(dark_header['NAXIS%s'%(3-n)])
@@ -135,24 +74,29 @@ def condition_data(dataname,darkname,align_params=None,threshold=0.9):
         # open the dark as a sum along the frame axis. There is nothing fancy to be done with the dark frames.
         if dark_shape[0] > 0:
             dark = scipy.zeros(dark_shape[1:],float)
-            for n in range(dark_shape[0]): dark = io.openframe(darkname,n)
+            for n in range(dark_shape[0]):
+                dark += io2.openframe(darkname,n)
             dark *= 1./dark_shape[0]
             
-        if dark_shape[0] == 0: dark = io.openfits(darkname)
-    
+        if dark_shape[0] == 0: dark = io2.openfits(darkname)
+        
+        # now fix hot pixels and dust spots
+        dark = conditioning.hot_pixels(dark,t=1.2)
+        if dust_plan != None: dark = conditioning.remove_dust(dark,dust_plan,use_old_plan=True)
+
     # process the data file. much more complicated!
     frames = data_shape[0]
-    if frames == 0: condition_subtract_bg(io.openfits(dataname),dark)
+    if frames == 0: conditioning.subtract_background(io2.openfits(dataname),dark)
     if frames > 0:
         
-        # this algorithm tries to minimize the amount of memory used, which can be problematic when very large datasets
+        # this algorithm tries to minimize the amount of memory used, which can otherwise become problematic when very large datasets
         # must be conditioned. the cost of this optimization is that some operations must either be inexact or duplicated;
         # for example, sub-frame cross-correlation alignment done without dark subtraction might be less accurate, but
-        # if dark frame subtraction is done before alignment is also must be done again when the signal is summed across frames.
+        # if dark frame subtraction is done before alignment it also must be done again when the signal is summed across frames.
         
         # get the sub-frames for alignment
         print "doing sub-frame alignment"
-        first_frame = io.openframe(dataname,0)
+        first_frame = io2.openframe(dataname,0)
         if align_params == None: # choose sensible defaults
             maxloc = first_frame.argmax()
             maxrow,maxcol = maxloc/first_frame.shape[1],maxloc%first_frame.shape[1]
@@ -161,7 +105,7 @@ def condition_data(dataname,darkname,align_params=None,threshold=0.9):
         to_align = scipy.zeros((frames,rmax-rmin,cmax-cmin),float)
         print "  reading frames"
         for n in range(frames):
-            to_align[n] = io.openframe(dataname,n)[rmin:rmax,cmin:cmax]
+            to_align[n] = io2.openframe(dataname,n)[rmin:rmax,cmin:cmax]
             
         # get the alignment coordinates
         print "  doing analysis"
@@ -191,9 +135,11 @@ def condition_data(dataname,darkname,align_params=None,threshold=0.9):
         print "  reading frames"
         to_correlate = scipy.zeros((frames,delta_r,delta_c),float)
         for n in range(frames):
-            to_correlate[n] = io.openframe(dataname,n)[rmin:rmax,cmin:cmax]
+            to_correlate[n] = io2.openframe(dataname,n)[rmin:rmax,cmin:cmax]
         print "  doing analysis"
-        to_sum_list, correlation_matrix = condition_correlation_sum(to_correlate,threshold) # the correlation matrix is returned here in case anyone wants it
+        correlation_matrix = conditioning.covariance_matrix(to_correlate)
+        best = scipy.sum(correlation_matrix,0).argmax()
+        to_sum_list = scipy.where(correlation_matrix[best] > threshold,1,0)
 
         # do the summation
         print "summing frames with dark subtraction"
@@ -201,19 +147,21 @@ def condition_data(dataname,darkname,align_params=None,threshold=0.9):
         for n in range(frames):
             if to_sum_list[n]:
                 rolls = align_coords[n]
-                frame = condition_subtract_bg(io.openframe(dataname,n),dark)
-                frame = scipy.roll(scipy.roll(frame,rolls[0],axis=0),rolls[1],axis=1)
-                summed += frame
+                frame = io2.openframe(dataname,n)                                      # open frame
+                frame = conditioning.remove_dust(frame,dust_plan,use_old_plan=True)    # remove dust spots
+                #frame = conditioning.subtract_background(frame,dark)                   # subtract background
+                frame = scipy.roll(scipy.roll(frame,rolls[0],axis=0),rolls[1],axis=1)  # align to master
+                summed += frame                                                        # add frame to sum
         
         print "removing hot pixels from sum with median filter"
-        summed = condition_remove_hot(summed)
+        summed = conditioning.hot_pixels(summed)
         
         # finally, roll the data so that the max is at the corners and then take the square root to make it modulus instead of mod**2
         maxloc = summed.argmax()
         maxrow, maxcol = maxloc/len(summed),maxloc%len(summed)
         summed = scipy.roll(scipy.roll(summed,-maxrow,axis=0),-maxcol,axis=1)
         print "done"
-        return scipy.sqrt(summed), correlation_matrix
+        return scipy.sqrt(summed)
 
 def speckle(input):
     # return coherent speckle pattern of input
@@ -297,9 +245,9 @@ class CPUPR:
         self.support = update
         
     def save(self,savepath,savename,n,save_estimate=True,save_diffraction=False,save_support=False):
-        if save_estimate:    io.save_fits(savepath+'/'+savename+' '+str(iteration)+'.fits',             self.estimate,          components=['mag','phase'], overwrite=True)
-        if save_support:     io.save_fits(savepath+'/'+savename+' '+str(iteration)+' support.fits',     self.support,           components=['mag'], overwrite=True)
-        if save_diffraction: io.save_fits(savepath+'/'+savename+' '+str(iteration)+' diffraction.fits', speckle(self.estimate), components=['mag'], overwrite=True)
+        if save_estimate:    io2.save_fits(savepath+'/'+savename+' '+str(iteration)+'.fits',             self.estimate,          components=['mag','phase'], overwrite=True)
+        if save_support:     io2.save_fits(savepath+'/'+savename+' '+str(iteration)+' support.fits',     self.support,           components=['mag'], overwrite=True)
+        if save_diffraction: io2.save_fits(savepath+'/'+savename+' '+str(iteration)+' diffraction.fits', speckle(self.estimate), components=['mag'], overwrite=True)
             
 class GPUPR:
 
@@ -492,9 +440,9 @@ class GPUPR:
                                    scipy.int32(trial),scipy.int32(self.N))
         
         if save_to_disk:
-            if save_estimate:    io.save_fits(savepath+'/'+savename+' '+str(iteration)+'.fits',             self.psi_in.get(),          components=['mag','phase'], overwrite=True)
-            if save_support:     io.save_fits(savepath+'/'+savename+' '+str(iteration)+' support.fits',     self.support.get(),         components=['mag'], overwrite=True)
-            if save_diffraction: io.save_fits(savepath+'/'+savename+' '+str(iteration)+' diffraction.fits', speckle(self.psi_in.get()), components=['mag'], overwrite=True)
+            if save_estimate:    io2.save_fits(savepath+'/'+savename+' '+str(iteration)+'.fits',             self.psi_in.get(),          components=['mag','phase'], overwrite=True)
+            if save_support:     io2.save_fits(savepath+'/'+savename+' '+str(iteration)+' support.fits',     self.support.get(),         components=['mag'], overwrite=True)
+            if save_diffraction: io2.save_fits(savepath+'/'+savename+' '+str(iteration)+' diffraction.fits', speckle(self.psi_in.get()), components=['mag'], overwrite=True)
         
 def _do_iterations(reconstruction):
     global iteration
@@ -650,13 +598,13 @@ def _example():
     global trial
 
     if raw_data:
-        data,frame_correlations = condition_data(dataname,darkname)
-        io.save_fits('conditioned barker data.fits',data,overwrite=True)
-        io.save_fits('frame correlations barker data.fits',frame_correlations,overwrite=True)
+        data,frame_correlations = condition_data(dataname,darkname,dust_plan=dust_plan)
+        io2.save_fits('conditioned barker data.fits',data,overwrite=True)
+        io2.save_fits('frame correlations barker data.fits',frame_correlations,overwrite=True)
     else:
-        data = io.openfits(dataname)
+        data = io2.openfits(dataname)
         
-    support = io.openfits(supportname)
+    support = io2.openfits(supportname)
     bounds = bound(support,force_to_square=True,pad=4)
         
     # check sizes
@@ -689,17 +637,17 @@ def _example():
         
     # now get the data off the gpu
     cpu_data = reconstruction.save_buffer.get()
-    io.save_fits(savepath+'/'+savename+'.fits', cpu_data, components=['real','imag'], overwrite=True)
+    io2.save_fits(savepath+'/'+savename+'.fits', cpu_data, components=['real','imag'], overwrite=True)
     
     # roll the phase to ensure global phase alignment
     cpu_data = roll_phase(cpu_data)
-    io.save_fits(savepath+'/'+savename+' rolled.fits', cpu_data, components=['real','imag'], overwrite=True)
+    io2.save_fits(savepath+'/'+savename+' rolled.fits', cpu_data, components=['real','imag'], overwrite=True)
     
     # align the trials
     print cpu_data.shape
     cpu_data = align_frames(cpu_data)
     print cpu_data.shape
-    io.save_fits(savepath+'/'+savename+' aligned.fits', cpu_data, components=['real','imag'], overwrite=True)
+    io2.save_fits(savepath+'/'+savename+' aligned.fits', cpu_data, components=['real','imag'], overwrite=True)
     
     # propagate the average and calculate the acutance at each 
         

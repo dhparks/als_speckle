@@ -123,6 +123,11 @@ def openheader(filename, card=0):
     import pyfits
     return pyfits.getheader(filename, card)
 
+def openimage(filename):
+    import Image
+    import scipy.misc.pilutil as smp
+    return smp.fromimage(Image.open(filename).convert("L"))
+
 def writefits(filename, img, headerItems={}, overwrite=False):
     """ Write a FITS file.  Optionally writes to a previously constructed header.
 
@@ -277,6 +282,25 @@ def save_fits(filename, img, header={}, components=['mag'], overwrite=False):
 
     for c in _process_components(components):
         writefits(filename + "_" + c + ".fits", _save_maps[c](img), header, overwrite)
+
+def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=False):
+    """ Save components of an array as desired filetype specified by file extension."""
+    
+    assert type(header) == dict, "header must be dictionary"
+    assert type(overwrite) == bool, "overwrite must be True/False"
+    
+    # define extension types to control switching
+    img_exts  = ['jpg','jpeg','gif','png','bmp']
+    fits_exts = ['fits']
+    txt_exts  = ['txt','csv']
+    
+    # get extension from filename
+    assert len(filename.split('.')) >= 2, "filename appears to have no extension"
+    ext = filename.split('.')[1]
+    assert ext in img_exts or ext in fits_exts or ext in txt_exts, "ext \"%s\" not recognized"%ext
+    if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map,overwrite=overwrite)
+    if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite)
+    if ext in txt_exts:  write_text_array(filename,data,header=header)
 
 #
 ############### PNG #########################

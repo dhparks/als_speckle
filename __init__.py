@@ -3,4 +3,5 @@ __all__ = ["fit",
            "io",
            "scattering",
            "shape",
-           "wrapping"]
+           "wrapping",
+           "conditioning]
