@@ -17,7 +17,7 @@ import conditioning
 from phasing_parameters import *
 
 def init_gpu():
-    # create the queue and context so that they are available as pointers?
+    # create the queue and context. basically pyopencl "magic words"
     
     platforms = cl.get_platforms();
     if len(platforms) == 0: print "Failed to find any OpenCL platforms."; exit()
@@ -31,18 +31,13 @@ def init_gpu():
     
     return context, queue, device
 
-def condition_data(dataname,darkname,dust_plan=None,align_params=None,threshold=0.9):
+def condition_data(datanames,darkname,dust_plan=None,align_params=None,threshold=0.9):
     
     # data coming in here is assumed to be ill-conditioned because it is basically right off the ccd.
     # this function applies some routine conditioning to try to get the data into a suitable form to be
     # passed to the reconstructer.
     
-    # 1. optimally subtract dark frame from each image by looking at DC in corners
-    # 2. do hot-pixel removal on each frame
-    # 3. select a subarray and align each frame to a reference (probably the zero frame)
-    # 4. to deal with drift, cross-correlate each frame with every other frame. only those frames which
-    #    are sufficiently similar will be included in the sum
-    # 4. sum along the frame axis
+    print "conditioning data"
     
     # check some assumptions regarding inputs
     assert type(align_params) in [NoneType,ListType,TupleType,scipy.ndarray],  "subarray must be None or iterable"
@@ -51,15 +46,34 @@ def condition_data(dataname,darkname,dust_plan=None,align_params=None,threshold=
         for n in range(4):
             assert align_params[n] in [IntType,FloatType],                     "all data in subarray must be float or int"
     
-    # check the header of the data file. ensure the file is either 2d or 3d. check that if there is a
+    # check the header of each data file. ensure each file is either 2d or 3d. check that if there is a
     # dark file, the shape of each frame of data is the same as of dark.
-    data_header = io2.openheader(dataname)
-    data_shape = [0,0,0]
-    for n in range(3):
-        try: data_shape[n] = data_header['NAXIS%s'%(3-n)]
-        except: pass
-    print "data shape:",data_shape    
     
+    data_shapes  = []
+    which_frame  = [] # track file and frame number, a sort of modulo arithmetic for a list of arbitrary 3d files
+    data_times   = [] # record the accumulation time of each file in datanames
+    total_frames = 0
+    
+    for x,dataname in enumerate(datanames):
+        
+        data_header = io2.openheader(dataname)
+        data_shape = [0,0,0]
+        for n in range(3):
+            try:
+                length = data_header['NAXIS%s'%(3-n)]
+                data_shape[n] = length
+                if n == 0: # 3d files
+                    for i in range(length):
+                        which_frame.append([x,i])
+                        total_frames += 1
+            except:
+                total_frames += 1
+        data_shapes.append(data_shape)
+    
+        # calculate the total acquisition time for each frame in data
+        data_time = data_header['NUMACC']*data_header['EXPOSURE']
+        data_times.append(data_time)
+
     if darkname == None:
         dark = None
     else:
@@ -68,8 +82,12 @@ def condition_data(dataname,darkname,dust_plan=None,align_params=None,threshold=
         for n in range(3):
             try: dark_shape[n] = int(dark_header['NAXIS%s'%(3-n)])
             except: pass
-        assert data_shape[1:] == dark_shape[1:], "data and dark acquisitions must be same size"
-        print "dark shape:", dark_shape
+        for x in range(len(data_shapes)):
+            assert data_shapes[x][1:] == dark_shape[1:], "data and dark acquisitions must be same size"
+        print "  dark shape:", dark_shape
+        
+        # calculate the total acquisition time for each frame in dark
+        dark_time = dark_header['NUMACC']*dark_header['EXPOSURE']
         
         # open the dark as a sum along the frame axis. There is nothing fancy to be done with the dark frames.
         if dark_shape[0] > 0:
@@ -81,39 +99,41 @@ def condition_data(dataname,darkname,dust_plan=None,align_params=None,threshold=
         if dark_shape[0] == 0: dark = io2.openfits(darkname)
         
         # now fix hot pixels and dust spots
+        print "  dark: hot and dust removal"
         dark = conditioning.hot_pixels(dark,t=1.2)
         if dust_plan != None: dark = conditioning.remove_dust(dark,dust_plan,use_old_plan=True)
 
     # process the data file. much more complicated!
-    frames = data_shape[0]
-    if frames == 0: conditioning.subtract_background(io2.openfits(dataname),dark)
-    if frames > 0:
+    if total_frames == 0: conditioning.subtract_background(io2.openfits(dataname),dark)
+    if total_frames > 0:
         
         # this algorithm tries to minimize the amount of memory used, which can otherwise become problematic when very large datasets
         # must be conditioned. the cost of this optimization is that some operations must either be inexact or duplicated;
         # for example, sub-frame cross-correlation alignment done without dark subtraction might be less accurate, but
         # if dark frame subtraction is done before alignment it also must be done again when the signal is summed across frames.
+        print "  now working on data portion"
         
         # get the sub-frames for alignment
-        print "doing sub-frame alignment"
-        first_frame = io2.openframe(dataname,0)
+        print "    doing sub-frame alignment"
+        first_frame = io2.openframe(datanames[0],0)
         if align_params == None: # choose sensible defaults
             maxloc = first_frame.argmax()
             maxrow,maxcol = maxloc/first_frame.shape[1],maxloc%first_frame.shape[1]
             rmin,rmax,cmin,cmax = maxrow-64,maxrow+64,maxcol-64,maxcol+64
         else: rmin,rmax,cmin,cmax = align_params
-        to_align = scipy.zeros((frames,rmax-rmin,cmax-cmin),float)
-        print "  reading frames"
-        for n in range(frames):
-            to_align[n] = io2.openframe(dataname,n)[rmin:rmax,cmin:cmax]
+        to_align = scipy.zeros((total_frames,rmax-rmin,cmax-cmin),float)
+        print "      reading frames"
+        for n in range(total_frames):
+            file,local_frame = which_frame[n]
+            to_align[n] = io2.openframe(datanames[file],local_frame)[rmin:rmax,cmin:cmax]
             
         # get the alignment coordinates
-        print "  doing analysis"
+        print "      doing cc analysis"
         align_coords = align_frames(to_align,return_type='coordinates')
         
         # figure out which frames to sum. this takes largers arrays than the alignment
         # and all frames must be correlated against each other.
-        print "doing sub-frame cc analysis to sort which frames to sum"
+        print "    doing sub-frame cc analysis to sort which frames to sum"
         f = 1
         delta_r,delta_c = rmax-rmin,cmax-cmin
         ave_r,ave_c = int((rmax+rmin)/2),int((cmax+cmin)/2)
@@ -132,29 +152,34 @@ def condition_data(dataname,darkname,dust_plan=None,align_params=None,threshold=
                 if cmin == 0: cmax += 1
             rmin,rmax = ave_r-delta_c/2,ave_r+delta_c/2
 
-        print "  reading frames"
-        to_correlate = scipy.zeros((frames,delta_r,delta_c),float)
-        for n in range(frames):
-            to_correlate[n] = io2.openframe(dataname,n)[rmin:rmax,cmin:cmax]
-        print "  doing analysis"
+        print "      reading frames"
+        to_correlate = scipy.zeros((total_frames,delta_r,delta_c),float)
+        for n in range(total_frames):
+            file,local_frame = which_frame[n]
+            to_correlate[n] = io2.openframe(datanames[file],local_frame)[rmin:rmax,cmin:cmax]
+        print "      doing cc analysis"
         correlation_matrix = conditioning.covariance_matrix(to_correlate)
         best = scipy.sum(correlation_matrix,0).argmax()
         to_sum_list = scipy.where(correlation_matrix[best] > threshold,1,0)
 
         # do the summation
-        print "summing frames with dark subtraction"
+        print "    summing frames %s"%(to_sum_list*scipy.arange(total_frames))
         summed = scipy.zeros_like(first_frame)
-        for n in range(frames):
+        for n in range(total_frames):
             if to_sum_list[n]:
+                file,local_frame = which_frame[n]
                 rolls = align_coords[n]
-                frame = io2.openframe(dataname,n)                                      # open frame
-                frame = conditioning.remove_dust(frame,dust_plan,use_old_plan=True)    # remove dust spots
-                #frame = conditioning.subtract_background(frame,dark)                   # subtract background
-                frame = scipy.roll(scipy.roll(frame,rolls[0],axis=0),rolls[1],axis=1)  # align to master
-                summed += frame                                                        # add frame to sum
+                frame = io2.openframe(datanames[file],local_frame)
+                print "      %s: (%s, %s); (%s, %s)"%(n,file,local_frame,rolls[0],rolls[1])
+                frame = conditioning.remove_dust(frame,dust_plan,use_old_plan=True)                   # remove dust spots
+                frame = conditioning.hot_pixels(frame)
+                frame = conditioning.subtract_background(frame,dark,scale=data_times[file]/dark_time) # subtract background
+                frame = scipy.roll(scipy.roll(frame,rolls[0],axis=0),rolls[1],axis=1)                 # align to master
+                summed += frame                                                                       # add frame to sum
         
-        print "removing hot pixels from sum with median filter"
+        print "  hot removal"
         summed = conditioning.hot_pixels(summed)
+        #summed = conditioning.remove_dust(summed,dust_plan,use_old_plan=True)   
         
         # finally, roll the data so that the max is at the corners and then take the square root to make it modulus instead of mod**2
         maxloc = summed.argmax()
@@ -586,6 +611,8 @@ def align_frames(data,align_to=None,method='fft',search=None,use_mag_only=True,r
                 if use_mag_only: frame = abs(frame)
                 cc_max = abs(IDFT(DFT(frame)*align_to_f)).argmax()
                 max_row,max_col = cc_max/cols,cc_max%cols
+                if max_row > data.shape[1]/2: max_row += -data.shape[1]
+                if max_col > data.shape[2]/2: max_col += -data.shape[2]
                 if return_type == 'coordinates': coordinates.append([-max_row,-max_col])
                 if return_type == 'data': data[n] = scipy.roll(scipy.roll(data[n],-max_row,axis=0),-max_col,axis=1)
 
@@ -598,9 +625,10 @@ def _example():
     global trial
 
     if raw_data:
-        data,frame_correlations = condition_data(dataname,darkname,dust_plan=dust_plan)
-        io2.save_fits('conditioned barker data.fits',data,overwrite=True)
-        io2.save_fits('frame correlations barker data.fits',frame_correlations,overwrite=True)
+        data = condition_data(datanames,darkname,dust_plan=dust_plan)
+        io2.save_fits('conditioned bcmo notched 180.fits',data,overwrite=True)
+        io2.save_fits('conditioned bcmo notched 180 inverse.fits',fftshift(IDFT(data**2)),overwrite=True)
+        #io2.save_fits('frame correlations barker data.fits',frame_correlations,overwrite=True)
     else:
         data = io2.openfits(dataname)
         

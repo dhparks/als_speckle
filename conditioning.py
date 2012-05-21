@@ -23,7 +23,7 @@ def covariance_matrix(data,save_memory=False):
     from scipy.fftpack import fft2 as DFT
     from scipy.fftpack import ifft2 as IDFT
         
-    assert type(data) == ndarray and data.ndim == 3, "data must be 3d ndarray"
+    assert type(data) == scipy.ndarray and data.ndim == 3, "data must be 3d ndarray"
     
     frames = data.shape[0]
     dfts = scipy.zeros_like(data).astype('complex')
@@ -64,14 +64,11 @@ def remove_dust(data,plan_path,use_old_plan=False):
     
     Requires:
         data - the data from which dust will be removed. ndarray or path to some sort of data
-        plan_path - a path to a .fits, .png, or .pck which describes the location of defective pixels.
-        
-    If plan_path links to a .fits or .png file, the file will be opened and a plan for interpolation
-    will be automatically generated from it. If plan_path links to a .pck file, it is assumed this is
-    the precomputed plan and will treat it accordingly.
+        plan_path - a path to a .fits or .png which describes the location of defective pixels.
     
     Optional:
-        override - if True, look for a .pck plan in the plan_path directory and use it if present.
+        use_old_plan - if True, look for a .pck plan in the plan_path directory and use it if present.
+        A .fits or .png is still required for masking.
         
     Returns: fixed data."""
     
@@ -95,7 +92,6 @@ def remove_dust(data,plan_path,use_old_plan=False):
     assert len(pathsplit) >= 2, "plan path has no file extension"
     ext = pathsplit[1]
     assert ext in ['fits','png','gif','bmp'], "plan file extension %s not recognized"%ext
-
         
     if ext == 'fits': mask = io2.openfits(plan_path).astype('float')
     else:
@@ -105,14 +101,14 @@ def remove_dust(data,plan_path,use_old_plan=False):
     
     pck_path = plan_path.replace("."+ext, ".pck")
         
-    if use_old_plan:
-        if isfile(pck_path):
-            file = open(pck_path,'rb')
-            dust_plan = pickle.load(file)
-            file.close()
+    if use_old_plan and isfile(pck_path):
+        file = open(pck_path,'rb')
+        dust_plan = pickle.load(file)
+        file.close()
                 
-    if not use_old_plan:
+    else:
         dust_plan = remove_dust_plan(mask) # make the plan
+        print len(dust_plan)
         file = open(pck_path,'wb')
         pickle.dump(dust_plan,file) # save the plan
         file.close()
@@ -121,7 +117,6 @@ def remove_dust(data,plan_path,use_old_plan=False):
     
     interpolated_values = scipy.zeros((L,L),float)
     dust_plan = list(dust_plan) # make sure the plan is iterable (ie, a list instead of a set)
-    print 'have to do %s splines'%len(dust_plan)
     
     for n,entry in enumerate(dust_plan):
 
