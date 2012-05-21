@@ -6,3 +6,7 @@ __all__ = ["fit",
            "wrapping",
            "conditioning",
             ]
+
+for mod in __all__:
+    exec("from . import " + mod)
+del mod
