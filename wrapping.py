@@ -1,5 +1,4 @@
 import scipy
-from types import *
 
 def unwrap_plan(r,R,center,max_angle=None):
     """ Make the array which constitutes the unwrap plan. This is then passed
@@ -15,14 +14,20 @@ def unwrap_plan(r,R,center,max_angle=None):
     Optional input:
     max_angle: the portion of the azimuthal coordinate to be unwrapped.
             default is 2pi.
-    """
 
-    assert type(r) in (FloatType,IntType), "r must be int or float"
-    assert type(R) in (FloatType,IntType), "R must be int or float"
+    Returns:
+    plan - an array object that contains the unwrapping plan.
+    """
+    assert type(r) in (float, int), "r must be int or float"
+    assert type(R) in (float, int), "R must be int or float"
     assert r >= 0, "r must be >= 0"
-    assert type(center) is TupleType and type(center[0]) is IntType and type(center[1]) is IntType, "center must be integer 2-tuple"
+    assert type(center) in (list, tuple, set) and len(center) == 2, "center must be 2-tuple"
+    # don't bother checking if center is int, just cast it. Found out that numpy.int64 type is not considered IntType
+    center = [int(i) for i in center]
+
     if max_angle == None: max_angle = 2*scipy.pi
-    assert type(max_angle) is FloatType, "max_angle must be float"
+    assert type(max_angle) in (float, int), "max_angle must be float"
+    max_angle = float(max_angle)
 
     # setup up polar arrays
     R2,R1,cx,cy,MaxAngle = R,r,center[1],center[0],max_angle
@@ -64,15 +69,17 @@ def wrap_plan(r,R,max_angle=None):
     Rewrapped array will be returned with coordinate center at array center.
     
     Required input:
+    r: the inner raidus of the data to be wrapped.  int or float
     R: the outer radius of the data to be wrapped. int or float.
     
     Optional input:
     max_angle: if when unwrapping you used a max_angle other than the default value of 2*pi it should be resupplied here. radians.
+    
+    Returns:
+    plan - a ndarray plan of coordinate wrapping map.  To be used in wrap_with_plan.
     """
-    
-    import scipy
-    
-    assert (isinstance(R,int) or isinstance(R,float)), "R must be float or int"
+    assert type(R) in (int, float), "R must be float or int"
+    assert type(r) in (int, float), "r must be float or int"
     if max_angle == None: max_angle = 2*scipy.pi
     assert isinstance(max_angle,float), "max_angle must be float"
     
@@ -93,25 +100,32 @@ def wrap_plan(r,R,max_angle=None):
     return Plan
 
 def unwrap(array,plan,interpolation_order=3):
-    import scipy.ndimage
-    
     """ Given an array and a pre-generated plan, unwrap an array into polar coordinates
     
     Required input:
     array: data to be unwrapped. must be numpy ndarray
-    plan:  description of unwrapping, obtained by invoking unwrap_plan(). must be numpy ndarray
+    plan or (r, R, center): Either a description of unwrapping, obtained by
+        invoking unwrap_plan(), or the 3-tuple (r, R, center).  The latter method
+        is useful if you only need to call unwrap() once.
     
     Optional input:
     interpolation_order: coordinate transformations require interpolation.
                         0 is nearest neighbor.
                         1 is linear/bilinear
                         3 is cubic/bicubic (default)
-                        can go higher?"""
-                        
-    # check types, bounds etc
+                        4 and 5 order is also possible
+
+    returns:
+    unwrapped_array: the unwrapped array. The size of this is (R-r,xxx)
+    """
+    import scipy.ndimage
+
     assert isinstance(array,scipy.ndarray),  "input data must be ndarray"
-    assert isinstance(plan,scipy.ndarray),   "unwrapping plan must be ndarray"
-    assert interpolation_order in [0,1,3,5], "interpolation order must be 0 1 3 or 5" # other orders are allowed, right?
+    assert interpolation_order in range(6), "interpolation order must be 0-5"
+    if not isinstance(plan,scipy.ndarray):
+        assert len(plan) == 3, "unwrap plan must be a len 2 list/tuple/set or a ndarray"
+        r, R, center = plan
+        plan = unwrap_plan(r, R, center)
     
     # separate plan into coordinate map and (r,R)
     R,r = plan[:,-1]
@@ -138,22 +152,24 @@ def wrap(array,plan,interpolation_order=3):
     
     Required input:
     array: data in polar coordinates (y axis is radial coordinate, x axis is angular coordinate)
-    plan:  wrapping plan obtained by calling wrap_plan()
-    
+    plan or (r, R): Either a description of unwrapping obtained by calling wrap_plan(), or a 2-tuple (r, R).
+
     Optional input:
     interpolation_order: coordinate transformations require interpolation.
                         0 is nearest neighbor.
                         1 is linear/bilinear
                         3 is cubic/bicubic (default)
-                        can go higher?"""
-
-    
+                        4 and 5 order is also possible
+    """
     import scipy
     import scipy.ndimage
     
     assert isinstance(array,scipy.ndarray),  "input data must be ndarray"
-    assert isinstance(plan,scipy.ndarray),   "unwrapping plan must be ndarray"
-    assert interpolation_order in [0,1,3,5], "interpolation order must be 0 1 3 or 5" # other orders are allowed, right?
-    
-    wrapped = scipy.ndimage.map_coordinates(array,plan,order=interpolation_order)
-    return wrapped
+    assert interpolation_order in range(6), "interpolation order must be 0-5"
+    if isinstance(plan, scipy.ndarray):
+        pass
+    else:
+        assert len(plan) == 2, "plan must be len-2 tuple/set/list or ndarray"
+        plan = wrap_plan(plan[0], plan[1])
+
+    return scipy.ndimage.map_coordinates(array, plan, order=interpolation_order)

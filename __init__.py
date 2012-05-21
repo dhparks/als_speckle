@@ -4,4 +4,5 @@ __all__ = ["fit",
            "scattering",
            "shape",
            "wrapping",
-           "conditioning]
+           "conditioning",
+            ]
