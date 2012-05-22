@@ -2,14 +2,13 @@ import scipy
 from scipy.fftpack import fft2 as DFT
 from scipy.fftpack import ifft2 as IDFT
 from scipy.fftpack import fftshift
-from types import *
-import shape, io2
 
-def propagate_single_cpu(data,phase=None,z=None,energy=None,wavelength=None,pixel_pitch=None,data_is_fourier=False):
+from . import shape
 
+def propagate_one_distance(data,phase=None,z=None,energy=None,wavelength=None,pixel_pitch=None,data_is_fourier=False):
     # check requirements regarding types of data
     assert type(data) is scipy.ndarray,                                      "data must be an array"
-    assert data.dtype in [scipy.dtype('float32'), scipy.dtype('complex64')], "data must be float32 or complex64"
+    assert data.dtype in (float, complex),                                   "data must be float32 or complex64"
     assert data.ndim == 2,                                                   "supplied wavefront data must be 2-dimensional"
     assert type(data_is_fourier) == bool,                                    "data_is_fourier must be bool"
     
@@ -18,8 +17,8 @@ def propagate_single_cpu(data,phase=None,z=None,energy=None,wavelength=None,pixe
     
         assert (energy != None or wavelength != None),  "must supply either wavelength in meters or energy in eV"
         if energy != None and wavelength != None: print "don't supply both energy and wavelength", exit()
-        assert type(pixel_pitch) == FloatType,          "pixel_pitch must be a float saying how big each pixel is in meters"
-        assert type(z) == FloatType,                    "z must be a float giving how far to propagate in meters"
+        assert type(pixel_pitch) == float,          "pixel_pitch must be a float saying how big each pixel is in meters"
+        assert type(z) == float,                    "z must be a float giving how far to propagate in meters"
     
         N = len(data)
         I = complex(0,1)
@@ -35,62 +34,59 @@ def propagate_single_cpu(data,phase=None,z=None,energy=None,wavelength=None,pixe
     if not data_is_fourier: data = DFT(data)
     
     return IDFT(data*phase)
-    
-def propagate_spectrum(data,spectrum,energy=None,wavelength=None,pixel_pitch=None,device='CPU',subarraysize=None):
 
+    
+def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,device='CPU',subarraysize=None):
     """ Propagates a complex-valued wavefield through a range of distances.
     
-    Required positional input:
-    1. data: a square numpy.ndarray, either float32 or complex64, to be propagated
-    2. spectrum: an iterable set of distances (in meters!) over which the propagated field is calculated
-    
-    Required named input:
-    energy or wavelength: the energy (in eV) or wavelength (in meters) of the wavefield. Only supply one or the other, not both.
+    Required input:
+    data: a square numpy.ndarray, either float32 or complex64, to be propagated
+    distances: an iterable set of distances (in meters!) over which the propagated field is calculated
+    energy_or_wavelength: the energy (in eV) or wavelength (in meters) of the wavefield. It's assumed that if the number is < 1 it is a wavelength.
     pixel_pitch: the size (in meters) of each pixel in data.
     
-    Optional named input:
+    Optional input:
     device: 'CPU' or 'GPU'. If GPU, you get much faster computation although data transfers limit the speed-up. Default is CPU.
     subarraysize: because the number of files can be large a subarray cocentered with data can be specified.
     
-    Returns: a complex-valued 3d ndarray of shape (len(spectrum),subarraysize,subarraysize). If the subarraysize argument wasn't used the
-    size of the output array is (len(spectrum),len(data),len(data)).
+    Returns: a complex-valued 3d ndarray of shape (len(distances),subarraysize,subarraysize). If the subarraysize argument wasn't used the
+    size of the output array is (len(distances),len(data),len(data)).
     """
-    
+    from . import scattering
+   
     # check requirements regarding types of data
     assert type(data) is scipy.ndarray,                                      "data must be an array"
-    assert data.dtype in [scipy.dtype('float32'), scipy.dtype('complex64')], "data must be float32 or complex64"
+    assert data.dtype in (float, complex),                                   "data must be float or complex"
     assert data.ndim == 2,                                                   "supplied wavefront data must be 2-dimensional"
     assert data.shape[0] == data.shape[1],                                   "data must be square"
-    assert (energy != None or wavelength != None),                           "must supply either wavelength in meters or energy in eV"
-    assert type(spectrum) in [ListType,scipy.ndarray],                       "spectrum must be an iterable set (list or ndarray) of distances given in meters"
-    assert type(pixel_pitch) == FloatType,                                   "pixel_pitch must be a float saying how big each pixel is in meters"
+    assert type(energy_or_wavelength) in (float, int),                       "must supply either wavelength in meters or energy in eV"
+    assert type(distances) in (list, tuple, scipy.ndarray),                  "distances must be an iterable set (list or ndarray) of distances given in meters"
+    assert type(pixel_pitch) == float,                                       "pixel_pitch must be a float saying how big each pixel is in meters"
     if subarraysize == None: subarraysize = len(data)
     assert type(subarraysize) == int and subarraysize <= len(data),          "subarray must be int smaller than supplied length of data"
     assert device in ['CPU','GPU'],                                          "device not recognized"
     if device == 'GPU': assert subarraysize%2 == 0,                          "subarraylength on gpu should be even number"
     
-    # don't supply both energy and wavelength even if they are consistent.
-    # there must be a better way to check this
-    if energy != None and wavelength != None:
-        print "don't supply both energy and wavelength"
-        exit()
+    # convert energy_or_wavelength to wavelength.  If < 1 assume it's a wavelength.
+    if energy_or_wavelength < 1:
+        wavelength = energy_or_wavelength
+    else:
+        wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
+    print wavelength
         
     N = len(data)
     I = complex(0,1)
     try:
-        buffer = scipy.zeros((len(spectrum),subarraysize,subarraysize),'complex64')
+        buffer = scipy.zeros((len(distances),subarraysize,subarraysize),'complex64')
     except MemoryError:
-        print "save buffer was too large. either use a smaller spectrum or a smaller subarraylength"
-
-    # if energy was supplied, convert it to wavelength
-    if energy != None and wavelength == None: wavelength = 1240e-9/energy
-    
+        print "save buffer was too large. either use a smaller distances or a smaller subarraylength"
+   
     # this is the upper limit of the propagation distance. after this point nysquist sampling
     # limits the reliability of the phase component, although the magnitude component is still useful.
     upperlimit = (pixel_pitch*N)**2/(wavelength*N)
 
     if device == 'CPU':
-        # compute the spectrum of back propagations on the cpu.
+        # compute the distances of back propagations on the cpu.
         
         r = fftshift((shape.radial((N,N)))**2)
         cpu_phase = lambda z: scipy.exp(-I*scipy.pi*wavelength*z*r/(pixel_pitch*N)**2)
@@ -98,11 +94,11 @@ def propagate_spectrum(data,spectrum,energy=None,wavelength=None,pixel_pitch=Non
         # precompute the fourier signal    
         fourier = DFT(data)
         
-        # propagate each distance in the spectrum. compute the phase factor and call the propagation routine
-        for n,z in enumerate(spectrum):
+        # propagate each distance in the distances. compute the phase factor and call the propagation routine
+        for n,z in enumerate(distances):
             
             phase_z = cpu_phase(z)
-            back = propagate_single_cpu(fourier,phase=phase_z,data_is_fourier=True)
+            back = propagate_one_distance(fourier,phase=phase_z,data_is_fourier=True)
             buffer[n] = back[N/2-subarraysize/2:N/2+subarraysize/2,N/2-subarraysize/2:N/2+subarraysize/2]
 
     if device == 'GPU':
@@ -175,13 +171,13 @@ def propagate_spectrum(data,spectrum,energy=None,wavelength=None,pixel_pitch=Non
         gpu_product = cl_array.empty(queue,(N,N),scipy.complex64)         # buffer for data-phase product
         gpu_back    = cl_array.empty(queue,(N,N),scipy.complex64)         # buffer for propagated wavefield, +z direction
         try:
-            gpu_buffer  = cl_array.empty(queue,(len(spectrum),L,L),scipy.complex64) # allocate propagation buffer
+            gpu_buffer  = cl_array.empty(queue,(len(distances),L,L),scipy.complex64) # allocate propagation buffer
         except:
-            print "probably ran out of memory. make subarraysize smaller or have fewer points in the spectrum"
+            print "probably ran out of memory. make subarraysize smaller or have fewer points in the distances"
             exit()
         
         # now compute the propagations
-        for n,z in enumerate(spectrum):
+        for n,z in enumerate(distances):
 
             # compute on gpu and transfer to buffer.
             phase_factor(gpu_rarray,scipy.float32(t),scipy.float32(z),gpu_phase) # form the phase factor
@@ -201,19 +197,15 @@ def propagate_spectrum(data,spectrum,energy=None,wavelength=None,pixel_pitch=Non
     return buffer
             
 def apodize(data,kt=8,threshold=0.01,sigma=5):
-    # 1. unwrap the data
-    # 2. find the boundary at each angle
-    # 3. do a 1d filter along each angle
-    # 4. rewrap
-    
     """ Apodizes a 2d array so that upon back propagation ringing from the aperture is at least somewhat suppressed.
-    
+    This steps this function does is as follows:
+        # 1. unwrap the data
+        # 2. find the boundary at each angle
+        # 3. do a 1d filter along each angle
+        # 4. rewrap
+
     Required input:
-    data: 2d ndarray containing the data to be apodized. This data should be been sliced so that the only object
-    is the target data. For example, a phase reconstruction with a multipartite support should be sliced so that only
-    one component of the support is passed to this function (this may change in the future but object detection
-    can be tricky). data should also be sufficiently symmetric such that at each angle after unwrapping there is only
-    a single solution to the location of the object boundary.
+    data: 2d ndarray containing the data to be apodized. This data should be been sliced so that the only object is the target data. For example, a phase reconstruction with a multipartite support should be sliced so that only one component of the support is passed to this function (this may change in the future but object detection can be tricky). data should also be sufficiently symmetric such that at each angle after unwrapping there is only a single solution to the location of the object boundary.
     
     Optional named input:
     kt: strength of apodizer. float or int.
@@ -226,14 +218,14 @@ def apodize(data,kt=8,threshold=0.01,sigma=5):
     # check types
     assert type(data) == scipy.ndarray,            "data must be an array"
     assert data.ndim == 2,                         "data must be 2d"
-    assert type(kt) in (IntType,FloatType),        "kt must be float or int"
-    assert type(threshold) in (IntType,FloatType), "threshold must be float or int"
-    if type(threshold) == IntType: print           "strongly recommend a float for threshold"
-    assert type(sigma) in (IntType,FloatType),     "sigma must be float or int"
+    assert type(kt) in (int,float),        "kt must be float or int"
+    assert type(sigma) in (int,float),     "sigma must be float or int"
+    assert type(threshold) in (int,float), "threshold must be float or int"
+    if type(threshold) == int:
+        threshold = float(threshold)
     
     # import necessary libraries
     import wrapping
-    from shape import gaussian
     from scipy.fftpack import fft
     from scipy.fftpack import ifft
 
@@ -257,7 +249,7 @@ def apodize(data,kt=8,threshold=0.01,sigma=5):
         n_list[col] = R-n
         
     # smooth the edge values by convolution with a gaussian
-    kernel = scipy.roll(gaussian((unwrapped_x,),(sigma,),normalization=1.0))
+    kernel = scipy.roll(shape.gaussian((unwrapped_x,),(sigma,),normalization=1.0))
     n_list = abs(ifft(fft(nlist)*fft(kernel)))
     
     # now that the coordinates have been smoothed, build the filter as a series of 1d filters along the column (angle) axis
@@ -275,35 +267,34 @@ def apodize(data,kt=8,threshold=0.01,sigma=5):
     return filter*data
 
 def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
-    # open the results
-    # for each frame, calculate the acutance
-    # plot the results
-
     """ Calculates the acutance of a back propagated wave field. Right now it just
     does the acutance of the magnitude component.
     
     Required input:
-    1. data: 2d or 3d ndarray object. if 3d, the acutance of each frame will be calculated
+    data: 2d or 3d ndarray object. if 3d, the acutance of each frame will be calculated
     
     Optional input:
-    1. method: keyword indicating how to compute the discrete derivative. options are 'sobel',
+    method: keyword indicating how to compute the discrete derivative. options are 'sobel',
     'roll', and 'gaussiand'. sobel by default.
-    2. exponent: raise the modulus of the gradient to this value. 2 by default.
-    3. normalized: normalize all the back propagated signals so they have the same amount of power. True by default.
-    4. mask: you can supply a binary ndarray as mask so that the calculation happens only
+    exponent: raise the modulus of the gradient to this value. 2 by default.
+    normalized: normalize all the back propagated signals so they have the same amount of power. True by default.
+    mask: you can supply a binary ndarray as mask so that the calculation happens only
     in a certain region of space. If no mask is supplied the calculation is over all space.
     
-    Returns: a list of acutance values, one for each frame of the supplied data.
+    Returns:
+    a list of acutance values, one for each frame of the supplied data.
     
     """
-    
+    # open the results
+    # for each frame, calculate the acutance
+   
     # check types
     assert type(data) == scipy.ndarray,             "data must be ndarray"
     assert data.ndim in [2,3],                      "data must be 2d or 3d"
     assert method in ['sobel','roll'],              "unknown derivative method"
     assert type(exponent) in [int, float],          "exponent must be float or int"
     assert type(normalized) == Bool,                "normalized must be bool"
-    assert type(mask) in [NoneType, scipy.ndarray], "mask must be None or ndarray"
+    assert type(mask) in [None, scipy.ndarray],     "mask must be None or ndarray"
     
     # get everything loaded
     acutance_list = []
