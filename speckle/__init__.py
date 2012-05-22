@@ -5,6 +5,7 @@ __all__ = ["fit",
            "shape",
            "wrapping",
            "conditioning",
+           "propagate",
             ]
 
 for mod in __all__:
