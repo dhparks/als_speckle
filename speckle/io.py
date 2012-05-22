@@ -429,7 +429,7 @@ def _process_components(components):
         assert components in _save_maps.keys() or \
             components in ('polar', 'cartesian', 'all'), \
             "components %s not recognized" % components
-        print components
+        #print components
         components = (components,)
     elif type(components) in (list,tuple,set):
         components = list(components)
@@ -437,11 +437,13 @@ def _process_components(components):
     # shortcuts to save common combinations of components
     if 'polar' in components:
         components.extend( ('mag', 'phase') )
+        components.remove( 'polar' )
     if 'cartesian' in components:
         components.extend( ('real', 'imag') )
+        components.remove('cartesian')
     if 'all' in components:
         components = _save_maps.keys()
-    print components, "components"
+    #print components, "components"
     for elem in components:
         assert elem in _save_maps.keys(), "unknown component %s" % elem
 
