@@ -5,7 +5,7 @@ dependencies = ['scipy', 'numpy']
 setup(
     name='speckle',
     version='0.1',
-    py_modules=['speckle'],
+    packages=['speckle'],
     requires = dependencies,
     author = "Daniel Parks, Keoki Seu",
     author_email = "dhparks@lbl.gov, kaseu@lbl.gov",
