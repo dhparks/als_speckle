@@ -58,6 +58,21 @@ def read_text_array(filename, delimiter='\t'):
 ############### FITS ########################
 #
 
+def open_dust_mask(path):
+    
+    assert isinstance(path,str)
+    pathsplit = path.split('.')
+    assert len(pathsplit) >= 2, "dust mask path has no file extension"
+    ext = pathsplit[-1]
+    assert ext in ['fits','png','gif','bmp'], "dust mask file extension %s not recognized"%ext
+        
+    if ext == 'fits': mask = openfits(path).astype('float')
+    else:
+        mask = numpy.flipud(openimage(path)).astype('float') # pyfits and PIL have a y-axis disagreement
+        mask = numpy.where(mask > .1,1,0)
+    assert mask.ndim == 2, "mask must be 2d"
+    return mask
+
 def openfits(filename, quiet=True, orientImageHDU=True):
     """ Open a FITS file. Uses pyfits. Tries to intelligently figure out where the data is located.  The LabView programs put it in the ImageHDU, and the Andor Solis program puts it in PrimaryHDU.
 
@@ -270,7 +285,7 @@ def _get_img_type(img):
 #        print("image is int64\n")
         return 'int64'
 
-def save_fits(filename, img, header={}, components=['mag'], overwrite=False):
+def save_fits(filename, img, header={}, components=['mag'], overwrite=True):
     """ Save components of an array as a fits file."""
     assert type(header) == dict, "header needs to be a dictionary"
     assert type(overwrite) == bool, "overwrite needs to be True/False"
@@ -283,7 +298,7 @@ def save_fits(filename, img, header={}, components=['mag'], overwrite=False):
     for c in _process_components(components):
         writefits(filename + "_" + c + ".fits", _save_maps[c](img), header, overwrite)
 
-def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=False):
+def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=True):
     """ Save components of an array as desired filetype specified by file extension."""
     
     assert type(header) == dict, "header must be dictionary"
@@ -301,6 +316,22 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
     if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map,overwrite=overwrite)
     if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite)
     if ext in txt_exts:  write_text_array(filename,data,header=header)
+
+#
+############### pickles #####################
+
+def load_pickle(path):
+    import pickle
+    file = open(path,'rb')
+    data = pickle.load(file)
+    file.close()
+    return data
+    
+def save_pickle(path,data):
+    import pickle
+    file = open(path,'wb')
+    pickle.dump(data,file) # try to save the plan
+    file.close()
 
 #
 ############### PNG #########################
@@ -449,3 +480,6 @@ def _process_components(components):
 
     # remove duplicates
     return list(set(components))
+    
+    
+    

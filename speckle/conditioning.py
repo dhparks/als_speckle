@@ -56,7 +56,7 @@ def covariance_matrix(data,save_memory=False):
             
     return covars
 
-def remove_dust(data,plan_path,use_old_plan=False):
+def remove_dust(data,dust_mask,plan=None):
     import scipy
     
     """ Attempts to remove dust and burn marks from CCD images by interpolating in regions marked as
@@ -64,97 +64,82 @@ def remove_dust(data,plan_path,use_old_plan=False):
     
     Requires:
         data - the data from which dust will be removed. ndarray or path to some sort of data
-        plan_path - a path to a .fits or .png which describes the location of defective pixels.
-    
-    Optional:
-        use_old_plan - if True, look for a .pck plan in the plan_path directory and use it if present.
-        A .fits or .png is still required for masking.
+        dust_mask - a binary array describing from which pixels dust must be removed
         
-    Returns: fixed data."""
+    Optional input:
+        plan - generated from dust_mask; this can only be supplied as an argument if remove_dust has
+        been previously run and plan returned then as output
+        
+    Returns:
+        0 - fixed data
+        1 - plan unique to dust_mask which can be passed again for re-use."""
     
     # import required libraries
+    import scipy
     import pickle,io2
     from os.path import isfile
     from scipy.signal import cspline1d, cspline1d_eval
 
     # check initial types
-    assert type(data) in [scipy.ndarray,str], "data must be ndarray or path to data"
-    assert type(plan_path) == str, "plan_path must be path to a file from which a plan can be created"
-    assert isfile(plan_path), "file named in plan_path does not exist"
-    assert type(use_old_plan) == bool, "override must be True/False"
+    assert isinstance(data,scipy.ndarray),       "data must be ndarray"
+    assert data.ndim in (2,3),                   "data must be 2d or 3d"
+    assert isinstance(dust_mask,scipy.ndarray),  "plan must be ndarray"
+          
+    if plan == None:
+        plan = plan_remove_dust(dust_mask)
+
+    # because this function accepts both 2d and 3d functions the easiest solution is to upcast 2d arrays
+    # to 3d arrays with frame axis of length 1
+    was_2d = False
+    if data.ndim == 2:
+        was_2d = True
+        data.shape = (1,data.shape[0],data.shape[1])
+    Lz, Lr, Lc = data.shape
     
-    # if data is supplied as a path, open it
-    if type(data) == str: data = io2.openfits(data)
-    assert data.ndim in [2,3], "data must be 2d or 3d"
+    for z, frame in enumerate(data):
     
-    # open whatever plan_path is. if plan_path links to some sort of image file, make it into a plan
-    pathsplit = plan_path.split('.')
-    assert len(pathsplit) >= 2, "plan path has no file extension"
-    ext = pathsplit[1]
-    assert ext in ['fits','png','gif','bmp'], "plan file extension %s not recognized"%ext
-        
-    if ext == 'fits': mask = io2.openfits(plan_path).astype('float')
-    else:
-        mask = scipy.flipud(io2.openimage(plan_path)).astype('float') # pyfits and PIL have a y-axis disagreement
-        mask = scipy.where(mask > .1,1,0)
-    assert mask.ndim == 2, "mask must be 2d"
+        interpolated_values = scipy.zeros_like(frame)
+
+        for n,entry in enumerate(plan):
     
-    pck_path = plan_path.replace("."+ext, ".pck")
-        
-    if use_old_plan and isfile(pck_path):
-        file = open(pck_path,'rb')
-        dust_plan = pickle.load(file)
-        file.close()
-                
-    else:
-        dust_plan = remove_dust_plan(mask) # make the plan
-        print len(dust_plan)
-        file = open(pck_path,'wb')
-        pickle.dump(dust_plan,file) # save the plan
-        file.close()
+            # warning to self:
+            # this code works and relies intimately on the format of what comes out of remove_dust_plan which i've now forgotten. probably i should
+            # change that function to return some sort of dictionary but even then: don't change this unless you reunderstand it! 
+    
+            # decompose the string into the essential information: which row or column to interpolate over, and the bounds of the fill region
+            which,slice,splice_min,spline_max = entry.split(',')
+            slice,splice_min,spline_max = int(slice),int(splice_min),int(spline_max)
             
-    L = len(data)
+            # we only have to interpolate within the local environment of the pixel, not the whole row or col
+            step = spline_max-splice_min
+            minsteps = min([5,splice_min/step]) # make sure we don't encounter an IndexError by going > L or < 0
+            if which == 'r': maxsteps = min([5,(Lr-spline_max)/step])
+            if which == 'c': maxsteps = min([5,(Lc-spline_max)/step])
+            
+            index_min = splice_min-minsteps*step
+            index_max = spline_max+maxsteps*step
+            indices = scipy.arange(index_min,index_max,step)
+                
+            # slice the data according to spline orientation
+            if which == 'r': data_slice = frame[:,slice]
+            if which == 'c': data_slice = frame[slice,:]
     
-    interpolated_values = scipy.zeros((L,L),float)
-    dust_plan = list(dust_plan) # make sure the plan is iterable (ie, a list instead of a set)
+            # interpolate
+            to_fit = data_slice[indices]
+            splined = cspline1d(to_fit)
+            interpolated = cspline1d_eval(splined,scipy.arange(index_min,index_max,1),dx=step,x0=indices[0])
     
-    for n,entry in enumerate(dust_plan):
+            # copy the correct data into the 3d array of interpolated spline values
+            if which == 'c': interpolated_values[slice,splice_min+1:spline_max] = interpolated[splice_min+1-index_min:spline_max-index_min]
+            if which == 'r': interpolated_values[splice_min+1:spline_max,slice] = interpolated[splice_min+1-index_min:spline_max-index_min]
+           
+        data[z] = frame*(1.-dust_mask)+dust_mask*interpolated_values
 
-        # warning to self:
-        # this code works and relies intimately on the format of what comes out of remove_dust_plan which i've now forgotten. probably i should
-        # change that function to return some sort of dictionary but even then: don't change this unless you reunderstand it! 
+    # paste the interpolated values into the the burn mark
+    if was_2d: data = data[0]
+    return data, plan
 
-        # decompose the string into the essential information: which row or column to interpolate over, and the bounds of the fill region
-        which,slice,splice_min,spline_max = entry.split(',')
-        slice,splice_min,spline_max = int(slice),int(splice_min),int(spline_max)
-        
-        # we only have to interpolate within the local environment of the pixel, not the whole row or col
-        step = spline_max-splice_min
-        minsteps = min([5,splice_min/step]) # make sure we don't encounter an IndexError by going > L or < 0
-        maxsteps = min([5,(L-spline_max)/step]) 
-        
-        index_min = splice_min-minsteps*step
-        index_max = spline_max+maxsteps*step
-        
-        indices = scipy.arange(index_min,index_max,step)
-        
-        # slice the data according to spline orientation
-        if which == 'r': data_slice = data[:,slice]
-        if which == 'c': data_slice = data[slice,:]
-        
-        # interpolate!
-        to_fit = data_slice[indices]
-        splined = cspline1d(to_fit)
-        interpolated = cspline1d_eval(splined,scipy.arange(index_min,index_max,1),dx=step,x0=indices[0])
-        
-        # copy the correct data into the 2d array of interpolated spline values
-        if which == 'c': interpolated_values[slice,splice_min+1:spline_max] = interpolated[splice_min+1-index_min:spline_max-index_min]
-        if which == 'r': interpolated_values[splice_min+1:spline_max,slice] = interpolated[splice_min+1-index_min:spline_max-index_min]
-
-    # paste the interpolated values into the the burn marks
-    return data*(1.-mask)+mask*interpolated_values
-
-def remove_dust_plan(Mask):
+def plan_remove_dust(Mask):
     # find which pixels need to be interpolated based on Mask. based on knowledge of the pixels
     # determine where to interpolate various rows and cols to avoid redundant interpolation.
     
@@ -204,7 +189,7 @@ def remove_dust_plan(Mask):
     
     # return only the unique ID strings to eliminate redundant interpolations. set() returns unique
     # elements of a list without order preservation which doesn't matter for this purpose
-    return set(PixelIDStrings)
+    return tuple(set(PixelIDStrings))
 
 def subtract_background(data,dark=None,x=20,scale=1):
     """Subtract a background file. The DC component of both files is subtracted first."""
@@ -249,10 +234,18 @@ def hot_pixels(data,i=1,t=2):
     
     # check types
     assert type(data) == scipy.ndarray, "data must be ndarray"
+    assert data.ndim in (2,3), "data must be 2d or 3d"
+    
+    was_2d = False
+    if data.ndim == 2:
+        was_2d = True
+        data.shape = (1,data.shape[0],data.shape[1])
+    for z,frame in enumerate(data):
 
-    for m in range(i):
-        median = medfilt(data)+.1
-        Q = scipy.where(data/median > t,1,0)
-        data = data*(1-Q)+median*Q
-
+        for m in range(i):
+            median = medfilt(frame)+.1
+            Q = scipy.where(frame/median > t,1,0)
+            data[z] = frame*(1-Q)+median*Q
+            
+    if was_2d: data = data[0]
     return data
