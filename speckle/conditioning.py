@@ -84,7 +84,7 @@ def remove_dust(data,plan_path,use_old_plan=False):
     assert type(use_old_plan) == bool, "override must be True/False"
     
     # if data is supplied as a path, open it
-    if type(data) == str: data = io2.open(data)
+    if type(data) == str: data = io2.openfits(data)
     assert data.ndim in [2,3], "data must be 2d or 3d"
     
     # open whatever plan_path is. if plan_path links to some sort of image file, make it into a plan
