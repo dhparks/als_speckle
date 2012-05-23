@@ -71,7 +71,7 @@ def square(size,length,center=None):
     assert type(center) is tuple and len(center) == 2, "center must be a 2-tuple"
     
     temp = scipy.zeros(size,int)
-    temp[center[0]-l/2:center[0]+l/2,center[1]-l/2:center[1]+l/2] = 1
+    temp[center[0]-length/2:center[0]+length/2,center[1]-length/2:center[1]+length/2] = 1
     return temp
     
 def rect(size,row_length,col_length,center=None):
@@ -108,7 +108,7 @@ def circle(size,radius,center=None,AA=True):
 
     r = radial(size,center)
     
-    if not AA: return scipy.where(r**2 < radius**2,1,0)
+    if not AA: return scipy.where(r < radius,1,0)
     if AA == 1:
         temp = r-radius
         temp[temp < 0] = 0
@@ -127,15 +127,11 @@ def annulus(size,radii,center=None,AA=True):
     AA: if True, antialiases the annulus.
     
     """
-
-    assert type(size) is tuple and len(size) == 2, "size must be a 2-tuple"
-    if center == None: center = (size[0]/2,size[1]/2)
-    assert type(center) is tuple and len(center) == 2, "center must be a 2-tuple"
     assert type(radii) is tuple and type(radii[0]) in (int,float) and type(radii[1]) in (int,float), "radius must be a 2-tuple of floats or ints"
-    assert type(AA) is bool or AA in (0,1), "AA value must be boolean evaluable"
+    # no need to do other asserts, circle() takes care of it.
     
     return circle(size,max(radii),center,AA)-circle(size,min(radii),center,AA)
-      
+
 def ellipse(size,axes,center=None,AA=True):
     """ Returns an ellipse
     
@@ -207,9 +203,10 @@ def gaussian(size,lengths,center=None,normalization=None):
     else:
         center = scipy.zeros_like(size)
         for d in range(len(center)): center[d] = size[d]/2.
-        
-    assert type(normalization) in (None,float,int), "normalization must be float or int"
-        
+
+    if normalization is not None:
+        assert type(normalization) in (float,int), "normalization must be float or int"
+
     # now build the gaussian.
     
     if len(size) == 1:
