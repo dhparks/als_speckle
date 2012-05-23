@@ -81,9 +81,9 @@ def remove_dust(data,dust_mask,plan=None):
     from scipy.signal import cspline1d, cspline1d_eval
 
     # check initial types
-    assert isinstance(data,scipy.ndarray),       "data must be ndarray"
+    assert isinstance(data,numpy.ndarray),       "data must be ndarray"
     assert data.ndim in (2,3),                   "data must be 2d or 3d"
-    assert isinstance(dust_mask,scipy.ndarray),  "plan must be ndarray"
+    assert isinstance(dust_mask,numpy.ndarray),  "plan must be ndarray"
           
     if plan == None:
         plan = plan_remove_dust(dust_mask)
@@ -133,9 +133,9 @@ def remove_dust(data,dust_mask,plan=None):
             if which == 'c': interpolated_values[slice,splice_min+1:spline_max] = interpolated[splice_min+1-index_min:spline_max-index_min]
             if which == 'r': interpolated_values[splice_min+1:spline_max,slice] = interpolated[splice_min+1-index_min:spline_max-index_min]
            
+        # insert the interpolated data
         data[z] = frame*(1.-dust_mask)+dust_mask*interpolated_values
 
-    # paste the interpolated values into the the burn mark
     if was_2d: data = data[0]
     return data, plan
 

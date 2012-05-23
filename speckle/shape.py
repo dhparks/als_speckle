@@ -26,7 +26,7 @@ def radial(size,center=None):
     assert type(size) is tuple, "size must be a tuple"
     
     if center != None:
-        assert type(center) is tuple, "center must be supplied as a tuple"
+        assert isinstance(center,tuple), "center must be supplied as a tuple"
         assert len(center) == len(size), "size and center must be same dimensionality"
     else:
         center = scipy.zeros(len(size),float)
@@ -50,10 +50,10 @@ def angular(size,center=None):
     center: the center of the coordinate system as a tuple (center_row,center_column)
     """
 
-    assert type(size) is tuple and len(size) == 2, "size must be given as a 2-tuple"
+    assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
     
     if center == None: center = (size[0]/2,size[1]/2)
-    assert type(center) is tuple and len(center) == 2, "center must be given as a 2-tuple"
+    assert isinstance(center,tuple) and len(center) == 2, "center must be a 2-tuple"
 
     rows,cols = scipy.indices(size,float)
     rows += -center[0]
@@ -64,11 +64,11 @@ def square(size,length,center=None):
     
     # check types
     
-    assert type(size) is tuple and len(size) == 2, "size must be a 2-tuple"
-    assert type(length) is int, "length must be an integer"
+    assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
+    assert isinstance(length,int), "length must be an integer"
     
     if center == None: center = (size[0]/2,size[1]/2)
-    assert type(center) is tuple and len(center) == 2, "center must be a 2-tuple"
+    assert isinstance(center,tuple) and len(center) == 2, "center must be a 2tuple"
     
     temp = scipy.zeros(size,int)
     temp[center[0]-length/2:center[0]+length/2,center[1]-length/2:center[1]+length/2] = 1
@@ -78,7 +78,7 @@ def rect(size,row_length,col_length,center=None):
     
     if center == None: center = (size[0]/2,size[1]/2)
 
-    assert type(size) is tuple and len(size) == 2, "size must be a 2-tuple"
+    assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
     assert type(row_length) is int and type(col_length) is int, "lengths must be integer"
     
     temp = scipy.zeros(size,int)
@@ -100,9 +100,9 @@ def circle(size,radius,center=None,AA=True):
     """
     
     # check types
-    assert type(size) is tuple and len(size) == 2, "size must be a 2-tuple"
+    assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
     if center == None: center = (size[0]/2,size[1]/2)
-    assert type(center) is tuple and len(center) == 2, "center must be a 2-tuple"
+    assert isinstance(center,tuple) and len(center) == 2, "center must be a 2-tuple"
     assert type(radius) in (int, float), "radius must be int or float"
     assert type(AA) is bool or AA in (0,1), "AA value must be boolean evaluable"
 
@@ -145,14 +145,14 @@ def ellipse(size,axes,center=None,AA=True):
     """
     
     # check types
-    assert type(size) is tuple and len(size) == 2, "size must be a 2-tuple"
-    assert type(size[0]) is int and type(size[1]) is int, "size values must be int"
-    assert type(axes) is tuple and len(axes) == 2, "axes must be a 2-tuple"
+    assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
+    assert isinstance(size[0],int) and isinstance(size[1],int), "size values must be int"
+    assert isinstance(axes,tuple) and len(axes) == 2, "axes must be a 2-tuple"
     assert type(axes[0]) in (int, float) and type(axes[1]) in (int,float), "axes values must be float or int"
     if center == None: center = (size[0]/2,size[1]/2)
-    assert type(center) is tuple and len(center) == 2, "center must be a 2-tuple"
+    assert isinstance(center,tuple) and len(center) == 2, "center must be a 2-tuple"
     assert type(center[0]) in (int,float) and type(center[1]) in (int,float), "center values must be float or int"
-    assert type(AA) is bool or AA in (0,1), "AA value must be boolean evaluable"
+    assert type(AA) is bool or AA in (0,1), "AA value must be bool-evaluable"
     
     # we can do this like a circle by stetching the coordinates along an axis
     rows,cols = scipy.indices(size).astype('float')
@@ -169,7 +169,8 @@ def ellipse(size,axes,center=None,AA=True):
     
     # now with the stretched coordinate system the evaluation is just like that for a circle
     r = scipy.sqrt(rows**2+cols**2)
-    if not AA: return scipy.where(r < radius**2,1,0)
+    if not AA:
+        return scipy.where(r < radius,1,0)
     if AA:
         temp = r-radius
         temp[temp < 0] = 0.

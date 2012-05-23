@@ -313,7 +313,7 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
     assert len(filename.split('.')) >= 2, "filename appears to have no extension"
     ext = filename.split('.')[1]
     assert ext in img_exts or ext in fits_exts or ext in txt_exts, "ext \"%s\" not recognized"%ext
-    if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map,overwrite=overwrite)
+    if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map)
     if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite)
     if ext in txt_exts:  write_text_array(filename,data,header=header)
 
