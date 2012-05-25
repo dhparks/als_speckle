@@ -35,8 +35,11 @@ def radial(size,center=None):
     # evaluate pythagorean theorem in n-dimensions
     indices = scipy.indices(size,float)
     r = scipy.zeros_like(indices[0])
-    for d in range(len(size)): r += (indices[d]-center[d])**2
-    return scipy.sqrt(r)
+
+    if len(size) == 2: return scipy.hypot(indices[0]-center[0],indices[1]-center[1])
+    else:
+        for d in range(len(size)): r += (indices[d]-center[d])**2
+        return scipy.sqrt(r)
     
 def angular(size,center=None):
     
@@ -85,7 +88,7 @@ def rect(size,row_length,col_length,center=None):
     temp[center[0]-row_length/2:center[0]+row_length/2,center[1]-col_length/2:center[1]+col_length/2] = 1
     return temp
     
-def circle(size,radius,center=None,AA=True):
+def circle(size,radius,center=None,AA=True,bessel=False):
     
     """
     Returns a circle.
@@ -109,11 +112,7 @@ def circle(size,radius,center=None,AA=True):
     r = radial(size,center)
     
     if not AA: return scipy.where(r < radius,1,0)
-    if AA == 1:
-        temp = r-radius
-        temp[temp < 0] = 0
-        temp[temp > 1] = 1
-        return 1-temp
+    if AA: return 1-scipy.clip(r-radius,0,1.) 
     
 def annulus(size,radii,center=None,AA=True):
     """ Returns an annulus (ie a ring)
@@ -163,21 +162,15 @@ def ellipse(size,axes,center=None,AA=True):
     if ratio >= 1:
         rows *= float(axes[1])/axes[0]
         radius = axes[1]
-    if ratio <= 1:
+    if ratio < 1:
         cols *= 1./ratio
         radius = axes[0]
     
     # now with the stretched coordinate system the evaluation is just like that for a circle
-    r = scipy.sqrt(rows**2+cols**2)
-    if not AA:
-        return scipy.where(r < radius,1,0)
-    if AA:
-        temp = r-radius
-        temp[temp < 0] = 0.
-        temp[temp > 1] = 1.
-
-        return 1-temp
-    
+    r = scipy.hypot(rows,cols)
+    if not AA: return scipy.where(r < radius,1,0)
+    if AA: return 1-scipy.clip(r-radius,0,1)
+        
 def gaussian(size,lengths,center=None,normalization=None):
     """ Returns an 1-dimensional or 2-dimensional gausssian.
     
