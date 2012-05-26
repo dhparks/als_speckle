@@ -12,9 +12,17 @@
 #        header (not possible)
 #   read images (todo)
 
+# global overwrite option
+overwrite_default = False
+def set_overwrite(val):
+    global overwrite_default
+    assert isinstance(val,bool), "overwrite must be set to bool"
+    overwrite_default = val
+
 #
 ############### Text ########################
 #
+
 import numpy
 
 def write_text_array(filename, array, header='', delimiter='\t'):
@@ -143,7 +151,7 @@ def openimage(filename):
     import scipy.misc.pilutil as smp
     return smp.fromimage(Image.open(filename).convert("L"))
 
-def writefits(filename, img, headerItems={}, overwrite=False):
+def writefits(filename, img, headerItems={}, overwrite=None):
     """ Write a FITS file.  Optionally writes to a previously constructed header.
 
     arguments:
@@ -157,6 +165,8 @@ def writefits(filename, img, headerItems={}, overwrite=False):
     import pyfits
     import os
 #    assert os.path.exists(filename), "unknown file %s" % filename
+    if overwrite == None: overwrite = overwrite_default
+    assert isinstance(overwrite,bool) or overwrite==None, "overwrite must be True/False"
 
     header = pyfits.Header()
 
@@ -182,7 +192,7 @@ def writefits(filename, img, headerItems={}, overwrite=False):
         else:
             raise IOError(detail)
 
-def write_complex_fits(base, fits, headerItems={}, overwrite=False):
+def write_complex_fits(base, fits, headerItems={}, overwrite=None):
     """ Write a complex array to disk.
 
     arguments:
@@ -192,10 +202,14 @@ def write_complex_fits(base, fits, headerItems={}, overwrite=False):
         headerItems - A dictionary of items to be added to the header. This will overwrite items if they are already in the header.
         overwrite - Weather to overwrite file. Defaults to false.
     """
+    
+    if overwrite == None: overwrite = overwrite_default
+    assert isinstance(overwrite,bool) or overwrite==None, "overwrite must be True/False"
+    
     writefits(base + "_imag.fits", numpy.imag(fits), headerItems, overwrite)
     writefits(base + "_real.fits", numpy.real(fits), headerItems, overwrite)
 
-def write_mag_phase_fits(base, fits, header="", headerItems={}, overwrite=False):
+def write_mag_phase_fits(base, fits, header="", headerItems={}, overwrite=None):
     """ Write a complex array to disk by writing magnitude (abs()) and phase (angle()).
 
     arguments:
@@ -207,6 +221,10 @@ def write_mag_phase_fits(base, fits, header="", headerItems={}, overwrite=False)
     returns:
         img - a complex-valued image 
     """
+    
+    if overwrite == None: overwrite = overwrite_default
+    assert isinstance(overwrite,bool) or overwrite==None, "overwrite must be True/False"
+    
     writefits(base + "_mag.fits", numpy.abs(fits), headerItems, overwrite)
     writefits(base + "_phase.fits", numpy.angle(fits), headerItems, overwrite)
 
@@ -285,10 +303,11 @@ def _get_img_type(img):
 #        print("image is int64\n")
         return 'int64'
 
-def save_fits(filename, img, header={}, components=['mag'], overwrite=True):
+def save_fits(filename, img, header={}, components=['mag'], overwrite=None):
     """ Save components of an array as a fits file."""
     assert type(header) == dict, "header needs to be a dictionary"
-    assert type(overwrite) == bool, "overwrite needs to be True/False"
+    if overwrite == None: overwrite = overwrite_default
+    assert isinstance(overwrite,bool) or overwrite==None, "overwrite must be True/False"
 
     exts = ['fits','jpg','gif','png','csv', 'jpeg','bmp']
     # remove any extension (if it exists)
@@ -298,11 +317,12 @@ def save_fits(filename, img, header={}, components=['mag'], overwrite=True):
     for c in _process_components(components):
         writefits(filename + "_" + c + ".fits", _save_maps[c](img), header, overwrite)
 
-def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=True):
+def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None):
     """ Save components of an array as desired filetype specified by file extension."""
     
     assert type(header) == dict, "header must be dictionary"
-    assert type(overwrite) == bool, "overwrite must be True/False"
+    if overwrite == None: overwrite = overwrite_default
+    assert isinstance(overwrite,bool) or overwrite==None, "overwrite must be True/False"
     
     # define extension types to control switching
     img_exts  = ['jpg','jpeg','gif','png','bmp']
@@ -374,7 +394,7 @@ def write_image(filename, array, color_map):
 
     ext = filename.split('.')[-1]
     assert ext in ('gif', 'png', 'jpg', 'jpeg'), "unknown file format, %s" % ext
-    print ext
+    #print ext
     
     if color_map == None or color_map == 'L':
          # greyscale
@@ -456,12 +476,13 @@ def _process_components(components):
     returns:
         components - a list of components to save.
     """
+
     if type(components) == str:
         assert components in _save_maps.keys() or \
             components in ('polar', 'cartesian', 'all'), \
             "components %s not recognized" % components
         #print components
-        components = (components,)
+        components = [components]
     elif type(components) in (list,tuple,set):
         components = list(components)
 
@@ -470,7 +491,7 @@ def _process_components(components):
         components.extend( ('mag', 'phase') )
         components.remove( 'polar' )
     if 'cartesian' in components:
-        components.extend( ('real', 'imag') )
+        components.extend( ['real', 'imag'] )
         components.remove('cartesian')
     if 'all' in components:
         components = _save_maps.keys()
