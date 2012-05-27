@@ -20,16 +20,26 @@ class _FFTParams:
 		self.context = context
 		self.fast_math = fast_math
 		
-		# check that the transformed axes are the right size
-		if 0 in axes:
-			if 2**log2(self.x) != self.x:
-				raise ValueError("Array x_dimension must be power of two")
-		if 1 in axes:
-			if 2**log2(self.y) != self.y:
-				raise ValueError("Array y_dimension must be power of two")
-		if 2 in axes:
-			if 2**log2(self.z) != self.z:
-				raise ValueError("Array z_dimension must be power of two")
+		# check that the transformed axes are the right size	
+		if self.z == 1:
+			if 0 in axes:
+				if 2**log2(self.y) != self.y:
+					raise ValueError("Array y-axis must be power of two")
+			if 1 in axes:
+				if 2**log2(self.x) != self.x:
+					raise ValueError("Array x-axis must be power of two")
+		
+			
+		if self.z > 1:
+			if 0 in axes:
+				if 2**log2(self.z) != self.z:
+					raise ValueError("Array z-axis must be power of two")
+			if 1 in axes:
+				if 2**log2(self.y) != self.y:
+					raise ValueError("Array y-axis must be power of two")
+			if 2 in axes:
+				if 2**log2(self.x) != self.x:
+					raise ValueError("Array x-axis must be power of two")
 
 
 		if dtype in [numpy.complex64, numpy.float32]:
