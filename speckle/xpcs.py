@@ -1,6 +1,13 @@
+"""Library for XPCS and photon correlation experiments.  The library calculates
+the photon correlation function for a set of frames represented as a 3d numpy
+array.  The library will also calculate the correlation function for a single-
+photon timestamping detector.
+
+Author: Keoki Seu (kaseu@lbl.gov)
+
+"""
 import numpy as np
 
-#from crosscorr import fftconvolve
 from . import shape
 from . import averaging
 
@@ -235,6 +242,23 @@ def g2_no_norm(img, numtau):
     print("")
     return numerator
 
+def g2_numerator(img, onetau):
+    """ Calculates <I(t) I(t + tau)>_t for a single value of tau.
+    arguments:
+        img - data to caclculate g2.  Must be 3d.
+        onetau - a single tau value.  Must be integer and less than the total frames in img.
+    returns:
+        numerator - g2 numerator calcualted for one tau value.
+    """
+    assert img.ndim == 3, "g2_numerator: Must be a three dimensional image."
+    (fr, ys, xs) = img.shape
+    numerator = np.zeros((ys,xs), dtype='float')
+    for f in range(fr-onetau):
+        numerator += img[f]*img[f+onetau]
+    numerator = numerator/(fr-onetau)
+    # numerator = np.average(img[0:fr-onetau] * img[onetau:fr], axis=0) # This is slower than the above implementaion.
+    return numerator
+
 def _numtauToTauvals(numtau, maxtau=0):
     """ program to convert numtau to a list of values to iterate over.
     arguments:
@@ -259,23 +283,6 @@ def _numtauToTauvals(numtau, maxtau=0):
 
     return tauvals
 
-def g2_numerator(img, onetau):
-    """ Calculates <I(t) I(t + tau)>_t for a single value of tau.
-    arguments:
-        img - data to caclculate g2.  Must be 3d.
-        onetau - a single tau value.  Must be integer and less than the total frames in img.
-    returns:
-        numerator - g2 numerator calcualted for one tau value.
-    """
-    assert img.ndim == 3, "g2_numerator: Must be a three dimensional image."
-    (fr, ys, xs) = img.shape
-    numerator = np.zeros((ys,xs), dtype='float')
-    for f in range(fr-onetau):
-        numerator += img[f]*img[f+onetau]
-    numerator = numerator/(fr-onetau)
-    # numerator = np.average(img[0:fr-onetau] * img[onetau:fr], axis=0) # This is slower than the above implementaion.
-    return numerator
-
 def _noAverage(img, size):
     return img
 
@@ -294,3 +301,239 @@ _averagingFunctions = {
     "rectangle": averaging.smooth_with_rectangle,
     "gaussian" : averaging.smooth_with_gaussian,
 }
+
+#
+######################## Single photon correlations ########################
+#
+
+# maximum pixel size for single photon detector
+SP_MAX_SIZE = 4096
+
+def sp_bin_by_space_and_time(data, frameTime, xybin=8, counterTime=40.0e-9):
+    """Takes a dataset collected by the SSI photon counting fast camera and bins
+    the data in time and xy.
+
+    arguments:
+        data - data to bin.  This is an (N, 4) array where N is the number of elements.
+        frameTime - Amout of time between bins.  Measured in seconds
+        xybin - amount to bin in x and y.  defaults to 8, which is a 512x512 output.
+        counterTime - clock time of the camera. Anton Tremsin says its 40 ns.
+    returns:
+        binnedData - a 3-dimension array (frames, y, x) of the binned data.
+    """
+    assert isinstance(data, np.ndarray), "data must be an ndarray"
+    assert data.shape[1] == 4, "Second dimension must be 4."
+    assert np.isreal(frameTime), "frameTime (%s) must be real" % repr(frameTime)
+    assert np.isreal(counterTime), "counterTime (%s) must be real" % repr(counterTime)
+    # TODO: This could be accelerated if written for a GPU
+
+    firsttime = data[:,3].min()
+    lasttime = data[:, 3].max()
+    datalen = len(data[:, 0])
+    
+    nbins = int(np.ceil(float(lasttime - firsttime)*counterTime/frameTime))
+    xybinnedDim = int(np.ceil(SP_MAX_SIZE/xybin))
+
+    binnedData = np.zeros((nbins, xybinnedDim, xybinnedDim), dtype='int')
+    bin_edges = np.linspace(firsttime, lasttime, nbins+1)
+    # slightly increase the last bin.  For some reason the last bin is slightly too small, and the photons on the edges are not included
+    bin_edges[-1] = bin_edges[-1]*1.01
+
+    # If the frameTime is larger than the total acq time, then sum up everything
+    if frameTime >= (lasttime-firsttime)*counterTime:
+        histfn = lambda a,b: (len(a), b)
+    else:
+        # this is the default; bin data using histogram
+        histfn = np.histogram
+
+    for i in range(xybinnedDim):
+        x = data[:, 0]
+        y = data[:, 1]
+        xc = np.argwhere( (i*xybin <= x) & (x < (i+1)*xybin) )
+        idx_to_delete = np.array([])
+        for j in range(xybinnedDim):
+            yc = np.argwhere( (j*xybin <= y) & (y < (j+1)*xybin) )
+            isect, a, b = intersect(xc, yc, assume_unique=True)
+            if len(isect) != 0:
+                binned, bin_edges = histfn(data[isect,3]+0.5, bin_edges)
+                binnedData[:, i, j] = binned
+            idx_to_delete = np.append(idx_to_delete, isect)
+        data = np.delete(data, idx_to_delete, axis=0)
+#        print i, j, len(idx_to_delete)
+
+    if binnedData.sum() != datalen:
+        print "warning: # of binned data photons (%d) do not match with dataset (%d)" % (binnedData.sum(), datalen)
+
+    return binnedData
+
+def sp_bin_by_time(data, frameTime, counterTime=40.0e-9):
+    """Takes a stream of photon incidence times and bins the data in time.
+
+    arguments:
+        data - Data to bin.  This is a 1 dimensional array of incidence times.
+        frameTime - Amount of time for each bin.  Measured in seconds
+        counterTime - Clock time of the camera. Anton Tremsin says its 40 ns.
+    returns:
+        binnedData - a 3-dimension array (frames, y, x) of the binned data.
+        also returns edges?? check
+    """
+    assert isinstance(data, np.ndarray), "Data must be an ndarray."
+    assert data.ndim == 1, "Data must be 1-dimensional."
+    assert np.isreal(frameTime), "frameTime (%s) must be real" % repr(frameTime)
+    assert np.isreal(counterTime), "counterTime (%s) must be real" % repr(counterTime)
+
+    firsttime = data.min()
+    lasttime = data.max()
+
+    nbins = int(np.ceil(float(lasttime - firsttime)*counterTime/frameTime))
+
+    bin_edges = np.linspace(firsttime, lasttime, nbins)
+    bin_edges[-1] += 1
+
+    return np.histogram(data+0.5, bin_edges)[0]
+
+def sp_sum_bin_all(data, xybin=4, counterTime=40.0e-9):
+    """ Sum and bin all of the data from the single photon detector into one frame.
+
+    arguments:
+        data - a (N, 4) sized array of the data generated by the single photon detector.
+    returns:
+        img - a 2d image of the entire dataset.
+    """
+    assert isinstance(data, np.ndarray), "Data must be an ndarray."
+    assert data.shape[1] == 4, "Second dimension must be 4."
+
+    firsttime = data[:, 3].min()
+    lasttime = data[:,3].max()
+
+    return sp_bin_by_space_and_time(data, lasttime*counterTime, xybin=xybin, counterTime=counterTime)
+
+def intersect(a, b, assume_unique=False):
+    """ implements the matlab intersect() function. Details of the function are
+    here: http://www.mathworks.com/help/techdoc/ref/intersect.html
+
+    arguments:
+        a - 1st array to test
+        b - 2nd array to test
+        assume_unique - If True, assumes that both input arrays are unique, which speeds up the calculation.  The default is False.
+    returns:
+        res - values common to both a and b.
+        ia - indicies of a such that res = a[ia]
+        ib - indicies of b such that res = b[ib]
+    """
+    res = np.intersect1d(a, b, assume_unique=False)
+    ai = np.nonzero(np.in1d(a, res, assume_unique=False))
+    bi = np.nonzero(np.in1d(b, res, assume_unique=False))
+    return res, ai, bi
+
+def sp_autocorrelation(data, p=30, m=2):
+    """Implements the time-to-tag correlation algorithm outlined by Wahl et al. in Opt. Exp. 11 3583
+
+    arguments:
+        data - A sorted (1xN) array of incidence times.
+        p - number of linear points. Defaults to 30.
+        m - factor that the time is changed for each correlator. Defaults to 2.
+    returns:
+        corr - A (1 x bins) autocorrelation of data.
+        corrtime - A (1 x bins ) list of time ranges.
+    """
+    return sp_crosscorrelation(data, data, p, m)
+
+def sp_crosscorrelation(d1, d2, p=30, m=2):
+    """Implements the time-to-tag correlation algorithm outlined by Wahl et al. in Opt. Exp. 11 3583
+
+    arguments:
+        d1 - A sorted (1xN) array of incidence times for the 1st signal.
+        d2 - A sorted (1xN) array of incidence times for the 2nd signal.
+        p - number of linear points. Defaults to 30.
+        m - factor that the time is changed for each correlator. Defaults to 2.
+    returns:
+        corr - A (1 x bins) crosscorrelation between (d1, d2).
+        corrtime - A (1 x bins ) list of time ranges.
+
+    """
+    import sys
+    assert isinstance(d1, np.ndarray) and isinstance(d2, np.ndarray), "d1 and d2 must 1-dim be arrays"
+
+    d1 = d1.astype('int64')
+    d1 = d1[d1.argsort()]
+    d2 = d2.astype('int64')
+    d2 = d2[d2.argsort()]
+
+    tmax = max(d1.max() - d1.min(), d2.max() - d2.min())
+    Ncorr = np.ceil(np.log(tmax/float(p) + 1)/np.log(float(m)) - 1).astype('int') + 1
+
+    corrtime = np.zeros(Ncorr*p)
+    corr = np.zeros_like(corrtime)
+    w1 = np.ones_like(d1)
+    w2 = np.ones_like(d2)
+
+    delta = 1
+    shift = 0
+    for i in range(Ncorr):
+        sys.stdout.write("\rcorrelator %d/%d" % (i+1, Ncorr))
+        sys.stdout.flush()
+        for j in range(p):
+            shift = shift + delta
+            lag = np.floor(shift/delta).astype('int')
+            (isect, ai, bi) = intersect(d1, d2 + lag, assume_unique=True)
+            corr[i*p+j] = np.dot(w1[ai], w2[bi]) / float(delta)
+            corrtime[i*p+j] = shift
+            
+        delta = delta*m
+        
+        d1, w1 = _half_data(d1, m, w1)
+        d2, w2 = _half_data(d2, m, w2)
+
+    print("")
+
+    # Normalize. Another part of normalization is dividing by corr[i*p+j]/delta (done above)
+    for i in range(Ncorr*p):
+        corr[i] = corr[i]*tmax/(tmax - corrtime[i])
+
+    return corr, corrtime
+
+def _sort_data(data, col=3):
+    """ Helper function to sort data by increasing photon incidence value along column col.
+    arguments:
+        data - data to process.  Must be two dimensional
+    returns:
+        sorted data by increasing photon incidence value
+    """
+    assert isinstance(data, np.ndarray) and data.ndim == 2, "data must be a 2d array"
+    return data[data[:, col].argsort(),:]
+
+def _list_duplicates(seq):
+    """ 
+    helper function used by _half_data() to get a list of duplicate entries in an iteratable
+    from http://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list
+    """
+    from collections import defaultdict
+
+    tally = defaultdict(list)
+    for i,item in enumerate(seq):
+        tally[item].append(i)
+    return ((key,locs) for key,locs in tally.items() if len(locs)>1)
+
+def _half_data(data, m, w):
+    """ Helper function that halves the data by dividing the incidence times in data by m and finding duplicates.  The w matrix is augmented depending on the number of duplicates found.  The algorithm is found in Opt. Exp. 11 3583.
+    """
+    import sys
+    halvedData = np.floor(data/float(m)).astype('int64')
+    wsumbefore = w.sum()
+    if (halvedData - np.roll(halvedData, 1) == 0).any():
+        listDupIterator = _list_duplicates(halvedData)
+        valsToRemove = []
+        for val, keys in sorted(listDupIterator):
+            valsToRemove.append(keys[1:])
+            w[keys[0]] += w[keys[1:]].sum()
+        w = np.delete(w, valsToRemove)
+        data = np.delete(halvedData, valsToRemove)
+        sys.stdout.write("\r\t\t  | removing %6d duplicates." % (len(valsToRemove)))
+        sys.stdout.flush()
+        if wsumbefore != w.sum():
+            print("WARNING: values in weighted array do not match after eliminating duplicates")
+    else:
+        data = halvedData
+
+    return data, w
