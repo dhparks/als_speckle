@@ -46,16 +46,26 @@ def write_text_array(filename, array, header='', delimiter='\t'):
         writer = csv.writer(f, delimiter=delimiter)
         writer.writerows(array)
 
-def read_text_array(filename, delimiter='\t'):
+def read_text_array(filename, convert_to=float, delimiter='\t'):
     """ wraps csv to read a tab seperated file. Returns a list of each line.
 
     arguments:
         filename - filename to read
+        convert_to - optional argument for what to convert the elements to.  Can be 'float', 'int' or None.  If None, it will leave them as strings and return a list.  If 'float' or 'int', it will convert it to an array
         delimiter - delimiter to use. defaults to tab ('\t').
     returns:
-        The parsed file as a list. If these are numbers, they will need to be cast to numerical representations.
+        The parsed file as a list or array depending on convert_to
     """
     import csv
+    assert convert_to in (None, 'float', 'int', 'complex'), "unknown type to convert, %s" % convert_to
+
+    if convert_to == 'float':
+        conv_fn = numpy.float
+    elif convert_to == 'int':
+        conv_fn = numpy.int
+    else: # We should never get here.
+        conv_fn = lambda x: x
+
     rows = []
     with open(filename, 'r') as f:
         reader = csv.reader(f, delimiter=delimiter)
@@ -64,7 +74,16 @@ def read_text_array(filename, delimiter='\t'):
                 rows.append(row)
         except csv.Error:
             pass
-    return rows
+    if convert_to is not None:
+        res = []
+        for r in rows:
+            try:
+                res.append([conv_fn(d) for d in r])
+            except ValueError:
+                pass
+        return numpy.array(res)
+    else:
+        return rows
 
 #
 ############### FITS ########################
@@ -179,7 +198,7 @@ def writefits(filename, img, headerItems={}, overwrite=None):
     # append items to header
     if isinstance(headerItems, dict):
         for key, val in headerItems.iteritems():
-            print "KEYTEST", key, "VAL", val
+            #print "KEYTEST", key, "VAL", val
             if len(key) > 8 or key.rfind(' ') == 1:
                 key = "HIERARCH " + key
             header.update(key, val)
