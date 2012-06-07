@@ -93,6 +93,7 @@ class OneDimFit():
         if len(self.final_params) == len(self.final_params_errors):
             pass
 
+        fun = "# fitting functional %s\n" % self.functional
         hdr = "# "
         hdr_e = ""
         outstr = ""
@@ -107,7 +108,7 @@ class OneDimFit():
         outstr_e += "%d\t%1.7e\t%1.7f\n" % (self.final_fn_evaulations, self.final_chisq, self.final_Rsquared)
 
         if header:
-            out = hdr + hdr_e + outstr + outstr_e
+            out = fun + hdr + hdr_e + outstr + outstr_e
         else:
             out = outstr + outstr_e
 
