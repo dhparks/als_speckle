@@ -119,28 +119,45 @@ class OneDimFit():
             print out
         return out
 
+def linear(data):
+    """ fit a function to a line.  This fits the function:
+        f(x) = a * x + b
+    arguments:
+        data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+    returns:
+        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+    """
+    class Linear(OneDimFit):
+        def __init__(self, data):
+            OneDimFit.__init__(self, data)
+            self.functional = "a*x + b"
+            self.params_map ={ 0:"a", 1:"b"}
+
+        def fit_function(self):
+            a, b = self.params
+            return a * self.xdata + b
+
+        def guess_parameters(self):
+            self.params = np.zeros(2)
+            self.params[0] = 1.0
+            self.params[1] = self.ydata.mean()
+
+    fit = Linear(data)
+    fit.fit()
+    return fit
+
 def decay_exp_beta_sq(data):
-    """ fit a function to a decay exponent with a beta parameter.  This fits the function:
+    """ fit a function to a (decay exponent with a beta parameter)^2.  This fits the function:
         f(x) = a + b exp(-(x/tf)^beta)^2
     arguments:
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
     returns:
-        result - a fit class that contains the final fit.  This object has various self-descriptive parameters such as:
-            result.final_params
-            result.final_params_errors
-            result.final_residuals
-            result.final_fn_evaulations
-            result.final_Rsquared
-            result.final_chisq
-            result.final_jacobian
-            result.final_variance
+        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
     """
-    class DecayExpBeta(OneDimFit):
+    class DecayExpBetaSq(OneDimFit):
         def __init__(self, data):
             OneDimFit.__init__(self, data)
             self.functional = "a + b exp(-(t/tf)^beta)^2"
-            self.columns ="a\tb\ttf\tbeta\terror(a)\terror(b)\terror(tf)\terror(beta)"
-            self.extension = "oneExp"
             self.params_map ={ 0:"a", 1:"b", 2:"tf", 3:"beta" }
 
         def fit_function(self):
@@ -159,6 +176,142 @@ def decay_exp_beta_sq(data):
             self.params[3] = 1.5
 
 
+    fit = DecayExpBetaSq(data)
+    fit.fit()
+    return fit
+
+def decay_exp_beta(data):
+    """ fit a function to a decay exponent with a beta parameter.  This fits the function:
+        f(x) = a + b exp(-(x/tf)^beta)
+    arguments:
+        data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+    returns:
+        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+    """
+    class DecayExpBeta(OneDimFit):
+        def __init__(self, data):
+            OneDimFit.__init__(self, data)
+            self.functional = "a + b exp(-1*(x/tf)**beta)"
+            self.params_map ={ 0:"a", 1:"b", 2:"tf", 3:"beta" }
+
+        def fit_function(self):
+            a, b, tf, beta = self.params
+            # checks to return high numbers if parameters are getting out of hand.
+            if (tf<0 or beta<0): return self.try_again
+
+            return a + b * (np.exp(-1*(self.xdata/tf)**beta))
+
+        def guess_parameters(self):
+            self.params = np.zeros(4)
+            self.params[0] = self.ydata[-1]
+            self.params[1] = self.ydata[0] - self.params[0]
+            #print self.npoints/2, self.xdata, len(self.xdata)
+            self.params[2] = self.xdata[int(self.npoints/2)]
+            self.params[3] = 1.5
+
     fit = DecayExpBeta(data)
     fit.fit()
     return fit
+
+def decay_exp(data):
+    """ fit a function to a decay exponent.  This fits the function:
+        f(x) = a + b exp(-(x/tf))
+    arguments:
+        data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+    returns:
+        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+    """
+    class DecayExp(OneDimFit):
+
+        def __init__(self, data):
+            OneDimFit.__init__(self, data)
+            self.functional = "a + b exp(-1*(x/tf))"
+            self.params_map ={ 0:"a", 1:"b", 2:"tf" }
+
+        def fit_function(self):
+            a, b, tf, beta = self.params
+            # checks to return high numbers if parameters are getting out of hand.
+            if ( tf<0 ): return self.try_again
+
+            return a + b * (np.exp(-1*(self.xdata/tf)**beta))
+
+        def guess_parameters(self):
+            self.params = np.zeros(3)
+            self.params[0] = self.ydata[-1]
+            self.params[1] = self.ydata[0] - self.params[0]
+            #print self.npoints/2, self.xdata, len(self.xdata)
+            self.params[2] = self.xdata[int(self.npoints/2)]
+
+    fit = DecayExp(data)
+    fit.fit()
+    return fit
+
+def gaussian(data):
+    """ fit a function to a Gaussian.  This fits the function:
+        f(x) = a exp(-(x-b)^2/(2c^2)) + shift
+    arguments:
+        data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+    returns:
+        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+    """
+    class Gaussian(OneDimFit):
+
+        def __init__(self, data):
+            OneDimFit.__init__(self, data)
+            self.functional = "a exp(-(x-b)^2/(2*c^2)) + shift"
+            self.params_map ={ 0:"a", 1:"b", 2:"c" , 3:"shift"}
+
+        def fit_function(self):
+            a, b, c, shift = self.params
+            # checks to return high numbers if parameters are getting out of hand.
+            if ( c < 0 ): return self.try_again
+
+            return a*np.exp(-(self.xdata-b)**2/(2*c**2)) + shift
+
+        def guess_parameters(self):
+            self.params = np.zeros(4)
+            self.params[0] = self.ydata.max()
+            self.params[1] = self.xdata[int(self.npoints/2)]
+            self.params[2] = len(self.ydata) / 5.0 # no idea how to guess the width
+            # average the first and last points to try to guess the background
+            self.params[3] = (self.ydata[0] + self.ydata[-1]) / 2.0
+
+    fit = Gaussian(data)
+    fit.fit()
+    return fit
+
+def lorentzian(data):
+    """ fit a function to a Lorentzian.  This fits the function:
+        f(x) = (gam/(2*pi))*a/((x-b)^2 + (gam/2.0)^2) + shift
+    arguments:
+        data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+    returns:
+        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+    """
+    class Lorentzian(OneDimFit):
+
+        def __init__(self, data):
+            OneDimFit.__init__(self, data)
+            self.functional = "(gam/(2*pi))*a/((x-b)^2 + (gam/2.0)^2) + shift"
+            self.params_map ={ 0:"a", 1:"b", 2:"gam", 3:"shift"}
+
+        def fit_function(self):
+            a, b, gam, shift = self.params
+            # checks to return high numbers if parameters are getting out of hand.
+            if ( gam > 0 ): return self.try_again
+
+            return (gam/(2*pi))*a/((self.xdata-b)**2 + (gam/2.0)**2) + shift
+
+        def guess_parameters(self):
+            self.params = np.zeros(4)
+            self.params[0] = self.ydata.max()
+            self.params[1] = self.xdata[int(self.npoints/2)]
+            self.params[2] = len(self.ydata) / 5.0 # no idea how to guess the width
+            # average the first and last points to try to guess the background
+            self.params[3] = (self.ydata[0] + self.ydata[-1]) / 2.0
+
+    fit = Lorentzian(data)
+    fit.fit()
+    return fit
+
+
