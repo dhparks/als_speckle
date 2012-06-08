@@ -12,7 +12,7 @@ def radial(size,center=None):
     returns:
         A n-dimensioanl array where each element is the distance (in pixels) from the center.
    """
-    assert type(size) is tuple, "size must be a tuple"
+    assert isinstance(size,tuple), "size must be a tuple"
     
     if center != None:
         assert isinstance(center,tuple), "center must be supplied as a tuple"
@@ -60,7 +60,7 @@ def square(size,length,center=None):
     returns:
         A 2-dimensional numpy array with a square of length (length) centered at (center).
     """
-    return rect(size, length, legnth, center)
+    return rect(size, length, length, center)
     
 def rect(size,row_length,col_length,center=None):
     """ Generate a rectangle in a numpy array.
@@ -76,7 +76,8 @@ def rect(size,row_length,col_length,center=None):
     if center == None: center = (size[0]/2,size[1]/2)
 
     assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
-    assert type(row_length) in (float, int) and type(col_length) in (float, int), "lengths must be float or integer"
+    assert isinstance(row_length,(float, int)) and isinstance(col_length,(float, int)), "lengths must be float or integer"
+    
     row_length = int(row_length)
     col_length = int(col_length)
     
@@ -100,8 +101,8 @@ def circle(size,radius,center=None,AA=True):
     assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
     if center == None: center = (size[0]/2,size[1]/2)
     assert isinstance(center,tuple) and len(center) == 2, "center must be a 2-tuple"
-    assert type(radius) in (int, float), "radius must be int or float"
-    assert type(AA) is bool or AA in (0,1), "AA value must be boolean evaluable"
+    assert isinstance(radius,(int, float)), "radius must be int or float"
+    assert isinstance(AA,bool) or AA in (0,1), "AA value must be boolean evaluable"
 
     r = radial(size,center)
     
@@ -119,7 +120,7 @@ def annulus(size,radii,center=None,AA=True):
     returns:
         a numpy array with annuls centered on center of radius (r_in, r_out)    
     """
-    assert type(radii) is tuple and type(radii[0]) in (int,float) and type(radii[1]) in (int,float), "radius must be a 2-tuple of floats or ints"
+    assert isinstance(radii,tuple) and isinstance(radii[0],(int,float)) and isinstance(radii[1],(int,float))
     # no need to do other asserts, circle() takes care of it.
     
     return circle(size,max(radii),center,AA)-circle(size,min(radii),center,AA)
@@ -140,11 +141,11 @@ def ellipse(size,axes,center=None,AA=True):
     assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
     assert isinstance(size[0],int) and isinstance(size[1],int), "size values must be int"
     assert isinstance(axes,tuple) and len(axes) == 2, "axes must be a 2-tuple"
-    assert type(axes[0]) in (int, float) and type(axes[1]) in (int,float), "axes values must be float or int"
+    assert isinstance(axes[0],(int, float)) and isinstance(axes[1],(int,float)), "axes values must be float or int"
     if center == None: center = (size[0]/2,size[1]/2)
     assert isinstance(center,tuple) and len(center) == 2, "center must be a 2-tuple"
-    assert type(center[0]) in (int,float) and type(center[1]) in (int,float), "center values must be float or int"
-    assert type(AA) is bool or AA in (0,1), "AA value must be bool-evaluable"
+    assert isinstance(center[0],(int, float)) and isinstance(center[1],(int,float)), "center values must be float or int"
+    assert isinstance(AA,bool) or AA in (0,1), "AA value must be boolean evaluable"
     
     # we can do this like a circle by stetching the coordinates along an axis
     rows,cols = numpy.indices(size).astype('float')
@@ -177,22 +178,22 @@ def gaussian(size,lengths,center=None,normalization=None):
     """
     
     # check types
-    assert type(size) is tuple, "size must be a tuple"
+    assert isinstance(size,tuple), "size must be a tuple"
     for d in range(len(size)): assert type(size[d]) is int, "size values must be int"
-    assert type(lengths) is tuple, "lengths must be a tuple"
+    assert isinstance(lengths,tuple), "lengths must be a tuple"
     assert len(size) == len(lengths), "size and lengths must be same dimensionality"
-    for d in range(len(lengths)): assert type(lengths[d]) in (int,float), "lengths values must be float or int"
+    for d in range(len(lengths)): assert isinstance(lengths[d],(int,float)), "lengths values must be float or int"
     
     if center != None:
-        assert type(center) is tuple, "center must be supplied as a tuple"
+        assert isinstance(center,tuple), "center must be supplied as a tuple"
         assert len(center) == len(size), "size and center must be same dimensionality"
-        for d in range(len(center)): assert type(center[d]) in (int,float), "center values must be float or int"
+        for d in range(len(center)): assert isinstance(center[d],(int,float)), "center values must be float or int"
     else:
         center = numpy.zeros_like(size)
         for d in range(len(center)): center[d] = size[d]/2.
 
     if normalization is not None:
-        assert type(normalization) in (float,int), "normalization must be float or int"
+        assert isinstance(normalization,(float,int)), "normalization must be float or int"
 
     # now build the gaussian.
     
