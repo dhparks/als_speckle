@@ -8,8 +8,8 @@ Author: Keoki Seu (kaseu@lbl.gov)
 """
 import numpy as np
 
-from . import shape
-from . import averaging
+import shape
+import averaging
 
 def _convert_to_3d(img):
     """ get image shape and reshape image to three dimensional (if necessary).
@@ -248,7 +248,7 @@ def g2_numerator(img, onetau):
         img - data to caclculate g2.  Must be 3d.
         onetau - a single tau value.  Must be integer and less than the total frames in img.
     returns:
-        numerator - g2 numerator calcualted for one tau value.
+        numerator - g2 numerator calculated for one tau value.
     """
     assert img.ndim == 3, "g2_numerator: Must be a three dimensional image."
     (fr, ys, xs) = img.shape
@@ -258,6 +258,35 @@ def g2_numerator(img, onetau):
     numerator = numerator/(fr-onetau)
     # numerator = np.average(img[0:fr-onetau] * img[onetau:fr], axis=0) # This is slower than the above implementaion.
     return numerator
+
+def g2_numerator_fft(img,taus=None):
+    """ Calculates <I(t) I(t + tau)>_t for specified values of tau via fft autocorrelation method. For large N
+    this may be significantly faster than the g2_numerator function, but for small N or a small number of tau
+    the g2_numerator function may be faster.
+    
+    If data sets are very large this function may lead to malloc errors, necessitating fallback to g2_numerator
+    or more sophisticated handling of the dataset.
+    
+    arguments:
+        img - data to caclculate g2.  Must be 3d.
+        taus - iterable set of tau values where you want g2. all taus are evaluated by the fft so a limited set
+            of taus does not provide a speed up.
+    returns:
+        numerator - g2 numerator calculated for requested tau values.
+    """
+    assert img.ndim == 3, "g2_numerator: Must be a three dimensional image."
+    (fr, ys, xs) = img.shape
+    
+    from numpy.fft import fftn as DFT
+    from numpy.fft import ifftn as IDFT
+    
+    img2       = np.zeros((2*fr,ys,xs),float)
+    img2[0:fr] = img
+    numerator  = abs(IDFT(abs(DFT(img2,axes=(0,)))**2,axes=(0,)))[0:fr]
+    for f in range(fr): numerator[f] *= 1./(fr-f)
+    
+    if taus != None: return numerator[taus]
+    else: return numerator
 
 def _numtauToTauvals(numtau, maxtau=0):
     """ program to convert numtau to a list of values to iterate over.
