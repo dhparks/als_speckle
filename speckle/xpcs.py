@@ -7,9 +7,8 @@ Author: Keoki Seu (kaseu@lbl.gov)
 
 """
 import numpy as np
-
-import shape
-import averaging
+from . import shape
+from . import averaging
 
 def _convert_to_3d(img):
     """ get image shape and reshape image to three dimensional (if necessary).
