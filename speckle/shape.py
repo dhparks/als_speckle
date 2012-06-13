@@ -125,13 +125,16 @@ def annulus(size,radii,center=None,AA=True):
     
     return circle(size,max(radii),center,AA)-circle(size,min(radii),center,AA)
 
-def ellipse(size,axes,center=None,AA=True):
+def ellipse(size,axes,center=None,angle=0,AA=True):
     """ Returns an ellipse in a numpy array.
     
     arguments:
         size: size of array, 2-tuple (rows,columns)
         axes: (vertical "radius", horizontal "radius")
         center: 2-tuple recentering coordinate system to (row,column)
+        angle: rotation angle in degrees. this uses the standard rotation matrix, but whether that corresponds
+            to cw or ccw depends on how the y-axis is defined. check rotation direction before using!
+            (if saved as .fits, +angle is ccw and -angle is cw)
         AA: if True, anti-aliases the edge of the ellipse
     returns:
         numpy array with an ellipse drawn.
@@ -145,12 +148,21 @@ def ellipse(size,axes,center=None,AA=True):
     if center == None: center = (size[0]/2,size[1]/2)
     assert isinstance(center,tuple) and len(center) == 2, "center must be a 2-tuple"
     assert isinstance(center[0],(int, float)) and isinstance(center[1],(int,float)), "center values must be float or int"
+    assert isinstance(angle,(int,float)), "angle must be int or float"
     assert isinstance(AA,bool) or AA in (0,1), "AA value must be boolean evaluable"
     
     # we can do this like a circle by stetching the coordinates along an axis
     rows,cols = numpy.indices(size).astype('float')
+        
     rows += -center[0]
     cols += -center[1]
+    
+    if center != 0:
+        angle *= numpy.pi/180.
+        new_rows = rows*numpy.cos(angle)+cols*numpy.sin(angle)
+        new_cols = cols*numpy.cos(angle)-rows*numpy.sin(angle)
+        rows = new_rows
+        cols = new_cols
     
     ratio = float(axes[1])/float(axes[0])
     if ratio >= 1:
