@@ -125,13 +125,16 @@ def annulus(size,radii,center=None,AA=True):
     
     return circle(size,max(radii),center,AA)-circle(size,min(radii),center,AA)
 
-def ellipse(size,axes,center=None,AA=True):
+def ellipse(size,axes,center=None,angle=0,AA=True):
     """ Returns an ellipse in a numpy array.
     
     arguments:
         size: size of array, 2-tuple (rows,columns)
         axes: (vertical "radius", horizontal "radius")
         center: 2-tuple recentering coordinate system to (row,column)
+        angle: rotation angle in degrees. this uses the standard rotation matrix, but whether that corresponds
+            to cw or ccw depends on how the y-axis is defined. check rotation direction before using!
+            (if saved as .fits, +angle is ccw and -angle is cw)
         AA: if True, anti-aliases the edge of the ellipse
     returns:
         numpy array with an ellipse drawn.
@@ -145,13 +148,12 @@ def ellipse(size,axes,center=None,AA=True):
     if center == None: center = (size[0]/2,size[1]/2)
     assert isinstance(center,tuple) and len(center) == 2, "center must be a 2-tuple"
     assert isinstance(center[0],(int, float)) and isinstance(center[1],(int,float)), "center values must be float or int"
+    assert isinstance(angle,(int,float)), "angle must be int or float"
     assert isinstance(AA,bool) or AA in (0,1), "AA value must be boolean evaluable"
     
     # we can do this like a circle by stetching the coordinates along an axis
-    rows,cols = numpy.indices(size).astype('float')
-    rows += -center[0]
-    cols += -center[1]
-    
+    rows,cols = _indices(size,center,angle)
+
     ratio = float(axes[1])/float(axes[0])
     if ratio >= 1:
         rows *= float(axes[1])/axes[0]
@@ -165,7 +167,7 @@ def ellipse(size,axes,center=None,AA=True):
     if not AA: return numpy.where(r < radius,1,0)
     if AA: return 1-numpy.clip(r-radius,0,1)
         
-def gaussian(size,lengths,center=None,normalization=None):
+def gaussian(size,lengths,center=None,angle=0,normalization=None):
     """ Returns an 1-dimensional or 2-dimensional gausssian.
     
     arguments:
@@ -196,7 +198,7 @@ def gaussian(size,lengths,center=None,normalization=None):
     if normalization is not None:
         assert isinstance(normalization,(float,int)), "normalization must be float or int"
 
-    # now build the gaussian.
+    # now build the gaussian. 
     
     if len(size) == 1:
         x = numpy.arange(size[0]).astype('float')
@@ -205,17 +207,42 @@ def gaussian(size,lengths,center=None,normalization=None):
         gaussian = numpy.exp(-(x-c)**2/(2*s**2))
         
     if len(size) == 2:
-        x = numpy.arange(size[0]).astype('float')
-        s = lengths[0]
-        c = center[0]
-        gaussian1 = numpy.exp(-(x-c)**2/(2*s**2))
         
-        x = numpy.arange(size[1]).astype('float')
-        s = lengths[1]
-        c = center[1]
-        gaussian2 = numpy.exp(-(x-c)**2/(2*s**2))
+        if angle == 0:
+            # if angle = 0, we can use separability for speed
+            x = numpy.arange(size[0]).astype('float')
+            s = lengths[0]
+            c = center[0]
+            gaussian1 = numpy.exp(-(x-c)**2/(2*s**2))
         
-        gaussian = numpy.outer(gaussian1,gaussian2)
-            
+            x = numpy.arange(size[1]).astype('float')
+            s = lengths[1]
+            c = center[1]
+            gaussian2 = numpy.exp(-(x-c)**2/(2*s**2))
+
+            gaussian = numpy.outer(gaussian1,gaussian2)
+        
+        if angle != 0:
+            # if angle != 0, have to evaluate the whole array. this takes about 2x
+            # as long as the angle = 0 case
+            rows,cols = _indices(size,center,angle)
+            gaussian = numpy.exp(-rows**2/(2*lengths[0]**2))*numpy.exp(-cols**2/(2*lengths[1]**2))
+
     if normalization == None: return gaussian
     else: return gaussian*float(normalization)/(numpy.sum(gaussian))
+    
+def _indices(size,center,angle):
+    
+    rows,cols = numpy.indices(size).astype('float')
+        
+    rows += -center[0]
+    cols += -center[1]
+    
+    if angle != 0:
+        angle *= numpy.pi/180.
+        new_rows = rows*numpy.cos(angle)+cols*numpy.sin(angle)
+        new_cols = cols*numpy.cos(angle)-rows*numpy.sin(angle)
+        rows = new_rows
+        cols = new_cols
+        
+    return rows, cols
