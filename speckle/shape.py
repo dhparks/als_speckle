@@ -173,6 +173,7 @@ def gaussian(size,lengths,center=None,normalization=None):
         lengths: stdevs of gaussian (rows,columns). float or int.
         center: recenter coordinate system to (row,column).
                 Boundary conditions are NOT cyclic.
+		normalization: Normalize the integrated gaussian to the value normalization.
     returns:
         numpy array (1d or 2d) with a gaussian of the given parameters.
     """
