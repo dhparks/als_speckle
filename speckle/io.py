@@ -9,6 +9,7 @@ Author: Daniel Parks (dhparks@lbl.gov)
 
 """
 import numpy
+from . import shape
 
 # global overwrite option for FITS files
 overwrite_default = False
@@ -697,3 +698,113 @@ def _process_components(components):
 
     # remove duplicates
     return list(set(components))
+#
+############### DS9 Masks #########################
+#
+def _draw_polygon(shapedesc, dim):
+    from PIL import Image, ImageDraw
+    ys, xs = dim
+    
+    nvertex = len(shapedesc)/2
+    verticies = []
+    for v in range(nvertex):
+        xc = shapedesc[v*2]
+        yc = shapedesc[v*2+1]
+        verticies.append((xc,yc))
+
+    img = Image.new("L", (xs, ys), 0)
+    ImageDraw.Draw(img).polygon(verticies, outline=1, fill=1)
+
+    return numpy.array(img)
+
+def open_ds9_mask(file, intersectionsRemovedFromMask = False):
+    """ From a region file input construct a mask.
+    arguments:
+        file - region filename
+        intersectionsRemovedFromMask - if we want area where two regions intersect to count in the mask. Defaults to false.
+    returns:
+        mask - binary mask of the regions
+    """
+    f = open(file, "r")
+    
+    shapes = []
+    aline = f.readline()
+    while aline:
+        if aline[0] == "#":
+            if aline.find("Filename:") != -1:
+                file = aline[len("# Filename:"):-1]
+                try:
+                    dim = get_fits_dimensions(file)
+                except IOError:
+                    dim = (1, 2048, 2048)
+
+            aline = f.readline()
+            continue
+
+        elif aline.split("(")[0] in ("box", "circle", "polygon", "ellipse", "annulus"):
+            shapes.append(aline[0:-1])
+        aline = f.readline()
+        
+    
+    if len(dim) == 3: # cut down to 2d, ignore 3rd dimension
+        dim = dim[1:]
+    
+    data = numpy.zeros(dim)
+    (ys, xs) = dim
+    for s in shapes:
+        shapetype, shapedesc = s.split("(")
+        shapest = s.find("(")
+        shapeend = s.find(")")
+        shapedesc = [float(val) for val in s[shapest+1:shapeend].split(",") ]
+        if shapetype == "circle":
+             # fix discrepancy between ds9 index and python idex (1 vs 0)
+            shapedesc[0] = shapedesc[0] - 1
+            shapedesc[1] = shapedesc[1] - 1
+
+            xc, yc, rad = shapedesc
+            data += shape.circle( dim, rad, (yc,xc) )
+        elif shapetype == "box":
+             # fix discrepancy between ds9 index and python idex (1 vs 0)
+            shapedesc[0] = shapedesc[0] - 1
+            shapedesc[1] = shapedesc[1] - 1
+
+            if len(shapedesc) == 7:
+                xc, yc, in_xw, in_yw, out_xw, out_yw, angle = shapedesc
+                angle = -angle # ds9 angles are measured in the opposite direction.
+                data += shape.rect( (ys,xs), out_yw, out_xw, (yc, xc) ) - shape.rect( (ys,xs), in_yw, in_xw, (yc, xc))
+            else:
+                xc, yc, xw, yw, angle = shapedesc
+                angle = -angle # ds9 angles are measured in the opposite direction.
+                data += shape.rect( (ys,xs), yw, xw, (yc, xc))
+
+        elif shapetype == "polygon":
+             # fix discrepancy between ds9 index and python idex (1 vs 0)
+            for i in range(len(shapedesc)):
+                shapedesc[i] = shapedesc[i] - 1
+
+            data += _draw_polygon(shapedesc, dim)
+        elif shapetype == "ellipse":
+             # fix discrepancy between ds9 index and python idex (1 vs 0)
+            shapedesc[0] = shapedesc[0] - 1
+            shapedesc[1] = shapedesc[1] - 1
+            if len(shapedesc) == 7:
+                xc, yc, in_xw, in_yw, out_xw, out_yw, angle = shapedesc
+                angle = -angle # ds9 angles are measured in the opposite direction.
+                data += shape.ellipse( (ys,xs), (out_yw, out_xw), (yc, xc), angle, AA=False) - shape.ellipse( (ys,xs), (in_yw, in_xw), (yc, xc), angle, AA=False)
+            else:
+                xc, yc, xw, yw, angle = shapedesc
+                angle = -angle # ds9 angles are measured in the opposite direction.
+                data += shape.ellipse( (ys,xs), (yw, xw), (yc, xc), angle, AA=False)
+    
+        elif shapetype == "annulus":
+             # fix discrepancy between ds9 index and python idex (1 vs 0)
+            shapedesc[0] = shapedesc[0] - 1
+            shapedesc[1] = shapedesc[1] - 1
+
+            (xc, yc, rin, rout) = shapedesc
+            data += shape.annulus((ys, xs), (rin, rout), (yc, xc), AA=False)
+
+    if intersectionsRemovedFromMask:
+        return numpy.where( (data % 2) == 0 , 0, 1)
+    else:
+        return numpy.where(data >= 1, 1, 0)
