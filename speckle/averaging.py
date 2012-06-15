@@ -1,4 +1,4 @@
-import numpy
+import numpy as np
 
 def fftconvolve(imgA, imgB):
     """ calculates the convoluton of two input images.
@@ -8,17 +8,16 @@ def fftconvolve(imgA, imgB):
     returns:
         Conv(imgA, imgB).  Shape is same as inputs.
     """
-    import numpy
     from scipy.fftpack import fft2, ifft2
 
-    assert isinstance(imgA, numpy.ndarray) and isinstance(imgB, numpy.ndarray), "Images must be arrays"
+    assert isinstance(imgA, np.ndarray) and isinstance(imgB, np.ndarray), "Images must be arrays"
     assert imgA.shape == imgB.shape, "Images must be the same shape."
     assert imgA.ndim == 2, "Images must be two-dimensional."
 
     (ysize, xsize) = imgA.shape
     result = ifft2(fft2(imgA) * fft2(imgB))
-    result = numpy.roll(result, int(ysize/2), axis=0)
-    result = numpy.roll(result, int(xsize/2), axis=1)
+    result = np.roll(result, int(ysize/2), axis=0)
+    result = np.roll(result, int(xsize/2), axis=1)
     return result
 
 def smooth_with_rectangle(img, boxsize):
@@ -31,7 +30,7 @@ def smooth_with_rectangle(img, boxsize):
     """
     from . import shape
 
-    assert isinstance(img, numpy.ndarray), "Must be an array"
+    assert isinstance(img, np.ndarray), "Must be an array"
     assert img.ndim in (2, 3), "Must be two- or three- dimensional"
 
     if img.ndim == 3:
@@ -56,19 +55,19 @@ def _apply_smooth(img, mask):
     returns:
         result - the smoothed array
     """
-    assert isinstance(img, numpy.ndarray) and img.ndim in (2,3), "must be 2 or 3-dimensional array"
+    assert isinstance(img, np.ndarray) and img.ndim in (2,3), "must be 2 or 3-dimensional array"
     if img.ndim == 3:
         assert mask.shape == img[0].shape, "image and mask must have the same x/y dimensions"
-        result = numpy.zeros_like(img)
+        result = np.zeros_like(img)
         masksum = mask.sum()
         for i in range(img.shape[0]):
             # normalize result by number of pixels in the mask
-            result[i] = numpy.real(fftconvolve(img[i], mask))/(masksum)
+            result[i] = np.real(fftconvolve(img[i], mask))/(masksum)
         return result
     else:
         assert mask.shape == img.shape, "image and mask must have the same x/y dimensions"
         # normalize result by number of pixels in the mask
-        return numpy.real(fftconvolve(img, mask))/(mask.sum())
+        return np.real(fftconvolve(img, mask))/(mask.sum())
 
 def smooth_with_circle(img, radius):
     """Uses a convolution to average each pixel of an image by a surrounding circle of radius.
@@ -80,7 +79,7 @@ def smooth_with_circle(img, radius):
     """
     from . import shape
 
-    assert isinstance(img, numpy.ndarray), "Must be an array"
+    assert isinstance(img, np.ndarray), "Must be an array"
     assert img.ndim == 2, "Must be two-dimensional"
     assert radius in (float, int), "radius must be a float or int"
 
@@ -97,5 +96,5 @@ def smooth_with_gaussian(img, fwhm):
     """
     from . import shape
 
-    # sigma_x = fwhm/(2*np.sqrt(2*np.log(2)))
-    return _apply_smooth(img, shape.gaussian(img.shape, fwhm/(2*np.sqrt(2*np.log(2)))))
+    sigma_x = fwhm/(2*np.sqrt(2*np.log(2)))
+    return _apply_smooth(img, shape.gaussian(img.shape, (sigma_x, sigma_x)))
