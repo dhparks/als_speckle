@@ -174,6 +174,14 @@ def openheader(filename, card=0):
     return pyfits.getheader(filename, card)
 
 def openimage(filename):
+    """ Open an image file using PIL. This is currently restricted to
+    greyscale images as the inverse colormap problem is difficult.
+    
+    arguments:
+        filename - path to file
+    returns:
+        integer ndarray"""
+    
     import Image
     import scipy.misc.pilutil as smp
     return smp.fromimage(Image.open(filename).convert("L"))
@@ -224,7 +232,7 @@ def write_complex_fits(base, fits, headerItems={}, overwrite=None):
         fits - Array to write.
         header - a pyfits.Header object. Defaults to empty.
         headerItems - A dictionary of items to be added to the header. This will overwrite items if they are already in the header.
-        overwrite - Weather to overwrite file. Defaults to false.
+        overwrite - Whether to overwrite file. Defaults to false.
     """
     writefits(base + "_imag.fits", numpy.imag(fits), headerItems, overwrite)
     writefits(base + "_real.fits", numpy.real(fits), headerItems, overwrite)
@@ -239,22 +247,29 @@ def write_mag_phase_fits(base, fits, header="", headerItems={}, overwrite=None):
         headerItems - A dictionary of items to be added to the header. This will overwrite items if they are already in the header.
         overwrite - Weather to overwrite file. Defaults to false.
     returns:
-        img - a complex-valued image 
+        img - a complex-valued array
     """
     writefits(base + "_mag.fits", numpy.abs(fits), headerItems, overwrite)
     writefits(base + "_phase.fits", numpy.angle(fits), headerItems, overwrite)
 
 def open_mag_phase_fits(base):
-    """ Open a complex array that was written to disk using writeMagPhase.
+    """ Open a complex array that was written to disk using write_mag_phase_fits.
 
     arguments:
         base - base filename; The function tries to find base + _{mag,phase}.fits
     returns:
-        img - a complex-valued image 
+        img - a complex-valued array
     """
     return openfits( base + "_mag.fits")*numpy.exp(complex(0,1)*openfits(base + "_phase.fits"))
     
 def open_complex_fits(base):
+    """ Open a complex array that was written to disk using write_complex_fits.
+
+    arguments:
+        base - base filename; The function tries to find base + _{real,imag}.fits
+    returns:
+        img - a complex-valued array
+    """
     return openfits(base + "_real.fits") + complex(0,1) * openfits( base + "_imag.fits" )
 
 def _labview_to_andor(img):
@@ -630,8 +645,8 @@ _save_maps = {
 }
 
 def _process_components(components):
-    """ pasrse the components array and try to figure out what components
-    want to be saved.
+    """ parse the components array and try to figure out what components
+    are to be saved.
     arguments:
         components - component string, list,set or tuple.
     returns:
