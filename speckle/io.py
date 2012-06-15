@@ -352,7 +352,20 @@ def open_photon_counting_fits(filename, correct=False, sort=False, quiet=True):
     return data
 
 def save_fits(filename, img, header={}, components=['mag'], overwrite=None):
-    """ Save components of an array as a fits file."""
+    """ Save components of an array as a fits file.
+    
+    arguments:
+        filename - path where data will be saved
+        img - ndarray to save at filename
+        header - pyfits.Header object. Default is empty
+        components - components of img to be saved. Must be supplied as a list.
+            available components are: 'mag', 'phase', 'real', 'imag', 'polar', 'cartesian'.
+            Default is ['mag']
+        overwrite - Whether to overwrite a file already existing at filename.
+            Default is False.
+    returns:
+        nothing. Will throw an exception if something wrong happens.
+    """
 
     exts = ['fits','jpg','gif','png','csv', 'jpeg','bmp']
     # remove any extension (if it exists)
@@ -363,11 +376,30 @@ def save_fits(filename, img, header={}, components=['mag'], overwrite=None):
         writefits(filename + "_" + c + ".fits", _save_maps[c](img), header, overwrite)
 
 def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None):
-    """ Save components of an array as desired filetype specified by file extension."""    
+    """ Save components of an array as desired filetype specified by file extension.
+    Basically, a wrapper to save_fits, save_image, write_text_array.
+    
+    arguments:
+        filename - path where data will be saved
+        data - ndarray to save at filename
+        header - pyfits.Header object. Default is empty
+        components - components of img to be saved. Must be supplied as a list.
+            available components are: 'mag', 'phase', 'real', 'imag', 'polar', 'cartesian'.
+            Default is ['mag']
+        color_map - If saving data as an image, the color map to use.  Options are 'L','A', 'B', 'SLS', 'HSV' and 'Rainbow'.
+            Default is 'L'.
+        delimiter - If saving data as a text file, the delimiter between data entries.
+            Default is '\t' (tab)
+        overwrite - Whether to overwrite a file already existing at filename.
+            Default is False.
+    returns:
+        nothing. Will throw an exception if something wrong happens.
+    """
+    
     # define extension types to control switching
-    img_exts  = ['jpg','jpeg','gif','png','bmp']
-    fits_exts = ['fits']
-    txt_exts  = ['txt','csv']
+    img_exts  = ('jpg','jpeg','gif','png','bmp')
+    fits_exts = ('fits')
+    txt_exts  = ('txt','csv')
     
     # get extension from filename
     assert len(filename.split('.')) >= 2, "filename appears to have no extension"
@@ -535,7 +567,7 @@ def save_image(filename, img, components=['mag'], color_map='L'):
         components - a list/string/set/tuple of components to save.  The function will append the name to the end and save the component.
         color_map - color map to use.  Options are 'A', 'B', 'SLS', 'HSV' and 'Rainbow'.
     returns:
-        nothing. Will throw an exception of something wrong happens.
+        nothing. Will throw an exception if something wrong happens.
     """
     
     # check to see if an image extension has been included.
