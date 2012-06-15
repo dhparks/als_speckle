@@ -37,7 +37,7 @@ def write_text_array(filename, array, header='', delimiter='\t'):
         filename - filename to write to
         array - array name to write
         header - A string to write before the file is written. Defaults to empty
-        delimiter - Delimiter to use. Defaults to tab ('\t')
+        delimiter - Delimiter to use. Defaults to tab ('\\t')
     returns:
         nothing.  It will throw an IOError if it cannot write the file
     """
@@ -47,7 +47,7 @@ def write_text_array(filename, array, header='', delimiter='\t'):
         writer = csv.writer(f, delimiter=delimiter)
         writer.writerows(array)
 
-def read_text_array(filename, convert_to=float, delimiter='\t'):
+def read_text_array(filename, convert_to='float', delimiter='\t'):
     """ wraps csv to read a tab seperated file. Returns a list of each line.
 
     arguments:
@@ -530,18 +530,27 @@ def get_fits_dimensions(filename):
 #
 ############### pickles #####################
 #
-def load_pickle(path):
+def load_pickle(filename):
+    """ Load a pickled file.
+    arguments:
+        filename - File to pickle.  This should be a pickled file.
+    returns:
+        the data in the pickle file
+    """
     import pickle
-    file = open(path,'rb')
-    data = pickle.load(file)
-    file.close()
-    return data
+    with open(filename,'rb') as f:
+        return pickle.load(f)
     
 def save_pickle(path,data):
+    """ Load a pickled file.
+    arguments:
+        filename - File to pickle.  This should be a pickled file.  This will overwrite the existing file if it exists.
+    returns:
+        no return value.  It throws an error if it is not successful.
+    """
     import pickle
-    file = open(path,'wb')
-    pickle.dump(data,file) # try to save the plan
-    file.close()
+    with open(path,'wb') as f:
+        pickle.dump(data,f)
 
 #
 ############### PNG #########################
@@ -717,35 +726,34 @@ def _draw_polygon(shapedesc, dim):
 
     return numpy.array(img)
 
-def open_ds9_mask(file, intersectionsRemovedFromMask = False):
+def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
     """ From a region file input construct a mask.
     arguments:
         file - region filename
-        intersectionsRemovedFromMask - if we want area where two regions intersect to count in the mask. Defaults to false.
+        intersectionsRemovedFromMask - Whether intersected regions should count as part of the mask. Defaults to false.
+
     returns:
         mask - binary mask of the regions
     """
-    f = open(file, "r")
-    
     shapes = []
-    aline = f.readline()
-    while aline:
-        if aline[0] == "#":
-            if aline.find("Filename:") != -1:
-                file = aline[len("# Filename:"):-1]
-                try:
-                    dim = get_fits_dimensions(file)
-                except IOError:
-                    dim = (1, 2048, 2048)
-
-            aline = f.readline()
-            continue
-
-        elif aline.split("(")[0] in ("box", "circle", "polygon", "ellipse", "annulus"):
-            shapes.append(aline[0:-1])
+    with open(filename, "r") as f:
         aline = f.readline()
-        
+        while aline:
+            if aline[0] == "#":
+                if aline.find("Filename:") != -1:
+                    file = aline[len("# Filename:"):-1]
+                    try:
+                        dim = get_fits_dimensions(file)
+                    except IOError:
+                        dim = (1, 2048, 2048)
     
+                aline = f.readline()
+                continue
+    
+            elif aline.split("(")[0] in ("box", "circle", "polygon", "ellipse", "annulus"):
+                shapes.append(aline[0:-1])
+            aline = f.readline()
+
     if len(dim) == 3: # cut down to 2d, ignore 3rd dimension
         dim = dim[1:]
     
