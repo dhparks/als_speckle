@@ -406,6 +406,126 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
     if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite)
     if ext in txt_exts:  write_text_array(filename,data,header=header)
 
+def open_fits_header(filename, card=0):
+    """    Open just the header from a filename.
+        arguments:
+            filename - file to open.
+            card - optional argument of the header card. Defaults to 0th card.
+        returns:
+            header - the header in the file.
+    """
+    import pyfits
+    return pyfits.getheader(filename, card)
+
+def get_fits_binning(filename):
+    """    get the Binning used in a FITS file.
+        arguments:
+            filename - the FITS file to open.
+        returns:
+            hbin, vbin - horizontal/vertical binning used.
+    """
+    try:
+        hb = get_fits_key(filename, 'HBIN')
+    except KeyError:
+        hb  = 1
+
+    try:
+        vb = get_fits_key(filename, 'VBIN')
+    except KeyError:
+        vb  = 1
+
+    return int(hb), int(vb)
+
+def get_fits_exposure(filename):
+    """    get the exposure time used in a FITS file.
+        arguments:
+            filename - the FITS file to open.
+        returns:
+            s - exposure time
+    """
+    try:
+        s = get_fits_key(filename, 'EXPOSURE')
+    except KeyError:
+        s = 0.0
+    return float(s)
+
+def get_fits_accumulations(filename):
+    """    get the # of accumulations used in a FITS file.
+        arguments:
+            filename - the FITS file to open.
+        returns:
+            # of accumulations. If it cannot find any it will return 1
+    """
+    try:
+        acc = get_fits_key(filename, 'NUMACC')
+    except KeyError:
+        acc = 1
+
+    return int(acc)
+
+def get_fits_key(filename, key):
+    """ Grabs a key from a FITS file. Searches cards for the key, and returns "no key" if it can't be found.
+        arguments:
+            filename - FITS file.
+            key - key to find.
+        returns:
+            value of the key.  If none is found, returns "no key"
+    """
+    error = "Cannot find key"
+    card = 0
+    while True:
+        try:
+            hdr = open_fits_header(filename, card)
+        except IndexError:
+            raise KeyError(error)
+
+        try:
+            val = hdr[key]
+        except KeyError:
+            card += 1
+            continue
+        else:
+            return val
+
+    raise KeyError(error)
+
+def get_fits_window(filename):
+    """    Gets the window or region of interest for a given image.
+        arguments:
+            filename - the FITS file to open.
+        returns:
+            (xmin, xmax, ymin, ymax) - min/max values in the x and y directions of the window.
+    """
+    # returns the subimage window that was used when the image was taken.
+    from string import split
+    hdr=open_fits_header(filename)
+    window = split(hdr['SUBRECT'], ',')
+    # note out of order here, ymax comes before ymin
+    (xmin, xmax, ymax, ymin) = (int(window[0]), int(window[1]), int(window[2]), int(window[3]))
+    return (xmin, xmax, ymin, ymax)
+
+def get_fits_kct(filename):
+    """ Gets the kinetic cycle time from the header.
+    """
+    hdr = open_fits_header(filename)
+    return hdr["KCT"]
+
+def get_fits_dimensions(filename):
+    """ Gets the dimenions of the FITS file from the header.
+        arguments:
+            filename - the FITS file to open.
+        returns:
+            (dim) - a list of the dimensions. The format is the same as the img.ndim command.
+    """
+    hdr = open_fits_header(filename)
+    naxes = hdr["NAXIS"]
+    dim = []
+    while(naxes != 0):
+        dim.append(hdr["NAXIS%d" % naxes])
+        naxes -= 1
+
+    return tuple(dim)
+
 #
 ############### pickles #####################
 #
