@@ -174,6 +174,14 @@ def openheader(filename, card=0):
     return pyfits.getheader(filename, card)
 
 def openimage(filename):
+    """ Open an image file using PIL. This is currently restricted to
+    greyscale images as the inverse colormap problem is difficult.
+    
+    arguments:
+        filename - path to file
+    returns:
+        integer ndarray"""
+    
     import Image
     import scipy.misc.pilutil as smp
     return smp.fromimage(Image.open(filename).convert("L"))
@@ -224,7 +232,7 @@ def write_complex_fits(base, fits, headerItems={}, overwrite=None):
         fits - Array to write.
         header - a pyfits.Header object. Defaults to empty.
         headerItems - A dictionary of items to be added to the header. This will overwrite items if they are already in the header.
-        overwrite - Weather to overwrite file. Defaults to false.
+        overwrite - Whether to overwrite file. Defaults to false.
     """
     writefits(base + "_imag.fits", numpy.imag(fits), headerItems, overwrite)
     writefits(base + "_real.fits", numpy.real(fits), headerItems, overwrite)
@@ -239,22 +247,29 @@ def write_mag_phase_fits(base, fits, header="", headerItems={}, overwrite=None):
         headerItems - A dictionary of items to be added to the header. This will overwrite items if they are already in the header.
         overwrite - Weather to overwrite file. Defaults to false.
     returns:
-        img - a complex-valued image 
+        img - a complex-valued array
     """
     writefits(base + "_mag.fits", numpy.abs(fits), headerItems, overwrite)
     writefits(base + "_phase.fits", numpy.angle(fits), headerItems, overwrite)
 
 def open_mag_phase_fits(base):
-    """ Open a complex array that was written to disk using writeMagPhase.
+    """ Open a complex array that was written to disk using write_mag_phase_fits.
 
     arguments:
         base - base filename; The function tries to find base + _{mag,phase}.fits
     returns:
-        img - a complex-valued image 
+        img - a complex-valued array
     """
     return openfits( base + "_mag.fits")*numpy.exp(complex(0,1)*openfits(base + "_phase.fits"))
     
 def open_complex_fits(base):
+    """ Open a complex array that was written to disk using write_complex_fits.
+
+    arguments:
+        base - base filename; The function tries to find base + _{real,imag}.fits
+    returns:
+        img - a complex-valued array
+    """
     return openfits(base + "_real.fits") + complex(0,1) * openfits( base + "_imag.fits" )
 
 def _labview_to_andor(img):
@@ -337,7 +352,20 @@ def open_photon_counting_fits(filename, correct=False, sort=False, quiet=True):
     return data
 
 def save_fits(filename, img, header={}, components=['mag'], overwrite=None):
-    """ Save components of an array as a fits file."""
+    """ Save components of an array as a fits file.
+    
+    arguments:
+        filename - path where data will be saved
+        img - ndarray to save at filename
+        header - pyfits.Header object. Default is empty
+        components - components of img to be saved. Must be supplied as a list.
+            available components are: 'mag', 'phase', 'real', 'imag', 'polar', 'cartesian'.
+            Default is ['mag']
+        overwrite - Whether to overwrite a file already existing at filename.
+            Default is False.
+    returns:
+        nothing. Will throw an exception if something wrong happens.
+    """
 
     exts = ['fits','jpg','gif','png','csv', 'jpeg','bmp']
     # remove any extension (if it exists)
@@ -348,11 +376,30 @@ def save_fits(filename, img, header={}, components=['mag'], overwrite=None):
         writefits(filename + "_" + c + ".fits", _save_maps[c](img), header, overwrite)
 
 def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None):
-    """ Save components of an array as desired filetype specified by file extension."""    
+    """ Save components of an array as desired filetype specified by file extension.
+    Basically, a wrapper to save_fits, save_image, write_text_array.
+    
+    arguments:
+        filename - path where data will be saved
+        data - ndarray to save at filename
+        header - pyfits.Header object. Default is empty
+        components - components of img to be saved. Must be supplied as a list.
+            available components are: 'mag', 'phase', 'real', 'imag', 'polar', 'cartesian'.
+            Default is ['mag']
+        color_map - If saving data as an image, the color map to use.  Options are 'L','A', 'B', 'SLS', 'HSV' and 'Rainbow'.
+            Default is 'L'.
+        delimiter - If saving data as a text file, the delimiter between data entries.
+            Default is '\t' (tab)
+        overwrite - Whether to overwrite a file already existing at filename.
+            Default is False.
+    returns:
+        nothing. Will throw an exception if something wrong happens.
+    """
+    
     # define extension types to control switching
-    img_exts  = ['jpg','jpeg','gif','png','bmp']
-    fits_exts = ['fits']
-    txt_exts  = ['txt','csv']
+    img_exts  = ('jpg','jpeg','gif','png','bmp')
+    fits_exts = ('fits')
+    txt_exts  = ('txt','csv')
     
     # get extension from filename
     assert len(filename.split('.')) >= 2, "filename appears to have no extension"
@@ -520,7 +567,7 @@ def save_image(filename, img, components=['mag'], color_map='L'):
         components - a list/string/set/tuple of components to save.  The function will append the name to the end and save the component.
         color_map - color map to use.  Options are 'A', 'B', 'SLS', 'HSV' and 'Rainbow'.
     returns:
-        nothing. Will throw an exception of something wrong happens.
+        nothing. Will throw an exception if something wrong happens.
     """
     
     # check to see if an image extension has been included.
@@ -630,8 +677,8 @@ _save_maps = {
 }
 
 def _process_components(components):
-    """ pasrse the components array and try to figure out what components
-    want to be saved.
+    """ parse the components array and try to figure out what components
+    are to be saved.
     arguments:
         components - component string, list,set or tuple.
     returns:

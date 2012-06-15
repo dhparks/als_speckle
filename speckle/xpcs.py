@@ -259,13 +259,17 @@ def g2_numerator(img, onetau):
     return numerator
 
 def g2_numerator_fft(img,taus=None):
-    """ Calculates <I(t) I(t + tau)>_t for specified values of tau via fft autocorrelation method. For large N this may be significantly faster than the g2_numerator function, but for small N or a small number of tau the g2_numerator function may be faster.
+    """ Calculates <I(t) I(t + tau)>_t for specified values of tau via fft autocorrelation method.
+    For large N this may be significantly faster than the g2_numerator function, but for small N
+    or a small number of tau the g2_numerator function may be faster.
     
-    If data sets are very large this function may lead to malloc errors, necessitating fallback to g2_numerator or more sophisticated handling of the dataset.
+    If data sets are very large this function may lead to malloc errors, necessitating fallback to
+    g2_numerator or more sophisticated handling of the dataset.
     
     arguments:
         img - data to caclculate g2.  Must be 3d.
-        taus - iterable set of tau values where you want g2. all taus are evaluated by the fft so a limited set of taus does not provide a speed up.
+        taus - iterable set of tau values where you want g2.
+            All taus are evaluated by the fft so a limited set of taus does not provide a speed up.
     returns:
         numerator - g2 numerator calculated for requested tau values.
     """
@@ -275,6 +279,8 @@ def g2_numerator_fft(img,taus=None):
     IDFT = numpy.fft.ifftn
     DFT = numpy.fft.fftn
 
+    # fft is cyclic so the data must be zero-padded to prevent the data
+    # from wrapping around inappropriately.
     img2       = np.zeros((2*fr,ys,xs),float)
     img2[0:fr] = img
     numerator  = abs(IDFT(abs(DFT(img2,axes=(0,)))**2,axes=(0,)))[0:fr]
