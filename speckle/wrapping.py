@@ -4,7 +4,7 @@ def unwrap_plan(r,R,center,max_angle=None):
     """ Make the array which constitutes the unwrap plan. This is then passed
     to the actual unwrap function along with the array to be unwrapped. Generating
     a separate plan results in serious speed improvements if the unwrap plan
-    is always the same
+    is always the same.
     
     Required inputs:
     r: the interior radius if the unwrapping annulus. float or int.
@@ -18,15 +18,15 @@ def unwrap_plan(r,R,center,max_angle=None):
     Returns:
     plan - an array object that contains the unwrapping plan.
     """
-    assert type(r) in (float, int), "r must be int or float"
-    assert type(R) in (float, int), "R must be int or float"
+    assert isinstance(r, (float, int)), "r must be int or float"
+    assert isinstance(R, (float, int)), "R must be int or float"
     assert r >= 0, "r must be >= 0"
-    assert type(center) in (list, tuple, set) and len(center) == 2, "center must be 2-tuple"
+    assert isinstance(center, (list, tuple, set)) and len(center) == 2, "center must be 2-tuple"
     # don't bother checking if center is int, just cast it. Found out that numpy.int64 type is not considered IntType
     center = [int(i) for i in center]
 
     if max_angle == None: max_angle = 2*scipy.pi
-    assert type(max_angle) in (float, int), "max_angle must be float"
+    assert isinstance(max_angle, (float, int)), "max_angle must be float"
     max_angle = float(max_angle)
 
     # setup up polar arrays
@@ -78,8 +78,8 @@ def wrap_plan(r,R,max_angle=None):
     Returns:
     plan - a ndarray plan of coordinate wrapping map.  To be used in wrap_with_plan.
     """
-    assert type(R) in (int, float), "R must be float or int"
-    assert type(r) in (int, float), "r must be float or int"
+    assert isinstance(R, (int, float)), "R must be float or int"
+    assert isinstance(r, (int, float)), "r must be float or int"
     if max_angle == None: max_angle = 2*scipy.pi
     assert isinstance(max_angle,float), "max_angle must be float"
     

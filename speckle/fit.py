@@ -80,6 +80,13 @@ class OneDimFit():
             print "Error: No solution found!"
             self.final_params_errors = np.zeros_like(self.params)
 
+    def get_fwhm(self):
+        hm    = self.params[0]/2.+self.params[3]
+        right = self.xdata[abs(self.ydata[:self.params[1]]-hm).argmin()]
+        left  = self.xdata[abs(self.ydata[self.params[1]:]-hm).argmin()]
+        self.fwhm = abs(left-right)
+        
+
     def format_results(self, header=True, outfile=None):
         """ Format the final, fitting data for printing or writing to disk.
 
@@ -121,10 +128,14 @@ class OneDimFit():
 def linear(data):
     """ fit a function to a line.  This fits the function:
         f(x) = a * x + b
+        
     arguments:
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+        
     returns:
-        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+        result - a fit class that contains the final fit.  This object has various
+        self-descriptive parameters, the most useful of which are result.final_params
+        and result.final_params_errors.
     """
     class Linear(OneDimFit):
         def __init__(self, data):
@@ -153,7 +164,9 @@ def decay_exp_beta_sq(data):
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
 
     returns:
-        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+        result - a fit class that contains the final fit.  This object has various
+        self-descriptive parameters, the most useful of which are result.final_params
+        and result.final_params_errors.
     """
     class DecayExpBetaSq(OneDimFit):
         def __init__(self, data):
@@ -189,7 +202,9 @@ def decay_exp_beta(data):
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
 
     returns:
-        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+        result - a fit class that contains the final fit.  This object has various
+        self-descriptive parameters, the most useful of which are result.final_params
+        and result.final_params_errors.
     """
     class DecayExpBeta(OneDimFit):
         def __init__(self, data):
@@ -224,7 +239,9 @@ def decay_exp(data):
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
 
     returns:
-        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+        result - a fit class that contains the final fit.  This object has various
+        self-descriptive parameters, the most useful of which are result.final_params
+        and result.final_params_errors.
     """
     class DecayExp(OneDimFit):
 
@@ -259,7 +276,9 @@ def gaussian(data):
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
 
     returns:
-        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+        result - a fit class that contains the final fit.  This object has various
+        self-descriptive parameters, the most useful of which are result.final_params
+        and result_final_params_errors.
     """
     class Gaussian(OneDimFit):
 
@@ -279,7 +298,10 @@ def gaussian(data):
             self.params[3] = (self.ydata[0] + self.ydata[-1]) / 2.0
             self.params[0] = self.ydata.max() - self.params[3]
             self.params[1] = self.xdata[self.ydata.argmax()]
-            self.params[2] = len(self.ydata) / 3.0 # no idea how to guess the width
+            
+            # width is always some function-dependent multiple of fwhm
+            self.get_fwhm()
+            self.params[2] = self.fwhm/2.35 #2.35 = 1/(2*sqrt(2*ln(2)))
 
     fit = Gaussian(data)
     fit.fit()
@@ -293,7 +315,9 @@ def lorentzian(data):
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
 
     returns:
-        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+        result - a fit class that contains the final fit.  This object has various
+        self-descriptive parameters, the most useful of which are result.final_params
+        and resul_final_params_errors.
     """
     class Lorentzian(OneDimFit):
 
@@ -314,9 +338,52 @@ def lorentzian(data):
             self.params[3] = (self.ydata[0] + self.ydata[-1]) / 2.0
             self.params[0] = self.ydata.max() - self.params[3]
             self.params[1] = self.xdata[self.ydata.argmax()]
-            self.params[2] = len(self.ydata) / 3.0 # no idea how to guess the width
+            
+            # width is always some function-dependent multiple of fwhm
+            self.get_fwhm()
+            self.params[2] = self.fwhm/2.
 
     fit = Lorentzian(data)
+    fit.fit()
+    return fit
+
+def lorentzian_sq(data):
+    """ fit a function to a squared lorentzian.  This fits the function:
+        f(x) = a/((x-x0)**2/w**2+1)**2+bg
+
+    arguments:
+        data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+
+    returns:
+        result - a fit class that contains the final fit.  This object has various
+        self-descriptive parameters, the most useful of which are result.final_params
+        and result_final_params_errors.
+    """
+    class LorentzianSq(OneDimFit):
+
+        def __init__(self, data):
+            OneDimFit.__init__(self, data)
+            self.functional = "a/((x-x0)**2/w**2+1)**2+bg"
+            self.params_map ={ 0:"a", 1:"x0", 2:"w", 3:"bg"}
+
+        def fit_function(self):
+            a, x0, w, bg = self.params
+            # checks to return high numbers if parameters are getting out of hand.
+            #if ( gam > 0 ): return np.ones_like(self.xdata) * self.try_again
+            return a/((self.xdata-x0)**2./w**2.+1)**2.+bg
+
+        def guess_parameters(self):
+            self.params = np.zeros(4)
+            
+            self.params[3] = abs(self.ydata).min()              # bg
+            self.params[0] = self.ydata.max() - self.params[3]  # scale
+            self.params[1] = self.xdata[self.ydata.argmax()]    # center x0
+            
+            # width is always some function-dependent multiple of fwhm
+            self.get_fwhm()
+            self.params[2] = self.fwhm/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
+
+    fit = LorentzianSq(data)
     fit.fit()
     return fit
 
