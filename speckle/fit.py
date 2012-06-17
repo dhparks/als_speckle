@@ -81,12 +81,14 @@ class OneDimFit():
             self.final_params_errors = np.zeros_like(self.params)
 
     def get_fwhm(self):
+
+        # a more accurate estimate can be obtained by doing some sort of linear interpolation
+        # in the neighborhood of the left and right solution but this seems like overkill
         hm    = self.params[0]/2.+self.params[3]
-        right = self.xdata[abs(self.ydata[:self.params[1]]-hm).argmin()]
-        left  = self.xdata[abs(self.ydata[self.params[1]:]-hm).argmin()]
+        left  = self.xdata[abs(self.ydata[:self.params[1]]-hm).argmin()]
+        right = self.xdata[abs(self.ydata[self.params[1]:]-hm).argmin()+self.params[1]]
         self.fwhm = abs(left-right)
         
-
     def format_results(self, header=True, outfile=None):
         """ Format the final, fitting data for printing or writing to disk.
 
@@ -341,7 +343,7 @@ def lorentzian(data):
             
             # width is always some function-dependent multiple of fwhm
             self.get_fwhm()
-            self.params[2] = self.fwhm/2.
+            self.params[2] = self.fwhm/2. # this might not be the right constant for the current definition
 
     fit = Lorentzian(data)
     fit.fit()
