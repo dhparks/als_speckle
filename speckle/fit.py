@@ -7,7 +7,7 @@ import numpy as np
 from scipy.optimize import leastsq
 
 class OneDimFit():
-    def __init__(self, data):
+    def __init__(self, data, mask=None):
         # These parameters should be filled out by the child class.
         self.functional = "f(x) = a*x + b"
         self.params_map ={ 0:"a", 1:"b"}
@@ -38,6 +38,12 @@ class OneDimFit():
             self.data = data
             self.try_again = np.ones_like(self.data) * 1e30
 
+        if mask is None:
+            self.mask = np.ones_like(self.data)
+        else:
+            assert mask.shape == self.data.shape, "mask and data are different shapes"
+            self.mask = np.where(mask, 1, 0)
+
         self.ys, self.xs = data.shape
 
     def fit_function(self):
@@ -55,7 +61,7 @@ class OneDimFit():
         """
         if params is not None:
             self.params = params
-        return np.ravel((self.data - self.fit_function()))
+        return np.ravel((self.data - self.fit_function())*self.mask)
 
     def fit(self):
         """ Fit data using fit_function().  This calls scipy.optimize.leastsq().
