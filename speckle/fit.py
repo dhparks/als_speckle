@@ -155,6 +155,24 @@ class OneDimPeak(OneDimFit):
 
         return abs(left-right)
 
+class TwoDimPeak(OneDimFit):
+    """ Child of the OneDimFit class that has a FWHM estimation fitting routine created for two dimensional
+    Depending on the function, the FWHM estimated needs to be multipled by a factor to get to the correct parameter.
+    """
+    def __init__(self, *args, **kwargs):
+        OneDimFit.__init__(self, *args, **kwargs)
+
+    def estimate_fwhm(self):
+        # a more accurate estimate can be obtained by doing some sort of linear interpolation in the neighborhood of the left and right solution but this seems like overkill.
+        hm = (self.data.max() - self.data.min())/2.0
+        yargmax, xargmax = np.unravel_index(self.data.argmax(), self.data.shape)
+
+        lx = abs(self.data[yargmax,:xargmax-1] - hm).argmin()
+        rx = abs(self.data[yargmax,xargmax+1:] - hm).argmin()
+        ly = abs(self.data[:yargmax-1,xargmax] - hm).argmin()
+        ry = abs(self.data[yargmax+1:,xargmax] - hm).argmin()
+        return abs(lx - rx), abs(ly-ry)
+
 def linear(data):
     """ fit a function to a line.  This fits the function:
         f(x) = a * x + b
@@ -408,6 +426,42 @@ def lorentzian_sq(data):
             self.params[2] = self.estimate_fwhm()/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
 
     fit = LorentzianSq(data)
+    fit.fit()
+    return fit
+
+def gaussian_2d(data):
+    """ fit a function to a two-dimensional Gaussian.  This fits the function:
+        f(x) = a exp(-(x-x0)^2/(2*sigma_x^2) - (y-y0)^2/(2*sigma_y^2)) + shift
+
+        result - a fit class that contains the final fit.  This object has various self descriptive parameters, the most useful are result.final_params and resul_final_params_errors.
+    """
+    class Gaussian2D(TwoDimPeak):
+        def __init__(self, data):
+            TwoDimPeak.__init__(self, data)
+            self.functional = "a exp(-(x-x0)^2/(2*sigmay^2) - (y-y0)^2/(2*sigmay^2)) + shift"
+            self.params_map ={ 0:"a", 1:"x0", 2:"sigmax", 3:"y0", 4:"sigmay", 5:"shift"}
+
+        def fit_function(self):
+            a, x0, sigmax, y0, sigmay, shift = self.params
+            if ( sigmax < 0 or sigmay < 0): return self.try_again
+            gauss = lambda val, x0, sx: np.exp(-(self.xvals-x0)**2/(2*sx**2))
+            res = np.outer(gauss(self.xvals, x0, sigmax), gauss(self.yvals, y0, sigmay) )
+            return res*(a - shift)/res.max() + shift
+
+        def guess_parameters(self):
+            self.params = np.zeros(6)
+            sd = self.data
+            sp = self.params
+            # average the outside corner values
+            sp[5] = np.average(np.concatenate((sd[:,0], sd[:,-1], sd[-1,:], sd[0,:])))
+            sp[0] = sd.max() - sp[5]
+            sp[1], sp[3] = np.unravel_index(sd.argmax(), sd.shape)
+            sp[2], sp[4] = self.estimate_fwhm()
+            sp[2] = sp[2]/(2*np.sqrt(2*np.log(2)))
+            sp[4] = sp[4]/(2*np.sqrt(2*np.log(2)))
+
+
+    fit = Gaussian2D(data)
     fit.fit()
     return fit
 
