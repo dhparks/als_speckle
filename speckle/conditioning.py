@@ -2,6 +2,10 @@
 # I expect most of this code will be mostly experiment-specific but at least some may be relatively
 # universal (ie, alignment or dust-removal).
 
+import scipy
+from scipy.fftpack import fft2 as DFT
+from scipy.fftpack import ifft2 as IDFT
+
 def covariance_matrix(data,save_memory=False):
     
     """ Given 3d data, cross-correlates every frame with every other frame. This is useful
@@ -17,11 +21,6 @@ def covariance_matrix(data,save_memory=False):
     Returns:
         a 2d ndarray of normalized covariances max values where returned[row,col] is the
         cross-correlation max of frames data[row] and data[col]"""
-        
-        
-    import scipy
-    from scipy.fftpack import fft2 as DFT
-    from scipy.fftpack import ifft2 as IDFT
         
     assert type(data) == scipy.ndarray and data.ndim == 3, "data must be 3d ndarray"
     
@@ -56,7 +55,7 @@ def covariance_matrix(data,save_memory=False):
             
     return covars
 
-def remove_dust(data,dust_mask,plan=None):
+def remove_dust(data,dust_mask,dust_plan=None):
     import scipy
     
     """ Attempts to remove dust and burn marks from CCD images by interpolating in regions marked as
@@ -75,7 +74,7 @@ def remove_dust(data,dust_mask,plan=None):
         1 - plan unique to dust_mask which can be passed again for re-use."""
     
     # import required libraries
-    import scipy
+    import scipy,numpy
     import pickle,io2
     from os.path import isfile
     from scipy.signal import cspline1d, cspline1d_eval
@@ -85,8 +84,9 @@ def remove_dust(data,dust_mask,plan=None):
     assert data.ndim in (2,3),                   "data must be 2d or 3d"
     assert isinstance(dust_mask,numpy.ndarray),  "plan must be ndarray"
           
-    if plan == None:
-        plan = plan_remove_dust(dust_mask)
+    if dust_plan == None:
+        dust_plan = plan_remove_dust(dust_mask)
+    #print "    %s entries in the dust plan"%(len(dust_plan))
 
     # because this function accepts both 2d and 3d functions the easiest solution is to upcast 2d arrays
     # to 3d arrays with frame axis of length 1
@@ -100,7 +100,7 @@ def remove_dust(data,dust_mask,plan=None):
     
         interpolated_values = scipy.zeros_like(frame)
 
-        for n,entry in enumerate(plan):
+        for n,entry in enumerate(dust_plan):
     
             # warning to self:
             # this code works and relies intimately on the format of what comes out of remove_dust_plan which i've now forgotten. probably i should
@@ -137,7 +137,7 @@ def remove_dust(data,dust_mask,plan=None):
         data[z] = frame*(1.-dust_mask)+dust_mask*interpolated_values
 
     if was_2d: data = data[0]
-    return data, plan
+    return data, dust_plan
 
 def plan_remove_dust(Mask):
     # find which pixels need to be interpolated based on Mask. based on knowledge of the pixels
@@ -193,13 +193,11 @@ def plan_remove_dust(Mask):
 
 def subtract_background(data,dark=None,x=20,scale=1):
     """Subtract a background file. The DC component of both files is subtracted first."""
-    
-    import scipy
-    
+
     # check types
     assert type(data) == scipy.ndarray, "data must be ndarray"
     assert data.ndim in [2,3], "data must be 2d or 3d"
-    assert type(dark) in [None,scipy.ndarray], "dark must be None or ndarray"
+    assert isinstance(dark,(type(None),scipy.ndarray)), "dark must be None or ndarray"
     if type(dark) == scipy.ndarray:
         assert dark.ndim == 2, "dark must be 2d"
         assert data.shape[-2:] == dark.shape, "data and dark must be same shape"
@@ -226,15 +224,26 @@ def subtract_background(data,dark=None,x=20,scale=1):
 def hot_pixels(data,i=1,t=2):
     """A basic hot pixel remover which uses scipy.medfilt to define hot pixels as those
     which exceed a certain multiple of the local median. Slow for large arrays; this operation
-    would probably benefit a great deal from GPU acceleration."""
+    would probably benefit a great deal from GPU acceleration.
     
+    Required:
+        data -- 2d or 3d array from which hot pixels will be removed
+        
+    Optional:
+        i -- number of iterations to run the smoother. Default is 1.
+        t -- threshold to specify when pixels are hot. When a pixel has
+            value greater than t*median, it is replaced by the median.
+            Default is 2.
     
-    import scipy
+    """
+    
     from scipy.signal import medfilt
     
     # check types
-    assert type(data) == scipy.ndarray, "data must be ndarray"
+    assert isinstance(data,scipy.ndarray), "data must be ndarray"
     assert data.ndim in (2,3), "data must be 2d or 3d"
+    assert isinstance(i,int), "number of iterations must be integer"
+    assert isinstance(t, (int,float)), "threshold must be float or int"
     
     was_2d = False
     if data.ndim == 2:
@@ -246,6 +255,84 @@ def hot_pixels(data,i=1,t=2):
             median = medfilt(frame)+.1
             Q = scipy.where(frame/median > t,1,0)
             data[z] = frame*(1-Q)+median*Q
-            
+
     if was_2d: data = data[0]
     return data
+    
+def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='data'):
+    
+    """ Align a set of data frames by FFT/cross-correlation method.
+    
+    Required input:
+    data -- A 2d or 3d ndarray. Probably this needs to be real-valued, not complex.
+    
+    Optional arguments:
+        align_to -- A 2d array used as the alignment reference. If None, data must
+                    be 3d and the first frame of data will be the reference. Default is None
+                
+        region -- A 2d mask which specifies which data to use in the cross correlation. If None,
+                  all pixels will contribute equally to the alignment. Default is None.
+        
+        use_mag_only -- Do alignment using only the magnitude component of data. Default is False.
+                  
+        return_type -- align_frames is called from multiple places, and expectations of what is
+                       returned vary. Returned can be aligned data, aligned and summed data, or
+                       just the alignment coordinates; keywords for these are 'data', 'sum', and
+                       'coordinates', respectively. Default is 'data'.
+              
+    Returns: an array of shape and dtype identical to data, data summed along the 0 axis, or a
+             list of alignment coordinates depending on return_type argument."""
+    
+    # check types
+    assert isinstance(data,scipy.ndarray),                        "data to align must be an array"
+    assert isinstance(align_to,(type(None),scipy.ndarray)),       "align_to must be an array or None"
+    assert isinstance(region,(type(None),scipy.ndarray)),         "region must be an array or None"
+    assert use_mag_only in (0,1,True,False),                      "use_mag_only must be boolean-evaluable"
+    assert return_type in ('data','sum','coordinates'),           "return_type must be 'data', 'sum', or 'coordinates'; 'data' is default"
+    if data.ndim == 2: assert isinstance(align_to,scipy.ndarray), "data is 2d; need an explicit alignment reference"
+    if data.ndim == 2 and return_type == 'sum': print             "summing 2d data is non-sensical" # not an assert!
+
+    # cast 2d to 3d so the loop below is simpler
+    was_2d = False
+    if data.ndim == 2:
+        was_2d = True
+        data.shape = (1,data.shape[0],data.shape[1])
+    print data.shape
+        
+    # check some more assumptions
+    if region != None: assert region.shape == data[0].shape,      "region and data frames must be same shape"
+    if align_to != None: assert align_to.shape == data[0].shape,  "align_to and data frames must be same shape"
+
+    # set up explicit region and align_to in case of None
+    if align_to == None: align_to = data[0]
+    if region == None:   region = scipy.ones_like(align_to)
+    rows, cols = align_to.shape
+    
+    # for speed, precompute the reference dft
+    if use_mag_only: dft_0 = scipy.conjugate(DFT(abs(align_to)*region))
+    if not use_mag_only: dft_0 = scipy.conjugate(DFT(align_to*region))
+    
+    # first, get the alignment coordinates for each frame in data by cross-correlation
+    coordinates = []   
+    for n,frame in enumerate(data):
+        if use_mag_only: dft_n = DFT(abs(frame)*region)
+        if not use_mag_only: dft_n = DFT(frame*region)
+        cc_max = abs(IDFT(dft_n*dft_0)).argmax()
+        max_row,max_col = cc_max/cols,cc_max%cols
+        if max_row > data.shape[1]/2: max_row += -data.shape[1] # modulo arithmetic for cyclic BCs
+        if max_col > data.shape[2]/2: max_col += -data.shape[2]
+        coordinates.append([-max_row,-max_col])
+        
+    # now return the data according to return_type
+    if return_type == 'coordinates': return coordinates
+    
+    # align data frames by rolling
+    for n,frame in enumerate(data):
+        max_row, max_col = coordinates[n]
+        data[n] = scipy.roll(scipy.roll(data[n],max_row,axis=0),max_col,axis=1)
+        
+    if return_type == 'data':
+        if was_2d: data = data[0]
+        return data
+    
+    if return_type == 'sum': return scipy.sum(data,axis=0) 
