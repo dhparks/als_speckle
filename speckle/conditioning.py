@@ -291,13 +291,18 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     assert return_type in ('data','sum','coordinates'),           "return_type must be 'data', 'sum', or 'coordinates'; 'data' is default"
     if data.ndim == 2: assert isinstance(align_to,scipy.ndarray), "data is 2d; need an explicit alignment reference"
     if data.ndim == 2 and return_type == 'sum': print             "summing 2d data is non-sensical" # not an assert!
+    
+    # define some simple helper functions to improve readability
+    if use_mag_only: dft2 = lambda x: DFT(abs(x))
+    if not use_mag_only: dft2 = lambda x, r: DFT(x)
+    corr_max = lambda x,y: abs(IDFT(x*y)).argmax() # the incoming frames have both been ffted already
+    rolls = lambda d, r0, r1: scipy.roll(scipy.roll(d,r0,axis=0),r1,axis=1)
 
-    # cast 2d to 3d so the loop below is simpler
+    # cast 2d to 3d so the loops below are simpler
     was_2d = False
     if data.ndim == 2:
         was_2d = True
         data.shape = (1,data.shape[0],data.shape[1])
-    print data.shape
         
     # check some more assumptions
     if region != None: assert region.shape == data[0].shape,      "region and data frames must be same shape"
@@ -309,15 +314,14 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     rows, cols = align_to.shape
     
     # for speed, precompute the reference dft
-    if use_mag_only: dft_0 = scipy.conjugate(DFT(abs(align_to)*region))
-    if not use_mag_only: dft_0 = scipy.conjugate(DFT(align_to*region))
+    dft_0 = scipy.conjugate(dft2(align_to*region))
     
-    # first, get the alignment coordinates for each frame in data by cross-correlation
-    coordinates = []   
+    # first, get the alignment coordinates for each frame in data by the argmax of the cross
+    # correlation with the reference
+    coordinates = []
     for n,frame in enumerate(data):
-        if use_mag_only: dft_n = DFT(abs(frame)*region)
-        if not use_mag_only: dft_n = DFT(frame*region)
-        cc_max = abs(IDFT(dft_n*dft_0)).argmax()
+        dft_n = dft2(frame*region)
+        cc_max = corr_max(dft_n,dft_0)
         max_row,max_col = cc_max/cols,cc_max%cols
         if max_row > data.shape[1]/2: max_row += -data.shape[1] # modulo arithmetic for cyclic BCs
         if max_col > data.shape[2]/2: max_col += -data.shape[2]
@@ -328,8 +332,8 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     
     # align data frames by rolling
     for n,frame in enumerate(data):
-        max_row, max_col = coordinates[n]
-        data[n] = scipy.roll(scipy.roll(data[n],max_row,axis=0),max_col,axis=1)
+        rr, rc = coordinates[n]
+        data[n] = rolls(data[n],rr,rc)
         
     if return_type == 'data':
         if was_2d: data = data[0]
