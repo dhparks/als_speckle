@@ -5,7 +5,7 @@ def init():
     GPU in the list. Multi-GPU computers is too esoteric to consider."""
     
     platforms = pyopencl.get_platforms()
-    device    = platforms[0].get_devices(cl.device_type.GPU)[0]
+    device    = platforms[0].get_devices(pyopencl.device_type.GPU)[0]
     context   = pyopencl.Context([device])
     queue     = pyopencl.CommandQueue(context)
     return context,device,queue
