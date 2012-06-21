@@ -3,8 +3,8 @@
 # universal (ie, alignment or dust-removal).
 
 import numpy
-from numpy.fft import fft2 as DFT
-from numpy.fft import ifft2 as IDFT
+DFT = numpy.fft.fft2
+IDFT = numpy.fft.ifft2
 
 def covariance_matrix(data,save_memory=False):
     
@@ -22,7 +22,7 @@ def covariance_matrix(data,save_memory=False):
         a 2d ndarray of normalized covariances max values where returned[row,col] is the
         cross-correlation max of frames data[row] and data[col]"""
         
-    assert type(data) == numpy.ndarray and data.ndim == 3, "data must be 3d ndarray"
+    assert isinstance(data, numpy.ndarray) and data.ndim == 3, "data must be 3d ndarray"
     
     frames = data.shape[0]
     dfts = numpy.zeros_like(data).astype('complex')
@@ -70,7 +70,7 @@ def remove_dust(data,dust_mask,dust_plan=None):
     Returns:
         0 - fixed data
         1 - plan unique to dust_mask which can be passed again for re-use."""
-    
+
     from scipy.signal import cspline1d, cspline1d_eval
 
     # check initial types
@@ -78,9 +78,7 @@ def remove_dust(data,dust_mask,dust_plan=None):
     assert data.ndim in (2,3),                   "data must be 2d or 3d"
     assert isinstance(dust_mask,numpy.ndarray),  "plan must be ndarray"
           
-    if dust_plan == None:
-        dust_plan = plan_remove_dust(dust_mask)
-    #print "    %s entries in the dust plan"%(len(dust_plan))
+    if dust_plan == None: dust_plan = plan_remove_dust(dust_mask)
 
     # because this function accepts both 2d and 3d functions the easiest solution is to upcast 2d arrays
     # to 3d arrays with frame axis of length 1
@@ -187,10 +185,10 @@ def subtract_background(data,dark=None,x=20,scale=1):
     """Subtract a background file. The DC component of both files is subtracted first."""
 
     # check types
-    assert type(data) == numpy.ndarray, "data must be ndarray"
-    assert data.ndim in [2,3], "data must be 2d or 3d"
+    assert isinstance(data,numpy.ndarray), "data must be ndarray"
+    assert data.ndim in (2,3), "data must be 2d or 3d"
     assert isinstance(dark,(type(None),numpy.ndarray)), "dark must be None or ndarray"
-    if type(dark) == numpy.ndarray:
+    if isinstance(dark,numpy.ndarray):
         assert dark.ndim == 2, "dark must be 2d"
         assert data.shape[-2:] == dark.shape, "data and dark must be same shape"
     
@@ -283,49 +281,51 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     assert return_type in ('data','sum','coordinates'),           "return_type must be 'data', 'sum', or 'coordinates'; 'data' is default"
     if data.ndim == 2: assert isinstance(align_to,numpy.ndarray), "data is 2d; need an explicit alignment reference"
     if data.ndim == 2 and return_type == 'sum': print             "summing 2d data is non-sensical" # not an assert!
+    
+    # define some simple helper functions to improve readability
+    if use_mag_only: dft2 = lambda x: DFT(abs(x))
+    if not use_mag_only: dft2 = lambda x: DFT(x)
+    corr_max = lambda x,y: abs(IDFT(x*y)).argmax() # the incoming frames have both been ffted already
+    rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
 
-    # cast 2d to 3d so the loop below is simpler
-    was_2d = False
+    # cast 2d to 3d so the loops below are simpler
+    was2d = False
     if data.ndim == 2:
-        was_2d = True
+        was2d = True
         data.shape = (1,data.shape[0],data.shape[1])
-    print data.shape
-        
+    frames, rows, cols = data.shape
+    
     # check some more assumptions
-    if region != None: assert region.shape == data[0].shape,      "region and data frames must be same shape"
-    if align_to != None: assert align_to.shape == data[0].shape,  "align_to and data frames must be same shape"
+    if region != None:   assert region.shape == (rows,cols),    "region and data frames must be same shape"
+    if align_to != None: assert align_to.shape == (rows,cols),  "align_to and data frames must be same shape"
 
     # set up explicit region and align_to in case of None
     if align_to == None: align_to = data[0]
     if region == None:   region = numpy.ones_like(align_to)
-    rows, cols = align_to.shape
-    
     # for speed, precompute the reference dft
-    if use_mag_only: dft_0 = numpy.conjugate(DFT(abs(align_to)*region))
-    if not use_mag_only: dft_0 = numpy.conjugate(DFT(align_to*region))
+    dft_0 = numpy.conjugate(dft2(align_to*region))
     
-    # first, get the alignment coordinates for each frame in data by cross-correlation
-    coordinates = []   
-    for n,frame in enumerate(data):
-        if use_mag_only: dft_n = DFT(abs(frame)*region)
-        if not use_mag_only: dft_n = DFT(frame*region)
-        cc_max = abs(IDFT(dft_n*dft_0)).argmax()
-        max_row,max_col = cc_max/cols,cc_max%cols
-        if max_row > data.shape[1]/2: max_row += -data.shape[1] # modulo arithmetic for cyclic BCs
-        if max_col > data.shape[2]/2: max_col += -data.shape[2]
+    # get the alignment coordinates for each frame in data by the argmax of the cross
+    # correlation with the reference
+    coordinates = []
+    for frame in data:
+        dft_n = dft2(frame*region)
+        cc_max = corr_max(dft_n,dft_0)
+        max_row,max_col = cc_max/cols,cc_max%cols # turn cc_max into 2d coordinates
+        if max_row > rows/2: max_row += -rows # modulo arithmetic for cyclic BCs
+        if max_col > cols/2: max_col += -cols
         coordinates.append([-max_row,-max_col])
         
     # now return the data according to return_type
     if return_type == 'coordinates': return coordinates
     
     # align data frames by rolling
-    for n,frame in enumerate(data):
-        max_row, max_col = coordinates[n]
-        data[n] = numpy.roll(numpy.roll(data[n],max_row,axis=0),max_col,axis=1)
+    for n in range(frames):
+        rr, rc = coordinates[n]
+        data[n] = rolls(data[n],rr,rc)
         
     if return_type == 'data':
-        if was_2d: data = data[0]
+        if was_2d: data.shape = (rows,cols)
         return data
     
     if return_type == 'sum': return numpy.sum(data,axis=0) 
-

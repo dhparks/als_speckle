@@ -175,7 +175,7 @@ def gaussian(size,lengths,center=None,angle=0,normalization=None):
         lengths: stdevs of gaussian (rows,columns). float or int.
         center: recenter coordinate system to (row,column).
                 Boundary conditions are NOT cyclic.
-		normalization: Normalize the integrated gaussian to the value normalization.
+        normalization: Normalize the integrated gaussian to the value normalization.
     returns:
         numpy array (1d or 2d) with a gaussian of the given parameters.
     """
@@ -223,8 +223,8 @@ def gaussian(size,lengths,center=None,angle=0,normalization=None):
             gaussian = numpy.outer(gaussian1,gaussian2)
         
         if angle != 0:
-            # if angle != 0, have to evaluate the whole array. this takes about 2x
-            # as long as the angle = 0 case
+            # if angle != 0, we have to evaluate the whole array because the function
+            # is no longer separable. this takes about 2x as long as the angle = 0 case
             rows,cols = _indices(size,center,angle)
             gaussian = numpy.exp(-rows**2/(2*lengths[0]**2))*numpy.exp(-cols**2/(2*lengths[1]**2))
 
