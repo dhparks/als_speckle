@@ -2,9 +2,9 @@
 # I expect most of this code will be mostly experiment-specific but at least some may be relatively
 # universal (ie, alignment or dust-removal).
 
-import scipy
-from scipy.fftpack import fft2 as DFT
-from scipy.fftpack import ifft2 as IDFT
+import numpy
+DFT = numpy.fft.fft2
+IDFT = numpy.fft.ifft2
 
 def covariance_matrix(data,save_memory=False):
     
@@ -22,20 +22,20 @@ def covariance_matrix(data,save_memory=False):
         a 2d ndarray of normalized covariances max values where returned[row,col] is the
         cross-correlation max of frames data[row] and data[col]"""
         
-    assert type(data) == scipy.ndarray and data.ndim == 3, "data must be 3d ndarray"
+    assert isinstance(data, numpy.ndarray) and data.ndim == 3, "data must be 3d ndarray"
     
     frames = data.shape[0]
-    dfts = scipy.zeros_like(data).astype('complex')
-    ACs = scipy.zeros(frames,float)
+    dfts = numpy.zeros_like(data).astype('complex')
+    ACs = numpy.zeros(frames,float)
         
     # precompute the dfts and autocorrelation-maxes
     for n in range(frames):
         dft = DFT(data[n].astype('float'))
         if not save_memory: dfts[n] = dft
-        ACs[n]  = abs(IDFT(dft*scipy.conjugate(dft))).max()
+        ACs[n]  = abs(IDFT(dft*numpy.conjugate(dft))).max()
           
     # calculate the pair-wise normalized covariances  
-    covars = scipy.zeros((frames,frames),float)
+    covars = numpy.zeros((frames,frames),float)
         
     for j in range(frames):
         for k in range(frames-j):
@@ -44,20 +44,18 @@ def covariance_matrix(data,save_memory=False):
             bc = ACs[k]
             if save_memory:
                 d1 = DFT(data[j])
-                d2 = scipy.conjugate(DFT(data[k]))
+                d2 = numpy.conjugate(DFT(data[k]))
             else:
                 d1 = dfts[j]
-                d2 = scipy.conjugate(dfts[k])
+                d2 = numpy.conjugate(dfts[k])
             cc = abs(IDFT(d1*d2)).max()
-            covar = cc/scipy.sqrt(ac*bc)
+            covar = cc/numpy.sqrt(ac*bc)
             covars[j,k] = covar
             covars[k,j] = covar
             
     return covars
 
 def remove_dust(data,dust_mask,dust_plan=None):
-    import scipy
-    
     """ Attempts to remove dust and burn marks from CCD images by interpolating in regions marked as
     defective in a plan file.
     
@@ -74,9 +72,6 @@ def remove_dust(data,dust_mask,dust_plan=None):
         1 - plan unique to dust_mask which can be passed again for re-use."""
     
     # import required libraries
-    import scipy,numpy
-    import pickle,io2
-    from os.path import isfile
     from scipy.signal import cspline1d, cspline1d_eval
 
     # check initial types
@@ -84,9 +79,7 @@ def remove_dust(data,dust_mask,dust_plan=None):
     assert data.ndim in (2,3),                   "data must be 2d or 3d"
     assert isinstance(dust_mask,numpy.ndarray),  "plan must be ndarray"
           
-    if dust_plan == None:
-        dust_plan = plan_remove_dust(dust_mask)
-    #print "    %s entries in the dust plan"%(len(dust_plan))
+    if dust_plan == None: dust_plan = plan_remove_dust(dust_mask)
 
     # because this function accepts both 2d and 3d functions the easiest solution is to upcast 2d arrays
     # to 3d arrays with frame axis of length 1
@@ -98,7 +91,7 @@ def remove_dust(data,dust_mask,dust_plan=None):
     
     for z, frame in enumerate(data):
     
-        interpolated_values = scipy.zeros_like(frame)
+        interpolated_values = numpy.zeros_like(frame)
 
         for n,entry in enumerate(dust_plan):
     
@@ -118,7 +111,7 @@ def remove_dust(data,dust_mask,dust_plan=None):
             
             index_min = splice_min-minsteps*step
             index_max = spline_max+maxsteps*step
-            indices = scipy.arange(index_min,index_max,step)
+            indices = numpy.arange(index_min,index_max,step)
                 
             # slice the data according to spline orientation
             if which == 'r': data_slice = frame[:,slice]
@@ -127,7 +120,7 @@ def remove_dust(data,dust_mask,dust_plan=None):
             # interpolate
             to_fit = data_slice[indices]
             splined = cspline1d(to_fit)
-            interpolated = cspline1d_eval(splined,scipy.arange(index_min,index_max,1),dx=step,x0=indices[0])
+            interpolated = cspline1d_eval(splined,numpy.arange(index_min,index_max,1),dx=step,x0=indices[0])
     
             # copy the correct data into the 3d array of interpolated spline values
             if which == 'c': interpolated_values[slice,splice_min+1:spline_max] = interpolated[splice_min+1-index_min:spline_max-index_min]
@@ -142,17 +135,15 @@ def remove_dust(data,dust_mask,dust_plan=None):
 def plan_remove_dust(Mask):
     # find which pixels need to be interpolated based on Mask. based on knowledge of the pixels
     # determine where to interpolate various rows and cols to avoid redundant interpolation.
-    
-    import scipy
-    
+
     Mask = Mask.astype('int')
     
     # mark the pixels in Mask with unique identifiers
     L = len(Mask)
-    Marked = scipy.zeros(L**2)
-    Marked[:] = scipy.ravel(Mask)[:]
-    Marked *= (scipy.arange(L**2)+1)
-    Marked = Marked[scipy.nonzero(Marked)]-1 # this is the location of all the non-zero pixels
+    Marked = numpy.zeros(L**2)
+    Marked[:] = numpy.ravel(Mask)[:]
+    Marked *= (numpy.arange(L**2)+1)
+    Marked = Marked[numpy.nonzero(Marked)]-1 # this is the location of all the non-zero pixels
     
     PixelIDStrings = []
     
@@ -195,27 +186,27 @@ def subtract_background(data,dark=None,x=20,scale=1):
     """Subtract a background file. The DC component of both files is subtracted first."""
 
     # check types
-    assert type(data) == scipy.ndarray, "data must be ndarray"
-    assert data.ndim in [2,3], "data must be 2d or 3d"
-    assert isinstance(dark,(type(None),scipy.ndarray)), "dark must be None or ndarray"
-    if type(dark) == scipy.ndarray:
+    assert isinstance(data,numpy.ndarray), "data must be ndarray"
+    assert data.ndim in (2,3), "data must be 2d or 3d"
+    assert isinstance(dark,(type(None),numpy.ndarray)), "dark must be None or ndarray"
+    if isinstance(dark,numpy.ndarray):
         assert dark.ndim == 2, "dark must be 2d"
         assert data.shape[-2:] == dark.shape, "data and dark must be same shape"
     
     # subtract DC component from data
     if data.ndim == 2:
-        dc = float(scipy.sum(data[0:x,0:x])/x**2)
+        dc = float(numpy.sum(data[0:x,0:x])/x**2)
         data = abs(data-dc)
     if data.ndim == 3:
         for n in range(data.shape[0]):
-            dc = float(scipy.sum(data[n,0:x,0:x])/x**2)
+            dc = float(numpy.sum(data[n,0:x,0:x])/x**2)
             data[n] = abs(data[n]-dc)
         
     # dark subtraction can be broadcast to all frames of data so no need to check ndim
     if dark == None:
         pass
     else:
-        bgdc = float(scipy.sum(dark[0:x,0:x])/x**2)
+        bgdc = float(numpy.sum(dark[0:x,0:x])/x**2)
         dark = abs(dark-bgdc)
         data = abs(data-dark*scale)
         
@@ -240,7 +231,7 @@ def hot_pixels(data,i=1,t=2):
     from scipy.signal import medfilt
     
     # check types
-    assert isinstance(data,scipy.ndarray), "data must be ndarray"
+    assert isinstance(data,numpy.ndarray), "data must be ndarray"
     assert data.ndim in (2,3), "data must be 2d or 3d"
     assert isinstance(i,int), "number of iterations must be integer"
     assert isinstance(t, (int,float)), "threshold must be float or int"
@@ -253,7 +244,7 @@ def hot_pixels(data,i=1,t=2):
 
         for m in range(i):
             median = medfilt(frame)+.1
-            Q = scipy.where(frame/median > t,1,0)
+            Q = numpy.where(frame/median > t,1,0)
             data[z] = frame*(1-Q)+median*Q
 
     if was_2d: data = data[0]
@@ -284,19 +275,19 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
              list of alignment coordinates depending on return_type argument."""
     
     # check types
-    assert isinstance(data,scipy.ndarray),                        "data to align must be an array"
-    assert isinstance(align_to,(type(None),scipy.ndarray)),       "align_to must be an array or None"
-    assert isinstance(region,(type(None),scipy.ndarray)),         "region must be an array or None"
+    assert isinstance(data,numpy.ndarray),                        "data to align must be an array"
+    assert isinstance(align_to,(type(None),numpy.ndarray)),       "align_to must be an array or None"
+    assert isinstance(region,(type(None),numpy.ndarray)),         "region must be an array or None"
     assert use_mag_only in (0,1,True,False),                      "use_mag_only must be boolean-evaluable"
     assert return_type in ('data','sum','coordinates'),           "return_type must be 'data', 'sum', or 'coordinates'; 'data' is default"
-    if data.ndim == 2: assert isinstance(align_to,scipy.ndarray), "data is 2d; need an explicit alignment reference"
+    if data.ndim == 2: assert isinstance(align_to,numpy.ndarray), "data is 2d; need an explicit alignment reference"
     if data.ndim == 2 and return_type == 'sum': print             "summing 2d data is non-sensical" # not an assert!
     
     # define some simple helper functions to improve readability
     if use_mag_only: dft2 = lambda x: DFT(abs(x))
     if not use_mag_only: dft2 = lambda x: DFT(x)
     corr_max = lambda x,y: abs(IDFT(x*y)).argmax() # the incoming frames have both been ffted already
-    rolls = lambda d, r0, r1: scipy.roll(scipy.roll(d,r0,axis=0),r1,axis=1)
+    rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
 
     # cast 2d to 3d so the loops below are simpler
     was2d = False
@@ -311,10 +302,10 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
 
     # set up explicit region and align_to in case of None
     if align_to == None: align_to = data[0]
-    if region == None:   region = scipy.ones_like(align_to)
+    if region == None:   region = numpy.ones_like(align_to)
 
     # for speed, precompute the reference dft
-    dft_0 = scipy.conjugate(dft2(align_to*region))
+    dft_0 = numpy.conjugate(dft2(align_to*region))
     
     # get the alignment coordinates for each frame in data by the argmax of the cross
     # correlation with the reference
@@ -339,4 +330,4 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
         if was_2d: data.shape = (rows,cols)
         return data
     
-    if return_type == 'sum': return scipy.sum(data,axis=0) 
+    if return_type == 'sum': return numpy.sum(data,axis=0) 
