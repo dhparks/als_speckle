@@ -1,14 +1,13 @@
 import pyopencl
 
-def init(which=0):
+def init():
     """ Initialize the GPU with all the pyopencl magic words. By default, takes the first
     GPU in the list. Multi-GPU computers is too esoteric to consider."""
-    assert isinstance(which,int)
+    
     platforms = pyopencl.get_platforms()
-    devices = platforms[0].get_devices(cl.device_type.GPU)
-    context = pyopencl.Context([devices[0]])
-    device = devices[0]
-    queue = pyopencl.CommandQueue(context)
+    device    = platforms[0].get_devices(cl.device_type.GPU)[0]
+    context   = pyopencl.Context([device])
+    queue     = pyopencl.CommandQueue(context)
     return context,device,queue
 
 def build_kernel(c,d,kernel):

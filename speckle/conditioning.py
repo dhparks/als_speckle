@@ -294,49 +294,49 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     
     # define some simple helper functions to improve readability
     if use_mag_only: dft2 = lambda x: DFT(abs(x))
-    if not use_mag_only: dft2 = lambda x, r: DFT(x)
+    if not use_mag_only: dft2 = lambda x: DFT(x)
     corr_max = lambda x,y: abs(IDFT(x*y)).argmax() # the incoming frames have both been ffted already
     rolls = lambda d, r0, r1: scipy.roll(scipy.roll(d,r0,axis=0),r1,axis=1)
 
     # cast 2d to 3d so the loops below are simpler
-    was_2d = False
+    was2d = False
     if data.ndim == 2:
-        was_2d = True
+        was2d = True
         data.shape = (1,data.shape[0],data.shape[1])
-        
+    frames, rows, cols = data.shape
+    
     # check some more assumptions
-    if region != None: assert region.shape == data[0].shape,      "region and data frames must be same shape"
-    if align_to != None: assert align_to.shape == data[0].shape,  "align_to and data frames must be same shape"
+    if region != None:   assert region.shape == (rows,cols),    "region and data frames must be same shape"
+    if align_to != None: assert align_to.shape == (rows,cols),  "align_to and data frames must be same shape"
 
     # set up explicit region and align_to in case of None
     if align_to == None: align_to = data[0]
     if region == None:   region = scipy.ones_like(align_to)
-    rows, cols = align_to.shape
-    
+
     # for speed, precompute the reference dft
     dft_0 = scipy.conjugate(dft2(align_to*region))
     
-    # first, get the alignment coordinates for each frame in data by the argmax of the cross
+    # get the alignment coordinates for each frame in data by the argmax of the cross
     # correlation with the reference
     coordinates = []
-    for n,frame in enumerate(data):
+    for frame in data:
         dft_n = dft2(frame*region)
         cc_max = corr_max(dft_n,dft_0)
-        max_row,max_col = cc_max/cols,cc_max%cols
-        if max_row > data.shape[1]/2: max_row += -data.shape[1] # modulo arithmetic for cyclic BCs
-        if max_col > data.shape[2]/2: max_col += -data.shape[2]
+        max_row,max_col = cc_max/cols,cc_max%cols # turn cc_max into 2d coordinates
+        if max_row > rows/2: max_row += -rows # modulo arithmetic for cyclic BCs
+        if max_col > cols/2: max_col += -cols
         coordinates.append([-max_row,-max_col])
         
     # now return the data according to return_type
     if return_type == 'coordinates': return coordinates
     
     # align data frames by rolling
-    for n,frame in enumerate(data):
+    for n in range(frames):
         rr, rc = coordinates[n]
         data[n] = rolls(data[n],rr,rc)
         
     if return_type == 'data':
-        if was_2d: data = data[0]
+        if was_2d: data.shape = (rows,cols)
         return data
     
     if return_type == 'sum': return scipy.sum(data,axis=0) 
