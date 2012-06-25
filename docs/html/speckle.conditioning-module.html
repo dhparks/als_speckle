@@ -1,0 +1,457 @@
+<?xml version="1.0" encoding="ascii"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+          "DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+  <title>speckle.conditioning</title>
+  <link rel="stylesheet" href="epydoc.css" type="text/css" />
+  <script type="text/javascript" src="epydoc.js"></script>
+</head>
+
+<body bgcolor="white" text="black" link="blue" vlink="#204080"
+      alink="#204080">
+<!-- ==================== NAVIGATION BAR ==================== -->
+<table class="navbar" border="0" width="100%" cellpadding="0"
+       bgcolor="#a0c0ff" cellspacing="0">
+  <tr valign="middle">
+  <!-- Home link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="speckle-module.html">Home</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Tree link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="module-tree.html">Trees</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Index link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="identifier-index.html">Indices</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Help link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="help.html">Help</a>&nbsp;&nbsp;&nbsp;</th>
+
+      <th class="navbar" width="100%"></th>
+  </tr>
+</table>
+<table width="100%" cellpadding="0" cellspacing="0">
+  <tr valign="top">
+    <td width="100%">
+      <span class="breadcrumbs">
+        <a href="speckle-module.html">Package&nbsp;speckle</a> ::
+        Module&nbsp;conditioning
+      </span>
+    </td>
+    <td>
+      <table cellpadding="0" cellspacing="0">
+        <!-- hide/show private -->
+        <tr><td align="right"><span class="options">[<a href="javascript:void(0);" class="privatelink"
+    onclick="toggle_private();">hide&nbsp;private</a>]</span></td></tr>
+        <tr><td align="right"><span class="options"
+            >[<a href="frames.html" target="_top">frames</a
+            >]&nbsp;|&nbsp;<a href="speckle.conditioning-module.html"
+            target="_top">no&nbsp;frames</a>]</span></td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<!-- ==================== MODULE DESCRIPTION ==================== -->
+<h1 class="epydoc">Module conditioning</h1><p class="nomargin-top"><span class="codelink"><a href="speckle.conditioning-pysrc.html">source&nbsp;code</a></span></p>
+<!-- ==================== FUNCTIONS ==================== -->
+<a name="section-Functions"></a>
+<table class="summary" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr bgcolor="#70b0f0" class="table-header">
+  <td colspan="2" class="table-header">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+      <tr valign="top">
+        <td align="left"><span class="table-header">Functions</span></td>
+        <td align="right" valign="top"
+         ><span class="options">[<a href="#section-Functions"
+         class="privatelink" onclick="toggle_private();"
+         >hide private</a>]</span></td>
+      </tr>
+    </table>
+  </td>
+</tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.conditioning-module.html#covariance_matrix" class="summary-sig-name">covariance_matrix</a>(<span class="summary-sig-arg">data</span>,
+        <span class="summary-sig-arg">save_memory</span>=<span class="summary-sig-default">False</span>)</span><br />
+      Given 3d data, cross-correlates every frame with every other frame.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.conditioning-pysrc.html#covariance_matrix">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.conditioning-module.html#remove_dust" class="summary-sig-name">remove_dust</a>(<span class="summary-sig-arg">data</span>,
+        <span class="summary-sig-arg">dust_mask</span>,
+        <span class="summary-sig-arg">dust_plan</span>=<span class="summary-sig-default">None</span>)</span><br />
+      Attempts to remove dust and burn marks from CCD images by interpolating in regions marked as
+defective in a plan file.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.conditioning-pysrc.html#remove_dust">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a name="plan_remove_dust"></a><span class="summary-sig-name">plan_remove_dust</span>(<span class="summary-sig-arg">Mask</span>)</span></td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.conditioning-pysrc.html#plan_remove_dust">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.conditioning-module.html#subtract_background" class="summary-sig-name">subtract_background</a>(<span class="summary-sig-arg">data</span>,
+        <span class="summary-sig-arg">dark</span>=<span class="summary-sig-default">None</span>,
+        <span class="summary-sig-arg">x</span>=<span class="summary-sig-default">20</span>,
+        <span class="summary-sig-arg">scale</span>=<span class="summary-sig-default">1</span>)</span><br />
+      Subtract a background file.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.conditioning-pysrc.html#subtract_background">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.conditioning-module.html#hot_pixels" class="summary-sig-name">hot_pixels</a>(<span class="summary-sig-arg">data</span>,
+        <span class="summary-sig-arg">i</span>=<span class="summary-sig-default">1</span>,
+        <span class="summary-sig-arg">t</span>=<span class="summary-sig-default">2</span>)</span><br />
+      A basic hot pixel remover which uses numpy.medfilt to define hot pixels as those
+which exceed a certain multiple of the local median.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.conditioning-pysrc.html#hot_pixels">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.conditioning-module.html#align_frames" class="summary-sig-name">align_frames</a>(<span class="summary-sig-arg">data</span>,
+        <span class="summary-sig-arg">align_to</span>=<span class="summary-sig-default">None</span>,
+        <span class="summary-sig-arg">region</span>=<span class="summary-sig-default">None</span>,
+        <span class="summary-sig-arg">use_mag_only</span>=<span class="summary-sig-default">False</span>,
+        <span class="summary-sig-arg">return_type</span>=<span class="summary-sig-default"><code class="variable-quote">'</code><code class="variable-string">data</code><code class="variable-quote">'</code></span>)</span><br />
+      Align a set of data frames by FFT/cross-correlation method.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.conditioning-pysrc.html#align_frames">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+</table>
+<!-- ==================== VARIABLES ==================== -->
+<a name="section-Variables"></a>
+<table class="summary" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr bgcolor="#70b0f0" class="table-header">
+  <td colspan="2" class="table-header">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+      <tr valign="top">
+        <td align="left"><span class="table-header">Variables</span></td>
+        <td align="right" valign="top"
+         ><span class="options">[<a href="#section-Variables"
+         class="privatelink" onclick="toggle_private();"
+         >hide private</a>]</span></td>
+      </tr>
+    </table>
+  </td>
+</tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+        <a name="__package__"></a><span class="summary-name">__package__</span> = <code title="'speckle'"><code class="variable-quote">'</code><code class="variable-string">speckle</code><code class="variable-quote">'</code></code>
+    </td>
+  </tr>
+</table>
+<!-- ==================== FUNCTION DETAILS ==================== -->
+<a name="section-FunctionDetails"></a>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr bgcolor="#70b0f0" class="table-header">
+  <td colspan="2" class="table-header">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+      <tr valign="top">
+        <td align="left"><span class="table-header">Function Details</span></td>
+        <td align="right" valign="top"
+         ><span class="options">[<a href="#section-FunctionDetails"
+         class="privatelink" onclick="toggle_private();"
+         >hide private</a>]</span></td>
+      </tr>
+    </table>
+  </td>
+</tr>
+</table>
+<a name="covariance_matrix"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">covariance_matrix</span>(<span class="sig-arg">data</span>,
+        <span class="sig-arg">save_memory</span>=<span class="sig-default">False</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.conditioning-pysrc.html#covariance_matrix">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Given 3d data, cross-correlates every frame with every other frame. This is useful
+for determining which frames to sum in the presence of drift or slow dynamics.
+
+Requires:
+    data - 3d ndarray
+    
+Optional:
+    save_memory: if True, DFTs of frames of data are precomputed which massively improves
+    speed at the expense of memory. Default is False.
+    
+Returns:
+    a 2d ndarray of normalized covariances max values where returned[row,col] is the
+    cross-correlation max of frames data[row] and data[col]
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="remove_dust"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">remove_dust</span>(<span class="sig-arg">data</span>,
+        <span class="sig-arg">dust_mask</span>,
+        <span class="sig-arg">dust_plan</span>=<span class="sig-default">None</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.conditioning-pysrc.html#remove_dust">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Attempts to remove dust and burn marks from CCD images by interpolating in regions marked as
+defective in a plan file.
+
+Requires:
+    data - the data from which dust will be removed. ndarray or path to some sort of data
+    dust_mask - a binary array describing from which pixels dust must be removed
+    
+Optional input:
+    plan - generated from dust_mask; this can only be supplied as an argument if remove_dust has
+    been previously run and plan returned then as output
+    
+Returns:
+    0 - fixed data
+    1 - plan unique to dust_mask which can be passed again for re-use.
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="subtract_background"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">subtract_background</span>(<span class="sig-arg">data</span>,
+        <span class="sig-arg">dark</span>=<span class="sig-default">None</span>,
+        <span class="sig-arg">x</span>=<span class="sig-default">20</span>,
+        <span class="sig-arg">scale</span>=<span class="sig-default">1</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.conditioning-pysrc.html#subtract_background">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <p>Subtract a background file. The DC component of both files is 
+  subtracted first.</p>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="hot_pixels"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">hot_pixels</span>(<span class="sig-arg">data</span>,
+        <span class="sig-arg">i</span>=<span class="sig-default">1</span>,
+        <span class="sig-arg">t</span>=<span class="sig-default">2</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.conditioning-pysrc.html#hot_pixels">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+A basic hot pixel remover which uses numpy.medfilt to define hot pixels as those
+which exceed a certain multiple of the local median. Slow for large arrays; this operation
+would probably benefit a great deal from GPU acceleration.
+
+Required:
+    data -- 2d or 3d array from which hot pixels will be removed
+    
+Optional:
+    i -- number of iterations to run the smoother. Default is 1.
+    t -- threshold to specify when pixels are hot. When a pixel has
+        value greater than t*median, it is replaced by the median.
+        Default is 2.
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="align_frames"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">align_frames</span>(<span class="sig-arg">data</span>,
+        <span class="sig-arg">align_to</span>=<span class="sig-default">None</span>,
+        <span class="sig-arg">region</span>=<span class="sig-default">None</span>,
+        <span class="sig-arg">use_mag_only</span>=<span class="sig-default">False</span>,
+        <span class="sig-arg">return_type</span>=<span class="sig-default"><code class="variable-quote">'</code><code class="variable-string">data</code><code class="variable-quote">'</code></span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.conditioning-pysrc.html#align_frames">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Align a set of data frames by FFT/cross-correlation method.
+
+Required input:
+data -- A 2d or 3d ndarray. Probably this needs to be real-valued, not complex.
+
+Optional arguments:
+    align_to -- A 2d array used as the alignment reference. If None, data must
+                be 3d and the first frame of data will be the reference. Default is None
+            
+    region -- A 2d mask which specifies which data to use in the cross correlation. If None,
+              all pixels will contribute equally to the alignment. Default is None.
+    
+    use_mag_only -- Do alignment using only the magnitude component of data. Default is False.
+              
+    return_type -- align_frames is called from multiple places, and expectations of what is
+                   returned vary. Returned can be aligned data, aligned and summed data, or
+                   just the alignment coordinates; keywords for these are 'data', 'sum', and
+                   'coordinates', respectively. Default is 'data'.
+          
+Returns: an array of shape and dtype identical to data, data summed along the 0 axis, or a
+         list of alignment coordinates depending on return_type argument.
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<br />
+<!-- ==================== NAVIGATION BAR ==================== -->
+<table class="navbar" border="0" width="100%" cellpadding="0"
+       bgcolor="#a0c0ff" cellspacing="0">
+  <tr valign="middle">
+  <!-- Home link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="speckle-module.html">Home</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Tree link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="module-tree.html">Trees</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Index link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="identifier-index.html">Indices</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Help link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="help.html">Help</a>&nbsp;&nbsp;&nbsp;</th>
+
+      <th class="navbar" width="100%"></th>
+  </tr>
+</table>
+<table border="0" cellpadding="0" cellspacing="0" width="100%%">
+  <tr>
+    <td align="left" class="footer">
+    Generated by Epydoc 3.0.1 on Mon Jun 25 16:55:50 2012
+    </td>
+    <td align="right" class="footer">
+      <a target="mainFrame" href="http://epydoc.sourceforge.net"
+        >http://epydoc.sourceforge.net</a>
+    </td>
+  </tr>
+</table>
+
+<script type="text/javascript">
+  <!--
+  // Private objects are initially displayed (because if
+  // javascript is turned off then we want them to be
+  // visible); but by default, we want to hide them.  So hide
+  // them unless we have a cookie that says to show them.
+  checkCookie();
+  // -->
+</script>
+</body>
+</html>

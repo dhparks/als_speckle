@@ -1,0 +1,1229 @@
+<?xml version="1.0" encoding="ascii"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+          "DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+  <title>speckle.xpcs</title>
+  <link rel="stylesheet" href="epydoc.css" type="text/css" />
+  <script type="text/javascript" src="epydoc.js"></script>
+</head>
+
+<body bgcolor="white" text="black" link="blue" vlink="#204080"
+      alink="#204080">
+<!-- ==================== NAVIGATION BAR ==================== -->
+<table class="navbar" border="0" width="100%" cellpadding="0"
+       bgcolor="#a0c0ff" cellspacing="0">
+  <tr valign="middle">
+  <!-- Home link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="speckle-module.html">Home</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Tree link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="module-tree.html">Trees</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Index link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="identifier-index.html">Indices</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Help link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="help.html">Help</a>&nbsp;&nbsp;&nbsp;</th>
+
+      <th class="navbar" width="100%"></th>
+  </tr>
+</table>
+<table width="100%" cellpadding="0" cellspacing="0">
+  <tr valign="top">
+    <td width="100%">
+      <span class="breadcrumbs">
+        <a href="speckle-module.html">Package&nbsp;speckle</a> ::
+        Module&nbsp;xpcs
+      </span>
+    </td>
+    <td>
+      <table cellpadding="0" cellspacing="0">
+        <!-- hide/show private -->
+        <tr><td align="right"><span class="options">[<a href="javascript:void(0);" class="privatelink"
+    onclick="toggle_private();">hide&nbsp;private</a>]</span></td></tr>
+        <tr><td align="right"><span class="options"
+            >[<a href="frames.html" target="_top">frames</a
+            >]&nbsp;|&nbsp;<a href="speckle.xpcs-module.html"
+            target="_top">no&nbsp;frames</a>]</span></td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<!-- ==================== MODULE DESCRIPTION ==================== -->
+<h1 class="epydoc">Module xpcs</h1><p class="nomargin-top"><span class="codelink"><a href="speckle.xpcs-pysrc.html">source&nbsp;code</a></span></p>
+<p>Library for XPCS and photon correlation experiments.  The library 
+  calculates the photon correlation function for a set of frames 
+  represented as a 3d numpy array.  The library will also calculate the 
+  correlation function for a single- photon timestamping detector.</p>
+  <p>Author: Keoki Seu (kaseu@lbl.gov)</p>
+
+<!-- ==================== FUNCTIONS ==================== -->
+<a name="section-Functions"></a>
+<table class="summary" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr bgcolor="#70b0f0" class="table-header">
+  <td colspan="2" class="table-header">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+      <tr valign="top">
+        <td align="left"><span class="table-header">Functions</span></td>
+        <td align="right" valign="top"
+         ><span class="options">[<a href="#section-Functions"
+         class="privatelink" onclick="toggle_private();"
+         >hide private</a>]</span></td>
+      </tr>
+    </table>
+  </td>
+</tr>
+<tr class="private">
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#_convert_to_3d" class="summary-sig-name" onclick="show_private();">_convert_to_3d</a>(<span class="summary-sig-arg">img</span>)</span><br />
+      get image shape and reshape image to three dimensional (if necessary).</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#_convert_to_3d">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#shift_img_up" class="summary-sig-name">shift_img_up</a>(<span class="summary-sig-arg">img</span>)</span><br />
+      Check to make sure all the values in the image are &gt; 0.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#shift_img_up">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#normalize_intensity" class="summary-sig-name">normalize_intensity</a>(<span class="summary-sig-arg">img</span>,
+        <span class="summary-sig-arg">method</span>=<span class="summary-sig-default"><code class="variable-quote">'</code><code class="variable-string">maxI</code><code class="variable-quote">'</code></span>)</span><br />
+      Normalize each frame of an image.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#normalize_intensity">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#g2_symm_norm" class="summary-sig-name">g2_symm_norm</a>(<span class="summary-sig-arg">img</span>,
+        <span class="summary-sig-arg">numtau</span>,
+        <span class="summary-sig-arg">qAvg</span>=<span class="summary-sig-default"><code class="variable-group">(</code><code class="variable-quote">'</code><code class="variable-string">circle</code><code class="variable-quote">'</code><code class="variable-op">, </code>10<code class="variable-group">)</code></span>)</span><br />
+      calculate correlation function g_2 with a symmetric normalization.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_symm_norm">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#g2_symm_borthwick_norm" class="summary-sig-name">g2_symm_borthwick_norm</a>(<span class="summary-sig-arg">img</span>,
+        <span class="summary-sig-arg">numtau</span>,
+        <span class="summary-sig-arg">qAvg</span>=<span class="summary-sig-default"><code class="variable-group">(</code><code class="variable-quote">'</code><code class="variable-string">circle</code><code class="variable-quote">'</code><code class="variable-op">, </code>10<code class="variable-group">)</code></span>)</span><br />
+      calculate correlation function g_2 with Matt Borthwick's symmetric normalization.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_symm_borthwick_norm">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#g2_standard_norm" class="summary-sig-name">g2_standard_norm</a>(<span class="summary-sig-arg">img</span>,
+        <span class="summary-sig-arg">numtau</span>,
+        <span class="summary-sig-arg">qAvg</span>=<span class="summary-sig-default"><code class="variable-group">(</code><code class="variable-quote">'</code><code class="variable-string">circle</code><code class="variable-quote">'</code><code class="variable-op">, </code>10<code class="variable-group">)</code></span>)</span><br />
+      calculate correlation function g_2 with a standard normalization.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_standard_norm">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#g2_plain_norm" class="summary-sig-name">g2_plain_norm</a>(<span class="summary-sig-arg">img</span>,
+        <span class="summary-sig-arg">numtau</span>)</span><br />
+      calculate correlation function g_2 with a 'plain' normalization.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_plain_norm">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#g2_no_norm" class="summary-sig-name">g2_no_norm</a>(<span class="summary-sig-arg">img</span>,
+        <span class="summary-sig-arg">numtau</span>)</span><br />
+      calculate correlation function g_2 numerator without normalization.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_no_norm">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#g2_numerator" class="summary-sig-name">g2_numerator</a>(<span class="summary-sig-arg">img</span>,
+        <span class="summary-sig-arg">onetau</span>)</span><br />
+      Calculates &lt;I(t) I(t + tau)&gt;_t for a single value of tau.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_numerator">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#g2_numerator_fft" class="summary-sig-name">g2_numerator_fft</a>(<span class="summary-sig-arg">img</span>,
+        <span class="summary-sig-arg">taus</span>=<span class="summary-sig-default">None</span>)</span><br />
+      Calculates &lt;I(t) I(t + tau)&gt;_t for specified values of tau via fft autocorrelation method.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_numerator_fft">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr class="private">
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#_numtauToTauvals" class="summary-sig-name" onclick="show_private();">_numtauToTauvals</a>(<span class="summary-sig-arg">numtau</span>,
+        <span class="summary-sig-arg">maxtau</span>=<span class="summary-sig-default">0</span>)</span><br />
+      program to convert numtau to a list of values to iterate over.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#_numtauToTauvals">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr class="private">
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a name="_noAverage"></a><span class="summary-sig-name">_noAverage</span>(<span class="summary-sig-arg">img</span>,
+        <span class="summary-sig-arg">size</span>)</span></td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#_noAverage">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr class="private">
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a name="_time_average"></a><span class="summary-sig-name">_time_average</span>(<span class="summary-sig-arg">img</span>,
+        <span class="summary-sig-arg">start</span>=<span class="summary-sig-default"><code class="variable-quote">'</code><code class="variable-string"></code><code class="variable-quote">'</code></span>,
+        <span class="summary-sig-arg">stop</span>=<span class="summary-sig-default"><code class="variable-quote">'</code><code class="variable-string"></code><code class="variable-quote">'</code></span>)</span></td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#_time_average">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#sp_bin_by_space_and_time" class="summary-sig-name">sp_bin_by_space_and_time</a>(<span class="summary-sig-arg">data</span>,
+        <span class="summary-sig-arg">frameTime</span>,
+        <span class="summary-sig-arg">xybin</span>=<span class="summary-sig-default">8</span>,
+        <span class="summary-sig-arg">counterTime</span>=<span class="summary-sig-default">4e-08</span>)</span><br />
+      Takes a dataset collected by the SSI photon counting fast camera and bins
+the data in time and xy.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#sp_bin_by_space_and_time">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#sp_bin_by_time" class="summary-sig-name">sp_bin_by_time</a>(<span class="summary-sig-arg">data</span>,
+        <span class="summary-sig-arg">frameTime</span>,
+        <span class="summary-sig-arg">counterTime</span>=<span class="summary-sig-default">4e-08</span>)</span><br />
+      Takes a stream of photon incidence times and bins the data in time.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#sp_bin_by_time">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#sp_sum_bin_all" class="summary-sig-name">sp_sum_bin_all</a>(<span class="summary-sig-arg">data</span>,
+        <span class="summary-sig-arg">xybin</span>=<span class="summary-sig-default">4</span>,
+        <span class="summary-sig-arg">counterTime</span>=<span class="summary-sig-default">4e-08</span>)</span><br />
+      Sum and bin all of the data from the single photon detector into one frame.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#sp_sum_bin_all">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#intersect" class="summary-sig-name">intersect</a>(<span class="summary-sig-arg">a</span>,
+        <span class="summary-sig-arg">b</span>,
+        <span class="summary-sig-arg">assume_unique</span>=<span class="summary-sig-default">False</span>)</span><br />
+      implements the matlab intersect() function.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#intersect">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#sp_autocorrelation" class="summary-sig-name">sp_autocorrelation</a>(<span class="summary-sig-arg">data</span>,
+        <span class="summary-sig-arg">p</span>=<span class="summary-sig-default">30</span>,
+        <span class="summary-sig-arg">m</span>=<span class="summary-sig-default">2</span>)</span><br />
+      Implements the time-to-tag correlation algorithm outlined by Wahl et al.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#sp_autocorrelation">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#sp_crosscorrelation" class="summary-sig-name">sp_crosscorrelation</a>(<span class="summary-sig-arg">d1</span>,
+        <span class="summary-sig-arg">d2</span>,
+        <span class="summary-sig-arg">p</span>=<span class="summary-sig-default">30</span>,
+        <span class="summary-sig-arg">m</span>=<span class="summary-sig-default">2</span>)</span><br />
+      Implements the time-to-tag correlation algorithm outlined by Wahl et al.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#sp_crosscorrelation">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr class="private">
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#_sort_data" class="summary-sig-name" onclick="show_private();">_sort_data</a>(<span class="summary-sig-arg">data</span>,
+        <span class="summary-sig-arg">col</span>=<span class="summary-sig-default">3</span>)</span><br />
+      Helper function to sort data by increasing photon incidence value along column col.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#_sort_data">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr class="private">
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a name="_list_duplicates"></a><span class="summary-sig-name">_list_duplicates</span>(<span class="summary-sig-arg">seq</span>)</span><br />
+      helper function used by _half_data() to get a list of duplicate 
+      entries in an iteratable from 
+      http://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#_list_duplicates">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+<tr class="private">
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td><span class="summary-sig"><a href="speckle.xpcs-module.html#_half_data" class="summary-sig-name" onclick="show_private();">_half_data</a>(<span class="summary-sig-arg">data</span>,
+        <span class="summary-sig-arg">m</span>,
+        <span class="summary-sig-arg">w</span>)</span><br />
+      Helper function that halves the data by dividing the incidence times 
+      in data by m and finding duplicates.</td>
+          <td align="right" valign="top">
+            <span class="codelink"><a href="speckle.xpcs-pysrc.html#_half_data">source&nbsp;code</a></span>
+            
+          </td>
+        </tr>
+      </table>
+      
+    </td>
+  </tr>
+</table>
+<!-- ==================== VARIABLES ==================== -->
+<a name="section-Variables"></a>
+<table class="summary" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr bgcolor="#70b0f0" class="table-header">
+  <td colspan="2" class="table-header">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+      <tr valign="top">
+        <td align="left"><span class="table-header">Variables</span></td>
+        <td align="right" valign="top"
+         ><span class="options">[<a href="#section-Variables"
+         class="privatelink" onclick="toggle_private();"
+         >hide private</a>]</span></td>
+      </tr>
+    </table>
+  </td>
+</tr>
+<tr class="private">
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+        <a href="speckle.xpcs-module.html#_averagingFunctions" class="summary-name" onclick="show_private();">_averagingFunctions</a> = <code title="{&quot;none&quot;: _noAverage, &quot;circle&quot;: averaging.smooth_with_circle, &quot;square&quot;:\
+ averaging.smooth_with_rectangle, &quot;rectangle&quot;: averaging.smooth_with_r\
+ectangle, &quot;gaussian&quot;: averaging.smooth_with_gaussian,}">{&quot;none&quot;: _noAverage, &quot;circle&quot;: averaging<code class="variable-ellipsis">...</code></code>
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+        <a name="SP_MAX_SIZE"></a><span class="summary-name">SP_MAX_SIZE</span> = <code title="4096">4096</code>
+    </td>
+  </tr>
+<tr>
+    <td width="15%" align="right" valign="top" class="summary">
+      <span class="summary-type">&nbsp;</span>
+    </td><td class="summary">
+        <a name="__package__"></a><span class="summary-name">__package__</span> = <code title="'speckle'"><code class="variable-quote">'</code><code class="variable-string">speckle</code><code class="variable-quote">'</code></code>
+    </td>
+  </tr>
+</table>
+<!-- ==================== FUNCTION DETAILS ==================== -->
+<a name="section-FunctionDetails"></a>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr bgcolor="#70b0f0" class="table-header">
+  <td colspan="2" class="table-header">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+      <tr valign="top">
+        <td align="left"><span class="table-header">Function Details</span></td>
+        <td align="right" valign="top"
+         ><span class="options">[<a href="#section-FunctionDetails"
+         class="privatelink" onclick="toggle_private();"
+         >hide private</a>]</span></td>
+      </tr>
+    </table>
+  </td>
+</tr>
+</table>
+<a name="_convert_to_3d"></a>
+<div class="private">
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">_convert_to_3d</span>(<span class="sig-arg">img</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#_convert_to_3d">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+get image shape and reshape image to three dimensional (if necessary).
+Most of the g2 functions require a 3d image
+arguments:
+    img - image to check shape
+returns:
+    (fr, ys, xs) - a tuple of the image shape.
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="shift_img_up"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">shift_img_up</span>(<span class="sig-arg">img</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#shift_img_up">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Check to make sure all the values in the image are &gt; 0.  If there are
+pixels &lt; 0, it shifts the whole image so that all of the pixels are &gt; 0. 
+inputs:
+    img - image to test
+returns:
+    img - image shifted up so that all px &gt; 0
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="normalize_intensity"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">normalize_intensity</span>(<span class="sig-arg">img</span>,
+        <span class="sig-arg">method</span>=<span class="sig-default"><code class="variable-quote">'</code><code class="variable-string">maxI</code><code class="variable-quote">'</code></span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#normalize_intensity">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Normalize each frame of an image.
+arguments:
+    img - img to normalize.  Must be 3d.
+    method - method of normalization, either by maximum intensity (maxI) or summed intensity (sumI).  Note, sumI is the summed intensity in each frame, not the entire 3d image.
+returns:
+    img - normalized image.    
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="g2_symm_norm"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">g2_symm_norm</span>(<span class="sig-arg">img</span>,
+        <span class="sig-arg">numtau</span>,
+        <span class="sig-arg">qAvg</span>=<span class="sig-default"><code class="variable-group">(</code><code class="variable-quote">'</code><code class="variable-string">circle</code><code class="variable-quote">'</code><code class="variable-op">, </code>10<code class="variable-group">)</code></span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_symm_norm">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+calculate correlation function g_2 with a symmetric normalization.
+The symmetric normalization is defined as
+g_2 (q, tau) = &lt; I(q,t) * I(q, t+tau) &gt;_t / (&lt;I(q,t)&gt;_q,left * &lt;I(q,t)&gt;_q,right)
+where &lt;&gt;_t (&lt;&gt;_q) is averaging over variable t (q). The left (right) average time over frames 1:numtau (fr-numtau:fr).
+arguments:
+    img - 3d array
+    numtau - tau to correlate
+    qAvg - a list of the averaging type and the size. The possible types and the size parameter are:
+        &quot;square&quot; - the parameter size is size dimension of the square, in pixels
+        &quot;circle&quot; - the size is the radius of the circle, in pixels
+        &quot;gaussian&quot; - size is the FWHM of the gaussian, in pixels
+returns:
+    g2 - correlation function for numtau values
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="g2_symm_borthwick_norm"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">g2_symm_borthwick_norm</span>(<span class="sig-arg">img</span>,
+        <span class="sig-arg">numtau</span>,
+        <span class="sig-arg">qAvg</span>=<span class="sig-default"><code class="variable-group">(</code><code class="variable-quote">'</code><code class="variable-string">circle</code><code class="variable-quote">'</code><code class="variable-op">, </code>10<code class="variable-group">)</code></span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_symm_borthwick_norm">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+calculate correlation function g_2 with Matt Borthwick's symmetric normalization.
+His symmetric normalization is defined as
+g_2 (q, tau) = &lt; I(q,t) * I(q, t+tau) &gt;_t / (&lt;I(q,t)&gt;_q,left * &lt;I(q,t)&gt;_q,right) * &lt;I(q, t)&gt;_q,t^2/&lt;I(q, t)&gt;_t^2
+where &lt;&gt;_t (&lt;&gt;_q) is averaging over variable t (q). The left (right) average time over frames 1:numtau (fr-numtau:fr).
+This varies slightly from the symmetric normalization as it added a term indended to correct for long-range trends in intensity.
+arguments:
+    img - 3d array
+    numtau - tau to correlate
+    qAvg - a list of the averaging type and the size. The possible types and the size parameter are:
+        &quot;square&quot; - the parameter size is size dimension of the square, in pixels
+        &quot;circle&quot; - the size is the radius of the circle, in pixels
+        &quot;gaussian&quot; - size is the FWHM of the gaussian, in pixels
+returns:
+    g2 - correlation function for numtau values
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="g2_standard_norm"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">g2_standard_norm</span>(<span class="sig-arg">img</span>,
+        <span class="sig-arg">numtau</span>,
+        <span class="sig-arg">qAvg</span>=<span class="sig-default"><code class="variable-group">(</code><code class="variable-quote">'</code><code class="variable-string">circle</code><code class="variable-quote">'</code><code class="variable-op">, </code>10<code class="variable-group">)</code></span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_standard_norm">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+calculate correlation function g_2 with a standard normalization.
+The standard normalization is defined as
+g_2 (q, tau) = &lt; I(q,t) * I(q, t+tau) / (&lt;I(q,t)&gt;_q * &lt;I(q,t+tau)&gt;_q) &gt;_t * &lt;I(q,t)&gt;_q,t^2 / &lt;I(q,t)&gt;_t^2
+where &lt;&gt;_t (&lt;&gt;_q) is averaging over variable t (q).
+arguments:
+    img - 3d array
+    numtau - tau to correlate
+    qAvg - a list of the averaging type and the size. The possible types and the size parameter are:
+        &quot;square&quot; - the parameter size is size dimension of the square, in pixels
+        &quot;circle&quot; - the size is the radius of the circle, in pixels
+        &quot;gaussian&quot; - size is the FWHM of the gaussian, in pixels
+returns:
+    g2 - correlation function for numtau values
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="g2_plain_norm"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">g2_plain_norm</span>(<span class="sig-arg">img</span>,
+        <span class="sig-arg">numtau</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_plain_norm">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+calculate correlation function g_2 with a 'plain' normalization.
+The 'plain' normalization is defined as
+g_2 (q, tau) = &lt; I(q,t) * I(q, t+tau) &gt;_t / &lt;I(q,t)&gt;_t^2
+where &lt;&gt;_t (&lt;&gt;_q) is averaging over variable t (q).
+arguments:
+    img - 3d array
+    numtau - tau to correlate
+    qAvg - a list of the averaging type and the size. The possible types and the size parameter are:
+        &quot;square&quot; - the parameter size is size dimension of the square, in pixels
+        &quot;circle&quot; - the size is the radius of the circle, in pixels
+        &quot;gaussian&quot; - size is the FWHM of the gaussian, in pixels
+returns:
+    g2 - correlation function for numtau values
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="g2_no_norm"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">g2_no_norm</span>(<span class="sig-arg">img</span>,
+        <span class="sig-arg">numtau</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_no_norm">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+calculate correlation function g_2 numerator without normalization.
+The is defined as
+g_2 (q, tau) = &lt; I(q,t) * I(q, t+tau) &gt;_t
+where &lt;&gt;_t is averaging over variable t.
+arguments:
+    img - 3d array
+    numtau - tau to correlate
+returns:
+    g2 - correlation function for numtau values
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="g2_numerator"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">g2_numerator</span>(<span class="sig-arg">img</span>,
+        <span class="sig-arg">onetau</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_numerator">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Calculates &lt;I(t) I(t + tau)&gt;_t for a single value of tau.
+arguments:
+    img - data to caclculate g2.  Must be 3d.
+    onetau - a single tau value.  Must be integer and less than the total frames in img.
+returns:
+    numerator - g2 numerator calculated for one tau value.
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="g2_numerator_fft"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">g2_numerator_fft</span>(<span class="sig-arg">img</span>,
+        <span class="sig-arg">taus</span>=<span class="sig-default">None</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#g2_numerator_fft">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Calculates &lt;I(t) I(t + tau)&gt;_t for specified values of tau via fft autocorrelation method.
+For large N this may be significantly faster than the g2_numerator function, but for small N
+or a small number of tau the g2_numerator function may be faster.
+
+If data sets are very large this function may lead to malloc errors, necessitating fallback to
+g2_numerator or more sophisticated handling of the dataset.
+
+arguments:
+    img - data to caclculate g2.  Must be 3d.
+    taus - iterable set of tau values where you want g2.
+        All taus are evaluated by the fft so a limited set of taus does not provide a speed up.
+returns:
+    numerator - g2 numerator calculated for requested tau values.
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="_numtauToTauvals"></a>
+<div class="private">
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">_numtauToTauvals</span>(<span class="sig-arg">numtau</span>,
+        <span class="sig-arg">maxtau</span>=<span class="sig-default">0</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#_numtauToTauvals">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+program to convert numtau to a list of values to iterate over.
+arguments:
+    numtau - tau's to correlate.  If it is a single number, it generates a list from (0, numtau), if it's a list or tuple of size 2, it will do the range between those two taus.
+    maxtau - Maximum possible tau value.  If it exists, then the function checks to see if all taus are smaller than this value.
+returns:
+    tauvals - list of taus to correlate.
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="sp_bin_by_space_and_time"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">sp_bin_by_space_and_time</span>(<span class="sig-arg">data</span>,
+        <span class="sig-arg">frameTime</span>,
+        <span class="sig-arg">xybin</span>=<span class="sig-default">8</span>,
+        <span class="sig-arg">counterTime</span>=<span class="sig-default">4e-08</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#sp_bin_by_space_and_time">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Takes a dataset collected by the SSI photon counting fast camera and bins
+the data in time and xy.
+
+arguments:
+    data - data to bin.  This is an (N, 4) array where N is the number of elements.
+    frameTime - Amout of time between bins.  Measured in seconds
+    xybin - amount to bin in x and y.  defaults to 8, which is a 512x512 output.
+    counterTime - clock time of the camera. Anton Tremsin says its 40 ns.
+returns:
+    binnedData - a 3-dimension array (frames, y, x) of the binned data.
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="sp_bin_by_time"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">sp_bin_by_time</span>(<span class="sig-arg">data</span>,
+        <span class="sig-arg">frameTime</span>,
+        <span class="sig-arg">counterTime</span>=<span class="sig-default">4e-08</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#sp_bin_by_time">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Takes a stream of photon incidence times and bins the data in time.
+
+arguments:
+    data - Data to bin.  This is a 1 dimensional array of incidence times.
+    frameTime - Amount of time for each bin.  Measured in seconds
+    counterTime - Clock time of the camera. Anton Tremsin says its 40 ns.
+returns:
+    binnedData - a 3-dimension array (frames, y, x) of the binned data.
+    also returns edges?? check
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="sp_sum_bin_all"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">sp_sum_bin_all</span>(<span class="sig-arg">data</span>,
+        <span class="sig-arg">xybin</span>=<span class="sig-default">4</span>,
+        <span class="sig-arg">counterTime</span>=<span class="sig-default">4e-08</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#sp_sum_bin_all">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Sum and bin all of the data from the single photon detector into one frame.
+
+arguments:
+    data - a (N, 4) sized array of the data generated by the single photon detector.
+returns:
+    img - a 2d image of the entire dataset.
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="intersect"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">intersect</span>(<span class="sig-arg">a</span>,
+        <span class="sig-arg">b</span>,
+        <span class="sig-arg">assume_unique</span>=<span class="sig-default">False</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#intersect">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+implements the matlab intersect() function. Details of the function are
+here: http://www.mathworks.com/help/techdoc/ref/intersect.html
+
+arguments:
+    a - 1st array to test
+    b - 2nd array to test
+    assume_unique - If True, assumes that both input arrays are unique, which speeds up the calculation.  The default is False.
+returns:
+    res - values common to both a and b.
+    ia - indicies of a such that res = a[ia]
+    ib - indicies of b such that res = b[ib]
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="sp_autocorrelation"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">sp_autocorrelation</span>(<span class="sig-arg">data</span>,
+        <span class="sig-arg">p</span>=<span class="sig-default">30</span>,
+        <span class="sig-arg">m</span>=<span class="sig-default">2</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#sp_autocorrelation">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Implements the time-to-tag correlation algorithm outlined by Wahl et al. in Opt. Exp. 11 3583
+
+arguments:
+    data - A sorted (1xN) array of incidence times.
+    p - number of linear points. Defaults to 30.
+    m - factor that the time is changed for each correlator. Defaults to 2.
+returns:
+    corr - A (1 x bins) autocorrelation of data.
+    corrtime - A (1 x bins ) list of time ranges.
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="sp_crosscorrelation"></a>
+<div>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">sp_crosscorrelation</span>(<span class="sig-arg">d1</span>,
+        <span class="sig-arg">d2</span>,
+        <span class="sig-arg">p</span>=<span class="sig-default">30</span>,
+        <span class="sig-arg">m</span>=<span class="sig-default">2</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#sp_crosscorrelation">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Implements the time-to-tag correlation algorithm outlined by Wahl et al. in Opt. Exp. 11 3583
+
+arguments:
+    d1 - A sorted (1xN) array of incidence times for the 1st signal.
+    d2 - A sorted (1xN) array of incidence times for the 2nd signal.
+    p - number of linear points. Defaults to 30.
+    m - factor that the time is changed for each correlator. Defaults to 2.
+returns:
+    corr - A (1 x bins) crosscorrelation between (d1, d2).
+    corrtime - A (1 x bins ) list of time ranges.
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="_sort_data"></a>
+<div class="private">
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">_sort_data</span>(<span class="sig-arg">data</span>,
+        <span class="sig-arg">col</span>=<span class="sig-default">3</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#_sort_data">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <pre class="literalblock">
+Helper function to sort data by increasing photon incidence value along column col.
+arguments:
+    data - data to process.  Must be two dimensional
+returns:
+    sorted data by increasing photon incidence value
+
+</pre>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<a name="_half_data"></a>
+<div class="private">
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr valign="top"><td>
+  <h3 class="epydoc"><span class="sig"><span class="sig-name">_half_data</span>(<span class="sig-arg">data</span>,
+        <span class="sig-arg">m</span>,
+        <span class="sig-arg">w</span>)</span>
+  </h3>
+  </td><td align="right" valign="top"
+    ><span class="codelink"><a href="speckle.xpcs-pysrc.html#_half_data">source&nbsp;code</a></span>&nbsp;
+    </td>
+  </tr></table>
+  
+  <p>Helper function that halves the data by dividing the incidence times 
+  in data by m and finding duplicates.  The w matrix is augmented depending
+  on the number of duplicates found.  The algorithm is found in Opt. Exp. 
+  11 3583.</p>
+  <dl class="fields">
+  </dl>
+</td></tr></table>
+</div>
+<br />
+<!-- ==================== VARIABLES DETAILS ==================== -->
+<a name="section-VariablesDetails"></a>
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr bgcolor="#70b0f0" class="table-header">
+  <td colspan="2" class="table-header">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+      <tr valign="top">
+        <td align="left"><span class="table-header">Variables Details</span></td>
+        <td align="right" valign="top"
+         ><span class="options">[<a href="#section-VariablesDetails"
+         class="privatelink" onclick="toggle_private();"
+         >hide private</a>]</span></td>
+      </tr>
+    </table>
+  </td>
+</tr>
+</table>
+<a name="_averagingFunctions"></a>
+<div class="private">
+<table class="details" border="1" cellpadding="3"
+       cellspacing="0" width="100%" bgcolor="white">
+<tr><td>
+  <h3 class="epydoc">_averagingFunctions</h3>
+  
+  <dl class="fields">
+  </dl>
+  <dl class="fields">
+    <dt>Value:</dt>
+      <dd><table><tr><td><pre class="variable">
+{&quot;none&quot;: _noAverage, &quot;circle&quot;: averaging.smooth_with_circle, &quot;square&quot;:<span class="variable-linewrap"><img src="crarr.png" alt="\" /></span>
+ averaging.smooth_with_rectangle, &quot;rectangle&quot;: averaging.smooth_with_r<span class="variable-linewrap"><img src="crarr.png" alt="\" /></span>
+ectangle, &quot;gaussian&quot;: averaging.smooth_with_gaussian,}
+</pre></td></tr></table>
+</dd>
+  </dl>
+</td></tr></table>
+</div>
+<br />
+<!-- ==================== NAVIGATION BAR ==================== -->
+<table class="navbar" border="0" width="100%" cellpadding="0"
+       bgcolor="#a0c0ff" cellspacing="0">
+  <tr valign="middle">
+  <!-- Home link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="speckle-module.html">Home</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Tree link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="module-tree.html">Trees</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Index link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="identifier-index.html">Indices</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Help link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="help.html">Help</a>&nbsp;&nbsp;&nbsp;</th>
+
+      <th class="navbar" width="100%"></th>
+  </tr>
+</table>
+<table border="0" cellpadding="0" cellspacing="0" width="100%%">
+  <tr>
+    <td align="left" class="footer">
+    Generated by Epydoc 3.0.1 on Mon Jun 25 16:55:50 2012
+    </td>
+    <td align="right" class="footer">
+      <a target="mainFrame" href="http://epydoc.sourceforge.net"
+        >http://epydoc.sourceforge.net</a>
+    </td>
+  </tr>
+</table>
+
+<script type="text/javascript">
+  <!--
+  // Private objects are initially displayed (because if
+  // javascript is turned off then we want them to be
+  // visible); but by default, we want to hide them.  So hide
+  // them unless we have a cookie that says to show them.
+  checkCookie();
+  // -->
+</script>
+</body>
+</html>

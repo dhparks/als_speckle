@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="ascii"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+          "DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+  <title>speckle.wrapping</title>
+  <link rel="stylesheet" href="epydoc.css" type="text/css" />
+  <script type="text/javascript" src="epydoc.js"></script>
+</head>
+
+<body bgcolor="white" text="black" link="blue" vlink="#204080"
+      alink="#204080">
+<!-- ==================== NAVIGATION BAR ==================== -->
+<table class="navbar" border="0" width="100%" cellpadding="0"
+       bgcolor="#a0c0ff" cellspacing="0">
+  <tr valign="middle">
+  <!-- Home link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="speckle-module.html">Home</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Tree link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="module-tree.html">Trees</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Index link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="identifier-index.html">Indices</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Help link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="help.html">Help</a>&nbsp;&nbsp;&nbsp;</th>
+
+      <th class="navbar" width="100%"></th>
+  </tr>
+</table>
+<table width="100%" cellpadding="0" cellspacing="0">
+  <tr valign="top">
+    <td width="100%">
+      <span class="breadcrumbs">
+        <a href="speckle-module.html">Package&nbsp;speckle</a> ::
+        Module&nbsp;wrapping
+      </span>
+    </td>
+    <td>
+      <table cellpadding="0" cellspacing="0">
+        <!-- hide/show private -->
+        <tr><td align="right"><span class="options">[<a href="javascript:void(0);" class="privatelink"
+    onclick="toggle_private();">hide&nbsp;private</a>]</span></td></tr>
+        <tr><td align="right"><span class="options"
+            >[<a href="frames.html" target="_top">frames</a
+            >]&nbsp;|&nbsp;<a href="speckle.wrapping-pysrc.html"
+            target="_top">no&nbsp;frames</a>]</span></td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<h1 class="epydoc">Source Code for <a href="speckle.wrapping-module.html">Module speckle.wrapping</a></h1>
+<pre class="py-src">
+<a name="L1"></a><tt class="py-lineno">  1</tt>  <tt class="py-line"><tt class="py-docstring">""" A Library for wrapping and unwrapping arrays that have circular symmetry.</tt> </tt>
+<a name="L2"></a><tt class="py-lineno">  2</tt>  <tt class="py-line"><tt class="py-docstring"></tt> </tt>
+<a name="L3"></a><tt class="py-lineno">  3</tt>  <tt class="py-line"><tt class="py-docstring">Author: Daniel Parks (dparks@uoregon.edu)</tt> </tt>
+<a name="L4"></a><tt class="py-lineno">  4</tt>  <tt class="py-line"><tt class="py-docstring">"""</tt> </tt>
+<a name="L5"></a><tt class="py-lineno">  5</tt>  <tt class="py-line"> </tt>
+<a name="L6"></a><tt class="py-lineno">  6</tt>  <tt class="py-line"><tt class="py-keyword">import</tt> <tt class="py-name">scipy</tt> </tt>
+<a name="L7"></a><tt class="py-lineno">  7</tt>  <tt class="py-line"> </tt>
+<a name="unwrap_plan"></a><div id="unwrap_plan-def"><a name="L8"></a><tt class="py-lineno">  8</tt> <a class="py-toggle" href="#" id="unwrap_plan-toggle" onclick="return toggle('unwrap_plan');">-</a><tt class="py-line"><tt class="py-keyword">def</tt> <a class="py-def-name" href="speckle.wrapping-module.html#unwrap_plan">unwrap_plan</a><tt class="py-op">(</tt><tt class="py-param">r</tt><tt class="py-op">,</tt><tt class="py-param">R</tt><tt class="py-op">,</tt><tt class="py-param">center</tt><tt class="py-op">,</tt><tt class="py-param">max_angle</tt><tt class="py-op">=</tt><tt class="py-name">None</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+</div><div id="unwrap_plan-collapsed" style="display:none;" pad="+++" indent="++++"></div><div id="unwrap_plan-expanded"><a name="L9"></a><tt class="py-lineno">  9</tt>  <tt class="py-line">    <tt class="py-docstring">""" Make the array which constitutes the unwrap plan. This is then passed</tt> </tt>
+<a name="L10"></a><tt class="py-lineno"> 10</tt>  <tt class="py-line"><tt class="py-docstring">    to the actual unwrap function along with the array to be unwrapped. Generating</tt> </tt>
+<a name="L11"></a><tt class="py-lineno"> 11</tt>  <tt class="py-line"><tt class="py-docstring">    a separate plan results in serious speed improvements if the unwrap plan</tt> </tt>
+<a name="L12"></a><tt class="py-lineno"> 12</tt>  <tt class="py-line"><tt class="py-docstring">    is always the same.</tt> </tt>
+<a name="L13"></a><tt class="py-lineno"> 13</tt>  <tt class="py-line"><tt class="py-docstring">    </tt> </tt>
+<a name="L14"></a><tt class="py-lineno"> 14</tt>  <tt class="py-line"><tt class="py-docstring">    Required inputs:</tt> </tt>
+<a name="L15"></a><tt class="py-lineno"> 15</tt>  <tt class="py-line"><tt class="py-docstring">    r: the interior radius if the unwrapping annulus. float or int.</tt> </tt>
+<a name="L16"></a><tt class="py-lineno"> 16</tt>  <tt class="py-line"><tt class="py-docstring">    R: the exterior radius of the unwrapping annulus. float or int.</tt> </tt>
+<a name="L17"></a><tt class="py-lineno"> 17</tt>  <tt class="py-line"><tt class="py-docstring">    center: a 2-tuple of integers giving the center of the annulus.</tt> </tt>
+<a name="L18"></a><tt class="py-lineno"> 18</tt>  <tt class="py-line"><tt class="py-docstring">    </tt> </tt>
+<a name="L19"></a><tt class="py-lineno"> 19</tt>  <tt class="py-line"><tt class="py-docstring">    Optional input:</tt> </tt>
+<a name="L20"></a><tt class="py-lineno"> 20</tt>  <tt class="py-line"><tt class="py-docstring">    max_angle: the portion of the azimuthal coordinate to be unwrapped.</tt> </tt>
+<a name="L21"></a><tt class="py-lineno"> 21</tt>  <tt class="py-line"><tt class="py-docstring">            default is 2pi.</tt> </tt>
+<a name="L22"></a><tt class="py-lineno"> 22</tt>  <tt class="py-line"><tt class="py-docstring"></tt> </tt>
+<a name="L23"></a><tt class="py-lineno"> 23</tt>  <tt class="py-line"><tt class="py-docstring">    Returns:</tt> </tt>
+<a name="L24"></a><tt class="py-lineno"> 24</tt>  <tt class="py-line"><tt class="py-docstring">    plan - an array object that contains the unwrapping plan.</tt> </tt>
+<a name="L25"></a><tt class="py-lineno"> 25</tt>  <tt class="py-line"><tt class="py-docstring">    """</tt> </tt>
+<a name="L26"></a><tt class="py-lineno"> 26</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">isinstance</tt><tt class="py-op">(</tt><tt class="py-name">r</tt><tt class="py-op">,</tt> <tt class="py-op">(</tt><tt class="py-name">float</tt><tt class="py-op">,</tt> <tt class="py-name">int</tt><tt class="py-op">)</tt><tt class="py-op">)</tt><tt class="py-op">,</tt> <tt class="py-string">"r must be int or float"</tt> </tt>
+<a name="L27"></a><tt class="py-lineno"> 27</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">isinstance</tt><tt class="py-op">(</tt><tt class="py-name">R</tt><tt class="py-op">,</tt> <tt class="py-op">(</tt><tt class="py-name">float</tt><tt class="py-op">,</tt> <tt class="py-name">int</tt><tt class="py-op">)</tt><tt class="py-op">)</tt><tt class="py-op">,</tt> <tt class="py-string">"R must be int or float"</tt> </tt>
+<a name="L28"></a><tt class="py-lineno"> 28</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">r</tt> <tt class="py-op">&gt;=</tt> <tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-string">"r must be &gt;= 0"</tt> </tt>
+<a name="L29"></a><tt class="py-lineno"> 29</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">isinstance</tt><tt class="py-op">(</tt><tt class="py-name">center</tt><tt class="py-op">,</tt> <tt class="py-op">(</tt><tt class="py-name">list</tt><tt class="py-op">,</tt> <tt class="py-name">tuple</tt><tt class="py-op">,</tt> <tt class="py-name">set</tt><tt class="py-op">)</tt><tt class="py-op">)</tt> <tt class="py-keyword">and</tt> <tt class="py-name">len</tt><tt class="py-op">(</tt><tt class="py-name">center</tt><tt class="py-op">)</tt> <tt class="py-op">==</tt> <tt class="py-number">2</tt><tt class="py-op">,</tt> <tt class="py-string">"center must be 2-tuple"</tt> </tt>
+<a name="L30"></a><tt class="py-lineno"> 30</tt>  <tt class="py-line">    <tt class="py-comment"># don't bother checking if center is int, just cast it. Found out that numpy.int64 type is not considered IntType</tt> </tt>
+<a name="L31"></a><tt class="py-lineno"> 31</tt>  <tt class="py-line">    <tt class="py-comment">#center = [int(i) for i in center]</tt> </tt>
+<a name="L32"></a><tt class="py-lineno"> 32</tt>  <tt class="py-line"> </tt>
+<a name="L33"></a><tt class="py-lineno"> 33</tt>  <tt class="py-line">    <tt class="py-keyword">if</tt> <tt class="py-name">max_angle</tt> <tt class="py-op">==</tt> <tt class="py-name">None</tt><tt class="py-op">:</tt> <tt class="py-name">max_angle</tt> <tt class="py-op">=</tt> <tt class="py-number">2</tt><tt class="py-op">*</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">pi</tt> </tt>
+<a name="L34"></a><tt class="py-lineno"> 34</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">isinstance</tt><tt class="py-op">(</tt><tt class="py-name">max_angle</tt><tt class="py-op">,</tt> <tt class="py-op">(</tt><tt class="py-name">float</tt><tt class="py-op">,</tt> <tt class="py-name">int</tt><tt class="py-op">)</tt><tt class="py-op">)</tt><tt class="py-op">,</tt> <tt class="py-string">"max_angle must be float"</tt> </tt>
+<a name="L35"></a><tt class="py-lineno"> 35</tt>  <tt class="py-line">    <tt class="py-name">max_angle</tt> <tt class="py-op">=</tt> <tt class="py-name">float</tt><tt class="py-op">(</tt><tt class="py-name">max_angle</tt><tt class="py-op">)</tt> </tt>
+<a name="L36"></a><tt class="py-lineno"> 36</tt>  <tt class="py-line"> </tt>
+<a name="L37"></a><tt class="py-lineno"> 37</tt>  <tt class="py-line">    <tt class="py-comment"># setup up polar arrays</tt> </tt>
+<a name="L38"></a><tt class="py-lineno"> 38</tt>  <tt class="py-line">    <tt class="py-name">R2</tt><tt class="py-op">,</tt><tt class="py-name">R1</tt><tt class="py-op">,</tt><tt class="py-name">cx</tt><tt class="py-op">,</tt><tt class="py-name">cy</tt><tt class="py-op">,</tt><tt class="py-name">MaxAngle</tt> <tt class="py-op">=</tt> <tt class="py-name">R</tt><tt class="py-op">,</tt><tt class="py-name">r</tt><tt class="py-op">,</tt><tt class="py-name">center</tt><tt class="py-op">[</tt><tt class="py-number">1</tt><tt class="py-op">]</tt><tt class="py-op">,</tt><tt class="py-name">center</tt><tt class="py-op">[</tt><tt class="py-number">0</tt><tt class="py-op">]</tt><tt class="py-op">,</tt><tt class="py-name">max_angle</tt> </tt>
+<a name="L39"></a><tt class="py-lineno"> 39</tt>  <tt class="py-line">     </tt>
+<a name="L40"></a><tt class="py-lineno"> 40</tt>  <tt class="py-line">    <tt class="py-name">cMax</tt> <tt class="py-op">=</tt> <tt class="py-name">int</tt><tt class="py-op">(</tt><tt class="py-name">MaxAngle</tt><tt class="py-op">*</tt><tt class="py-name">R2</tt><tt class="py-op">)</tt> </tt>
+<a name="L41"></a><tt class="py-lineno"> 41</tt>  <tt class="py-line">    <tt class="py-name">RTable</tt><tt class="py-op">,</tt> <tt class="py-name">CTable</tt> <tt class="py-op">=</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">indices</tt><tt class="py-op">(</tt><tt class="py-op">(</tt><tt class="py-name">R2</tt><tt class="py-op">-</tt><tt class="py-name">R1</tt><tt class="py-op">,</tt><tt class="py-name">cMax</tt><tt class="py-op">)</tt><tt class="py-op">,</tt><tt class="py-name">float</tt><tt class="py-op">)</tt> </tt>
+<a name="L42"></a><tt class="py-lineno"> 42</tt>  <tt class="py-line">    <tt class="py-name">RTable</tt> <tt class="py-op">+=</tt> <tt class="py-name">R1</tt> </tt>
+<a name="L43"></a><tt class="py-lineno"> 43</tt>  <tt class="py-line">    <tt class="py-name">PhiTable</tt> <tt class="py-op">=</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">ones_like</tt><tt class="py-op">(</tt><tt class="py-name">RTable</tt><tt class="py-op">)</tt><tt class="py-op">*</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">arange</tt><tt class="py-op">(</tt><tt class="py-name">cMax</tt><tt class="py-op">)</tt><tt class="py-op">*</tt><tt class="py-name">MaxAngle</tt><tt class="py-op">/</tt><tt class="py-name">cMax</tt> </tt>
+<a name="L44"></a><tt class="py-lineno"> 44</tt>  <tt class="py-line"> </tt>
+<a name="L45"></a><tt class="py-lineno"> 45</tt>  <tt class="py-line">    <tt class="py-comment"># now form the map</tt> </tt>
+<a name="L46"></a><tt class="py-lineno"> 46</tt>  <tt class="py-line">    <tt class="py-name">Rows</tt><tt class="py-op">,</tt><tt class="py-name">Cols</tt> <tt class="py-op">=</tt> <tt class="py-name">RTable</tt><tt class="py-op">.</tt><tt id="link-0" class="py-name" targets="Module speckle.shape=speckle.shape-module.html"><a title="speckle.shape" class="py-name" href="#" onclick="return doclink('link-0', 'shape', 'link-0');">shape</a></tt> </tt>
+<a name="L47"></a><tt class="py-lineno"> 47</tt>  <tt class="py-line">    <tt class="py-name">N</tt> <tt class="py-op">=</tt> <tt class="py-name">Rows</tt><tt class="py-op">*</tt><tt class="py-name">Cols</tt> </tt>
+<a name="L48"></a><tt class="py-lineno"> 48</tt>  <tt class="py-line">     </tt>
+<a name="L49"></a><tt class="py-lineno"> 49</tt>  <tt class="py-line">    <tt class="py-comment"># basic trigonometry:</tt> </tt>
+<a name="L50"></a><tt class="py-lineno"> 50</tt>  <tt class="py-line">    <tt class="py-comment"># x = x0+r*cos(Theta)</tt> </tt>
+<a name="L51"></a><tt class="py-lineno"> 51</tt>  <tt class="py-line">    <tt class="py-comment"># y = y0+r*sin(Theta)</tt> </tt>
+<a name="L52"></a><tt class="py-lineno"> 52</tt>  <tt class="py-line">    <tt class="py-name">x0Table</tt> <tt class="py-op">=</tt> <tt class="py-name">cx</tt><tt class="py-op">+</tt><tt class="py-name">RTable</tt><tt class="py-op">*</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">cos</tt><tt class="py-op">(</tt><tt class="py-name">PhiTable</tt><tt class="py-op">)</tt> </tt>
+<a name="L53"></a><tt class="py-lineno"> 53</tt>  <tt class="py-line">    <tt class="py-name">y0Table</tt> <tt class="py-op">=</tt> <tt class="py-name">cy</tt><tt class="py-op">+</tt><tt class="py-name">RTable</tt><tt class="py-op">*</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">sin</tt><tt class="py-op">(</tt><tt class="py-name">PhiTable</tt><tt class="py-op">)</tt> </tt>
+<a name="L54"></a><tt class="py-lineno"> 54</tt>  <tt class="py-line">     </tt>
+<a name="L55"></a><tt class="py-lineno"> 55</tt>  <tt class="py-line">    <tt class="py-comment"># unravel to make 1-d (For speed? Why did I do this? Is this the required format?)</tt> </tt>
+<a name="L56"></a><tt class="py-lineno"> 56</tt>  <tt class="py-line">    <tt class="py-name">x0Table</tt> <tt class="py-op">=</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">ravel</tt><tt class="py-op">(</tt><tt class="py-name">x0Table</tt><tt class="py-op">)</tt> </tt>
+<a name="L57"></a><tt class="py-lineno"> 57</tt>  <tt class="py-line">    <tt class="py-name">y0Table</tt> <tt class="py-op">=</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">ravel</tt><tt class="py-op">(</tt><tt class="py-name">y0Table</tt><tt class="py-op">)</tt> </tt>
+<a name="L58"></a><tt class="py-lineno"> 58</tt>  <tt class="py-line">     </tt>
+<a name="L59"></a><tt class="py-lineno"> 59</tt>  <tt class="py-line">    <tt class="py-comment"># combine into the plan array</tt> </tt>
+<a name="L60"></a><tt class="py-lineno"> 60</tt>  <tt class="py-line">    <tt class="py-comment"># Plan format:</tt> </tt>
+<a name="L61"></a><tt class="py-lineno"> 61</tt>  <tt class="py-line">    <tt class="py-comment"># [[y0,y1,y2...R],[x0,x1,x2...r]]</tt> </tt>
+<a name="L62"></a><tt class="py-lineno"> 62</tt>  <tt class="py-line">    <tt class="py-name">Plan</tt> <tt class="py-op">=</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">zeros</tt><tt class="py-op">(</tt><tt class="py-op">(</tt><tt class="py-number">2</tt><tt class="py-op">,</tt><tt class="py-name">N</tt><tt class="py-op">+</tt><tt class="py-number">1</tt><tt class="py-op">)</tt><tt class="py-op">,</tt><tt class="py-name">float</tt><tt class="py-op">)</tt> </tt>
+<a name="L63"></a><tt class="py-lineno"> 63</tt>  <tt class="py-line">    <tt class="py-name">Plan</tt><tt class="py-op">[</tt><tt class="py-number">0</tt><tt class="py-op">,</tt><tt class="py-op">:</tt><tt class="py-op">-</tt><tt class="py-number">1</tt><tt class="py-op">]</tt> <tt class="py-op">=</tt> <tt class="py-name">y0Table</tt> </tt>
+<a name="L64"></a><tt class="py-lineno"> 64</tt>  <tt class="py-line">    <tt class="py-name">Plan</tt><tt class="py-op">[</tt><tt class="py-number">1</tt><tt class="py-op">,</tt><tt class="py-op">:</tt><tt class="py-op">-</tt><tt class="py-number">1</tt><tt class="py-op">]</tt> <tt class="py-op">=</tt> <tt class="py-name">x0Table</tt> </tt>
+<a name="L65"></a><tt class="py-lineno"> 65</tt>  <tt class="py-line">     </tt>
+<a name="L66"></a><tt class="py-lineno"> 66</tt>  <tt class="py-line">    <tt class="py-comment"># very last entries in the plan are the radii. this means the plan contains all information for unwrapping.</tt> </tt>
+<a name="L67"></a><tt class="py-lineno"> 67</tt>  <tt class="py-line">    <tt class="py-name">Plan</tt><tt class="py-op">[</tt><tt class="py-number">0</tt><tt class="py-op">,</tt><tt class="py-op">-</tt><tt class="py-number">1</tt><tt class="py-op">]</tt> <tt class="py-op">=</tt> <tt class="py-name">R</tt> </tt>
+<a name="L68"></a><tt class="py-lineno"> 68</tt>  <tt class="py-line">    <tt class="py-name">Plan</tt><tt class="py-op">[</tt><tt class="py-number">1</tt><tt class="py-op">,</tt><tt class="py-op">-</tt><tt class="py-number">1</tt><tt class="py-op">]</tt> <tt class="py-op">=</tt> <tt class="py-name">r</tt> </tt>
+<a name="L69"></a><tt class="py-lineno"> 69</tt>  <tt class="py-line"> </tt>
+<a name="L70"></a><tt class="py-lineno"> 70</tt>  <tt class="py-line">    <tt class="py-keyword">return</tt> <tt class="py-name">Plan</tt> </tt>
+</div><a name="L71"></a><tt class="py-lineno"> 71</tt>  <tt class="py-line"> </tt>
+<a name="wrap_plan"></a><div id="wrap_plan-def"><a name="L72"></a><tt class="py-lineno"> 72</tt> <a class="py-toggle" href="#" id="wrap_plan-toggle" onclick="return toggle('wrap_plan');">-</a><tt class="py-line"><tt class="py-keyword">def</tt> <a class="py-def-name" href="speckle.wrapping-module.html#wrap_plan">wrap_plan</a><tt class="py-op">(</tt><tt class="py-param">r</tt><tt class="py-op">,</tt><tt class="py-param">R</tt><tt class="py-op">,</tt><tt class="py-param">max_angle</tt><tt class="py-op">=</tt><tt class="py-name">None</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+</div><div id="wrap_plan-collapsed" style="display:none;" pad="+++" indent="++++"></div><div id="wrap_plan-expanded"><a name="L73"></a><tt class="py-lineno"> 73</tt>  <tt class="py-line">    <tt class="py-docstring">""" Generate a plan to rewrap an array from polar coordinates into cartesian coordinates.</tt> </tt>
+<a name="L74"></a><tt class="py-lineno"> 74</tt>  <tt class="py-line"><tt class="py-docstring">    Rewrapped array will be returned with coordinate center at array center.</tt> </tt>
+<a name="L75"></a><tt class="py-lineno"> 75</tt>  <tt class="py-line"><tt class="py-docstring">    </tt> </tt>
+<a name="L76"></a><tt class="py-lineno"> 76</tt>  <tt class="py-line"><tt class="py-docstring">    Required input:</tt> </tt>
+<a name="L77"></a><tt class="py-lineno"> 77</tt>  <tt class="py-line"><tt class="py-docstring">    r: the inner raidus of the data to be wrapped.  int or float</tt> </tt>
+<a name="L78"></a><tt class="py-lineno"> 78</tt>  <tt class="py-line"><tt class="py-docstring">    R: the outer radius of the data to be wrapped. int or float.</tt> </tt>
+<a name="L79"></a><tt class="py-lineno"> 79</tt>  <tt class="py-line"><tt class="py-docstring">    </tt> </tt>
+<a name="L80"></a><tt class="py-lineno"> 80</tt>  <tt class="py-line"><tt class="py-docstring">    Optional input:</tt> </tt>
+<a name="L81"></a><tt class="py-lineno"> 81</tt>  <tt class="py-line"><tt class="py-docstring">    max_angle: if when unwrapping you used a max_angle other than the default value of 2*pi it should be resupplied here. radians.</tt> </tt>
+<a name="L82"></a><tt class="py-lineno"> 82</tt>  <tt class="py-line"><tt class="py-docstring">    </tt> </tt>
+<a name="L83"></a><tt class="py-lineno"> 83</tt>  <tt class="py-line"><tt class="py-docstring">    Returns:</tt> </tt>
+<a name="L84"></a><tt class="py-lineno"> 84</tt>  <tt class="py-line"><tt class="py-docstring">    plan - a ndarray plan of coordinate wrapping map.  To be used in wrap_with_plan.</tt> </tt>
+<a name="L85"></a><tt class="py-lineno"> 85</tt>  <tt class="py-line"><tt class="py-docstring">    """</tt> </tt>
+<a name="L86"></a><tt class="py-lineno"> 86</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">isinstance</tt><tt class="py-op">(</tt><tt class="py-name">R</tt><tt class="py-op">,</tt> <tt class="py-op">(</tt><tt class="py-name">int</tt><tt class="py-op">,</tt> <tt class="py-name">float</tt><tt class="py-op">)</tt><tt class="py-op">)</tt><tt class="py-op">,</tt> <tt class="py-string">"R must be float or int"</tt> </tt>
+<a name="L87"></a><tt class="py-lineno"> 87</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">isinstance</tt><tt class="py-op">(</tt><tt class="py-name">r</tt><tt class="py-op">,</tt> <tt class="py-op">(</tt><tt class="py-name">int</tt><tt class="py-op">,</tt> <tt class="py-name">float</tt><tt class="py-op">)</tt><tt class="py-op">)</tt><tt class="py-op">,</tt> <tt class="py-string">"r must be float or int"</tt> </tt>
+<a name="L88"></a><tt class="py-lineno"> 88</tt>  <tt class="py-line">    <tt class="py-keyword">if</tt> <tt class="py-name">max_angle</tt> <tt class="py-op">==</tt> <tt class="py-name">None</tt><tt class="py-op">:</tt> <tt class="py-name">max_angle</tt> <tt class="py-op">=</tt> <tt class="py-number">2</tt><tt class="py-op">*</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">pi</tt> </tt>
+<a name="L89"></a><tt class="py-lineno"> 89</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">isinstance</tt><tt class="py-op">(</tt><tt class="py-name">max_angle</tt><tt class="py-op">,</tt><tt class="py-name">float</tt><tt class="py-op">)</tt><tt class="py-op">,</tt> <tt class="py-string">"max_angle must be float"</tt> </tt>
+<a name="L90"></a><tt class="py-lineno"> 90</tt>  <tt class="py-line">     </tt>
+<a name="L91"></a><tt class="py-lineno"> 91</tt>  <tt class="py-line">    <tt class="py-name">R1</tt> <tt class="py-op">=</tt> <tt class="py-name">max</tt><tt class="py-op">(</tt><tt class="py-op">[</tt><tt class="py-name">r</tt><tt class="py-op">,</tt><tt class="py-name">R</tt><tt class="py-op">]</tt><tt class="py-op">)</tt> </tt>
+<a name="L92"></a><tt class="py-lineno"> 92</tt>  <tt class="py-line">    <tt class="py-name">R2</tt> <tt class="py-op">=</tt> <tt class="py-name">min</tt><tt class="py-op">(</tt><tt class="py-op">[</tt><tt class="py-name">r</tt><tt class="py-op">,</tt><tt class="py-name">R</tt><tt class="py-op">]</tt><tt class="py-op">)</tt> </tt>
+<a name="L93"></a><tt class="py-lineno"> 93</tt>  <tt class="py-line">  </tt>
+<a name="L94"></a><tt class="py-lineno"> 94</tt>  <tt class="py-line">    <tt class="py-comment"># setup the cartesian arrays</tt> </tt>
+<a name="L95"></a><tt class="py-lineno"> 95</tt>  <tt class="py-line">    <tt class="py-name">yArray</tt><tt class="py-op">,</tt><tt class="py-name">xArray</tt> <tt class="py-op">=</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">indices</tt><tt class="py-op">(</tt><tt class="py-op">(</tt><tt class="py-number">2</tt><tt class="py-op">*</tt><tt class="py-name">R1</tt><tt class="py-op">,</tt><tt class="py-number">2</tt><tt class="py-op">*</tt><tt class="py-name">R1</tt><tt class="py-op">)</tt><tt class="py-op">,</tt><tt class="py-name">float</tt><tt class="py-op">)</tt><tt class="py-op">-</tt><tt class="py-name">R1</tt> </tt>
+<a name="L96"></a><tt class="py-lineno"> 96</tt>  <tt class="py-line">    <tt class="py-name">RArray</tt> <tt class="py-op">=</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">sqrt</tt><tt class="py-op">(</tt><tt class="py-name">yArray</tt><tt class="py-op">**</tt><tt class="py-number">2</tt><tt class="py-op">+</tt><tt class="py-name">xArray</tt><tt class="py-op">**</tt><tt class="py-number">2</tt><tt class="py-op">)</tt><tt class="py-op">-</tt><tt class="py-name">R2</tt> </tt>
+<a name="L97"></a><tt class="py-lineno"> 97</tt>  <tt class="py-line">    <tt class="py-name">PhiArray</tt> <tt class="py-op">=</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">mod</tt><tt class="py-op">(</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">angle</tt><tt class="py-op">(</tt><tt class="py-name">xArray</tt><tt class="py-op">+</tt><tt class="py-name">complex</tt><tt class="py-op">(</tt><tt class="py-number">0</tt><tt class="py-op">,</tt><tt class="py-number">1</tt><tt class="py-op">)</tt><tt class="py-op">*</tt><tt class="py-name">yArray</tt><tt class="py-op">)</tt><tt class="py-op">+</tt><tt class="py-number">2</tt><tt class="py-op">*</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">pi</tt><tt class="py-op">,</tt><tt class="py-number">2</tt><tt class="py-op">*</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">pi</tt><tt class="py-op">)</tt> </tt>
+<a name="L98"></a><tt class="py-lineno"> 98</tt>  <tt class="py-line">    <tt class="py-name">PhiArray</tt> <tt class="py-op">*=</tt> <tt class="py-number">1.</tt><tt class="py-op">/</tt><tt class="py-name">PhiArray</tt><tt class="py-op">.</tt><tt class="py-name">max</tt><tt class="py-op">(</tt><tt class="py-op">)</tt><tt class="py-op">*</tt><tt class="py-name">int</tt><tt class="py-op">(</tt><tt class="py-number">2</tt><tt class="py-op">*</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">pi</tt><tt class="py-op">*</tt><tt class="py-name">R</tt><tt class="py-op">-</tt><tt class="py-number">1</tt><tt class="py-op">)</tt> </tt>
+<a name="L99"></a><tt class="py-lineno"> 99</tt>  <tt class="py-line"> </tt>
+<a name="L100"></a><tt class="py-lineno">100</tt>  <tt class="py-line">    <tt class="py-comment"># put them in the plan</tt> </tt>
+<a name="L101"></a><tt class="py-lineno">101</tt>  <tt class="py-line">    <tt class="py-name">Plan</tt> <tt class="py-op">=</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">zeros</tt><tt class="py-op">(</tt><tt class="py-op">(</tt><tt class="py-number">2</tt><tt class="py-op">,</tt><tt class="py-name">len</tt><tt class="py-op">(</tt><tt class="py-name">yArray</tt><tt class="py-op">)</tt><tt class="py-op">,</tt><tt class="py-name">len</tt><tt class="py-op">(</tt><tt class="py-name">yArray</tt><tt class="py-op">[</tt><tt class="py-number">0</tt><tt class="py-op">]</tt><tt class="py-op">)</tt><tt class="py-op">)</tt><tt class="py-op">,</tt><tt class="py-name">float</tt><tt class="py-op">)</tt> </tt>
+<a name="L102"></a><tt class="py-lineno">102</tt>  <tt class="py-line">    <tt class="py-name">Plan</tt><tt class="py-op">[</tt><tt class="py-number">0</tt><tt class="py-op">]</tt> <tt class="py-op">=</tt> <tt class="py-name">RArray</tt> </tt>
+<a name="L103"></a><tt class="py-lineno">103</tt>  <tt class="py-line">    <tt class="py-name">Plan</tt><tt class="py-op">[</tt><tt class="py-number">1</tt><tt class="py-op">]</tt> <tt class="py-op">=</tt> <tt class="py-name">PhiArray</tt> </tt>
+<a name="L104"></a><tt class="py-lineno">104</tt>  <tt class="py-line">     </tt>
+<a name="L105"></a><tt class="py-lineno">105</tt>  <tt class="py-line">    <tt class="py-keyword">return</tt> <tt class="py-name">Plan</tt> </tt>
+</div><a name="L106"></a><tt class="py-lineno">106</tt>  <tt class="py-line"> </tt>
+<a name="unwrap"></a><div id="unwrap-def"><a name="L107"></a><tt class="py-lineno">107</tt> <a class="py-toggle" href="#" id="unwrap-toggle" onclick="return toggle('unwrap');">-</a><tt class="py-line"><tt class="py-keyword">def</tt> <a class="py-def-name" href="speckle.wrapping-module.html#unwrap">unwrap</a><tt class="py-op">(</tt><tt class="py-param">array</tt><tt class="py-op">,</tt><tt class="py-param">plan</tt><tt class="py-op">,</tt><tt class="py-param">interpolation_order</tt><tt class="py-op">=</tt><tt class="py-number">3</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+</div><div id="unwrap-collapsed" style="display:none;" pad="+++" indent="++++"></div><div id="unwrap-expanded"><a name="L108"></a><tt class="py-lineno">108</tt>  <tt class="py-line">    <tt class="py-docstring">""" Given an array and a pre-generated plan, unwrap an array into polar coordinates</tt> </tt>
+<a name="L109"></a><tt class="py-lineno">109</tt>  <tt class="py-line"><tt class="py-docstring">    </tt> </tt>
+<a name="L110"></a><tt class="py-lineno">110</tt>  <tt class="py-line"><tt class="py-docstring">    Required input:</tt> </tt>
+<a name="L111"></a><tt class="py-lineno">111</tt>  <tt class="py-line"><tt class="py-docstring">    array: data to be unwrapped. must be numpy ndarray</tt> </tt>
+<a name="L112"></a><tt class="py-lineno">112</tt>  <tt class="py-line"><tt class="py-docstring">    plan or (r, R, center): Either a description of unwrapping, obtained by</tt> </tt>
+<a name="L113"></a><tt class="py-lineno">113</tt>  <tt class="py-line"><tt class="py-docstring">        invoking unwrap_plan(), or the 3-tuple (r, R, center).  The latter method</tt> </tt>
+<a name="L114"></a><tt class="py-lineno">114</tt>  <tt class="py-line"><tt class="py-docstring">        is useful if you only need to call unwrap() once.</tt> </tt>
+<a name="L115"></a><tt class="py-lineno">115</tt>  <tt class="py-line"><tt class="py-docstring">    </tt> </tt>
+<a name="L116"></a><tt class="py-lineno">116</tt>  <tt class="py-line"><tt class="py-docstring">    Optional input:</tt> </tt>
+<a name="L117"></a><tt class="py-lineno">117</tt>  <tt class="py-line"><tt class="py-docstring">    interpolation_order: coordinate transformations require interpolation.</tt> </tt>
+<a name="L118"></a><tt class="py-lineno">118</tt>  <tt class="py-line"><tt class="py-docstring">                        0 is nearest neighbor.</tt> </tt>
+<a name="L119"></a><tt class="py-lineno">119</tt>  <tt class="py-line"><tt class="py-docstring">                        1 is linear/bilinear</tt> </tt>
+<a name="L120"></a><tt class="py-lineno">120</tt>  <tt class="py-line"><tt class="py-docstring">                        3 is cubic/bicubic (default)</tt> </tt>
+<a name="L121"></a><tt class="py-lineno">121</tt>  <tt class="py-line"><tt class="py-docstring">                        4 and 5 order is also possible</tt> </tt>
+<a name="L122"></a><tt class="py-lineno">122</tt>  <tt class="py-line"><tt class="py-docstring"></tt> </tt>
+<a name="L123"></a><tt class="py-lineno">123</tt>  <tt class="py-line"><tt class="py-docstring">    returns:</tt> </tt>
+<a name="L124"></a><tt class="py-lineno">124</tt>  <tt class="py-line"><tt class="py-docstring">    unwrapped_array: the unwrapped array. The size of this is (R-r,xxx)</tt> </tt>
+<a name="L125"></a><tt class="py-lineno">125</tt>  <tt class="py-line"><tt class="py-docstring">    """</tt> </tt>
+<a name="L126"></a><tt class="py-lineno">126</tt>  <tt class="py-line">    <tt class="py-keyword">import</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">ndimage</tt> </tt>
+<a name="L127"></a><tt class="py-lineno">127</tt>  <tt class="py-line"> </tt>
+<a name="L128"></a><tt class="py-lineno">128</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">isinstance</tt><tt class="py-op">(</tt><tt class="py-name">array</tt><tt class="py-op">,</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">ndarray</tt><tt class="py-op">)</tt><tt class="py-op">,</tt>  <tt class="py-string">"input data must be ndarray"</tt> </tt>
+<a name="L129"></a><tt class="py-lineno">129</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">interpolation_order</tt> <tt class="py-keyword">in</tt> <tt class="py-name">range</tt><tt class="py-op">(</tt><tt class="py-number">6</tt><tt class="py-op">)</tt><tt class="py-op">,</tt> <tt class="py-string">"interpolation order must be 0-5"</tt> </tt>
+<a name="L130"></a><tt class="py-lineno">130</tt>  <tt class="py-line">    <tt class="py-keyword">if</tt> <tt class="py-keyword">not</tt> <tt class="py-name">isinstance</tt><tt class="py-op">(</tt><tt class="py-name">plan</tt><tt class="py-op">,</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">ndarray</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+<a name="L131"></a><tt class="py-lineno">131</tt>  <tt class="py-line">        <tt class="py-keyword">assert</tt> <tt class="py-name">len</tt><tt class="py-op">(</tt><tt class="py-name">plan</tt><tt class="py-op">)</tt> <tt class="py-op">==</tt> <tt class="py-number">3</tt><tt class="py-op">,</tt> <tt class="py-string">"unwrap plan must be a len 2 list/tuple/set or a ndarray"</tt> </tt>
+<a name="L132"></a><tt class="py-lineno">132</tt>  <tt class="py-line">        <tt class="py-name">r</tt><tt class="py-op">,</tt> <tt class="py-name">R</tt><tt class="py-op">,</tt> <tt class="py-name">center</tt> <tt class="py-op">=</tt> <tt class="py-name">plan</tt> </tt>
+<a name="L133"></a><tt class="py-lineno">133</tt>  <tt class="py-line">        <tt class="py-name">plan</tt> <tt class="py-op">=</tt> <tt id="link-1" class="py-name" targets="Function speckle.wrapping.unwrap_plan()=speckle.wrapping-module.html#unwrap_plan"><a title="speckle.wrapping.unwrap_plan" class="py-name" href="#" onclick="return doclink('link-1', 'unwrap_plan', 'link-1');">unwrap_plan</a></tt><tt class="py-op">(</tt><tt class="py-name">r</tt><tt class="py-op">,</tt> <tt class="py-name">R</tt><tt class="py-op">,</tt> <tt class="py-name">center</tt><tt class="py-op">)</tt> </tt>
+<a name="L134"></a><tt class="py-lineno">134</tt>  <tt class="py-line">     </tt>
+<a name="L135"></a><tt class="py-lineno">135</tt>  <tt class="py-line">    <tt class="py-comment"># separate plan into coordinate map and (r,R)</tt> </tt>
+<a name="L136"></a><tt class="py-lineno">136</tt>  <tt class="py-line">    <tt class="py-name">R</tt><tt class="py-op">,</tt><tt class="py-name">r</tt> <tt class="py-op">=</tt> <tt class="py-name">plan</tt><tt class="py-op">[</tt><tt class="py-op">:</tt><tt class="py-op">,</tt><tt class="py-op">-</tt><tt class="py-number">1</tt><tt class="py-op">]</tt> </tt>
+<a name="L137"></a><tt class="py-lineno">137</tt>  <tt class="py-line">    <tt class="py-name">plan</tt> <tt class="py-op">=</tt> <tt class="py-name">plan</tt><tt class="py-op">[</tt><tt class="py-op">:</tt><tt class="py-op">,</tt><tt class="py-op">:</tt><tt class="py-op">-</tt><tt class="py-number">1</tt><tt class="py-op">]</tt> </tt>
+<a name="L138"></a><tt class="py-lineno">138</tt>  <tt class="py-line">     </tt>
+<a name="L139"></a><tt class="py-lineno">139</tt>  <tt class="py-line">    <tt class="py-name">l1</tt><tt class="py-op">,</tt><tt class="py-name">l2</tt> <tt class="py-op">=</tt> <tt class="py-name">array</tt><tt class="py-op">.</tt><tt id="link-2" class="py-name"><a title="speckle.shape" class="py-name" href="#" onclick="return doclink('link-2', 'shape', 'link-0');">shape</a></tt> </tt>
+<a name="L140"></a><tt class="py-lineno">140</tt>  <tt class="py-line">    <tt class="py-name">ymax</tt> <tt class="py-op">=</tt> <tt class="py-name">plan</tt><tt class="py-op">[</tt><tt class="py-number">0</tt><tt class="py-op">]</tt><tt class="py-op">.</tt><tt class="py-name">max</tt><tt class="py-op">(</tt><tt class="py-op">)</tt> </tt>
+<a name="L141"></a><tt class="py-lineno">141</tt>  <tt class="py-line">    <tt class="py-name">xmax</tt> <tt class="py-op">=</tt> <tt class="py-name">plan</tt><tt class="py-op">[</tt><tt class="py-number">1</tt><tt class="py-op">]</tt><tt class="py-op">.</tt><tt class="py-name">max</tt><tt class="py-op">(</tt><tt class="py-op">)</tt> </tt>
+<a name="L142"></a><tt class="py-lineno">142</tt>  <tt class="py-line">     </tt>
+<a name="L143"></a><tt class="py-lineno">143</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">ymax</tt> <tt class="py-op">&lt;=</tt> <tt class="py-name">l1</tt> <tt class="py-keyword">and</tt> <tt class="py-name">xmax</tt> <tt class="py-op">&lt;=</tt> <tt class="py-name">l2</tt><tt class="py-op">,</tt> <tt class="py-string">"max unwrapped coordinates fall outside array.\ndid you use the correct plan for this array size?"</tt> </tt>
+<a name="L144"></a><tt class="py-lineno">144</tt>  <tt class="py-line">     </tt>
+<a name="L145"></a><tt class="py-lineno">145</tt>  <tt class="py-line">    <tt class="py-comment"># unwrap</tt> </tt>
+<a name="L146"></a><tt class="py-lineno">146</tt>  <tt class="py-line">    <tt class="py-name">unwrapped</tt> <tt class="py-op">=</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">ndimage</tt><tt class="py-op">.</tt><tt class="py-name">map_coordinates</tt><tt class="py-op">(</tt><tt class="py-name">array</tt><tt class="py-op">,</tt><tt class="py-name">plan</tt><tt class="py-op">,</tt><tt class="py-name">order</tt><tt class="py-op">=</tt><tt class="py-name">interpolation_order</tt><tt class="py-op">)</tt> </tt>
+<a name="L147"></a><tt class="py-lineno">147</tt>  <tt class="py-line">     </tt>
+<a name="L148"></a><tt class="py-lineno">148</tt>  <tt class="py-line">    <tt class="py-comment"># the unwrapped version is 1d. reshape into the correct 2d arrangement (this is why the plan needs r and R)</tt> </tt>
+<a name="L149"></a><tt class="py-lineno">149</tt>  <tt class="py-line">    <tt class="py-name">unwrapped</tt><tt class="py-op">.</tt><tt id="link-3" class="py-name"><a title="speckle.shape" class="py-name" href="#" onclick="return doclink('link-3', 'shape', 'link-0');">shape</a></tt> <tt class="py-op">=</tt> <tt class="py-op">(</tt><tt class="py-name">R</tt><tt class="py-op">-</tt><tt class="py-name">r</tt><tt class="py-op">,</tt><tt class="py-name">len</tt><tt class="py-op">(</tt><tt class="py-name">plan</tt><tt class="py-op">[</tt><tt class="py-number">0</tt><tt class="py-op">]</tt><tt class="py-op">)</tt><tt class="py-op">/</tt><tt class="py-op">(</tt><tt class="py-name">R</tt><tt class="py-op">-</tt><tt class="py-name">r</tt><tt class="py-op">)</tt><tt class="py-op">)</tt> </tt>
+<a name="L150"></a><tt class="py-lineno">150</tt>  <tt class="py-line">     </tt>
+<a name="L151"></a><tt class="py-lineno">151</tt>  <tt class="py-line">    <tt class="py-keyword">return</tt> <tt class="py-name">unwrapped</tt> </tt>
+</div><a name="L152"></a><tt class="py-lineno">152</tt>  <tt class="py-line"> </tt>
+<a name="wrap"></a><div id="wrap-def"><a name="L153"></a><tt class="py-lineno">153</tt> <a class="py-toggle" href="#" id="wrap-toggle" onclick="return toggle('wrap');">-</a><tt class="py-line"><tt class="py-keyword">def</tt> <a class="py-def-name" href="speckle.wrapping-module.html#wrap">wrap</a><tt class="py-op">(</tt><tt class="py-param">array</tt><tt class="py-op">,</tt><tt class="py-param">plan</tt><tt class="py-op">,</tt><tt class="py-param">interpolation_order</tt><tt class="py-op">=</tt><tt class="py-number">3</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+</div><div id="wrap-collapsed" style="display:none;" pad="+++" indent="++++"></div><div id="wrap-expanded"><a name="L154"></a><tt class="py-lineno">154</tt>  <tt class="py-line">    <tt class="py-docstring">""" Wraps data from polar coordinates into cartesian coordinates. A plan must be supplied.</tt> </tt>
+<a name="L155"></a><tt class="py-lineno">155</tt>  <tt class="py-line"><tt class="py-docstring">    This is basically just a wrapper to scipy.ndimage.map_coordinates with all the real work</tt> </tt>
+<a name="L156"></a><tt class="py-lineno">156</tt>  <tt class="py-line"><tt class="py-docstring">    being done in generating the plan.</tt> </tt>
+<a name="L157"></a><tt class="py-lineno">157</tt>  <tt class="py-line"><tt class="py-docstring">    </tt> </tt>
+<a name="L158"></a><tt class="py-lineno">158</tt>  <tt class="py-line"><tt class="py-docstring">    Required input:</tt> </tt>
+<a name="L159"></a><tt class="py-lineno">159</tt>  <tt class="py-line"><tt class="py-docstring">    array: data in polar coordinates (y axis is radial coordinate, x axis is angular coordinate)</tt> </tt>
+<a name="L160"></a><tt class="py-lineno">160</tt>  <tt class="py-line"><tt class="py-docstring">    plan or (r, R): Either a description of unwrapping obtained by calling wrap_plan(), or a 2-tuple (r, R).</tt> </tt>
+<a name="L161"></a><tt class="py-lineno">161</tt>  <tt class="py-line"><tt class="py-docstring"></tt> </tt>
+<a name="L162"></a><tt class="py-lineno">162</tt>  <tt class="py-line"><tt class="py-docstring">    Optional input:</tt> </tt>
+<a name="L163"></a><tt class="py-lineno">163</tt>  <tt class="py-line"><tt class="py-docstring">    interpolation_order: coordinate transformations require interpolation.</tt> </tt>
+<a name="L164"></a><tt class="py-lineno">164</tt>  <tt class="py-line"><tt class="py-docstring">                        0 is nearest neighbor.</tt> </tt>
+<a name="L165"></a><tt class="py-lineno">165</tt>  <tt class="py-line"><tt class="py-docstring">                        1 is linear/bilinear</tt> </tt>
+<a name="L166"></a><tt class="py-lineno">166</tt>  <tt class="py-line"><tt class="py-docstring">                        3 is cubic/bicubic (default)</tt> </tt>
+<a name="L167"></a><tt class="py-lineno">167</tt>  <tt class="py-line"><tt class="py-docstring">                        4 and 5 order is also possible</tt> </tt>
+<a name="L168"></a><tt class="py-lineno">168</tt>  <tt class="py-line"><tt class="py-docstring">    """</tt> </tt>
+<a name="L169"></a><tt class="py-lineno">169</tt>  <tt class="py-line">    <tt class="py-keyword">import</tt> <tt class="py-name">scipy</tt> </tt>
+<a name="L170"></a><tt class="py-lineno">170</tt>  <tt class="py-line">    <tt class="py-keyword">import</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">ndimage</tt> </tt>
+<a name="L171"></a><tt class="py-lineno">171</tt>  <tt class="py-line">     </tt>
+<a name="L172"></a><tt class="py-lineno">172</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">isinstance</tt><tt class="py-op">(</tt><tt class="py-name">array</tt><tt class="py-op">,</tt><tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">ndarray</tt><tt class="py-op">)</tt><tt class="py-op">,</tt>  <tt class="py-string">"input data must be ndarray"</tt> </tt>
+<a name="L173"></a><tt class="py-lineno">173</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">interpolation_order</tt> <tt class="py-keyword">in</tt> <tt class="py-name">range</tt><tt class="py-op">(</tt><tt class="py-number">6</tt><tt class="py-op">)</tt><tt class="py-op">,</tt> <tt class="py-string">"interpolation order must be 0-5"</tt> </tt>
+<a name="L174"></a><tt class="py-lineno">174</tt>  <tt class="py-line">    <tt class="py-keyword">if</tt> <tt class="py-name">isinstance</tt><tt class="py-op">(</tt><tt class="py-name">plan</tt><tt class="py-op">,</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">ndarray</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+<a name="L175"></a><tt class="py-lineno">175</tt>  <tt class="py-line">        <tt class="py-keyword">pass</tt> </tt>
+<a name="L176"></a><tt class="py-lineno">176</tt>  <tt class="py-line">    <tt class="py-keyword">else</tt><tt class="py-op">:</tt> </tt>
+<a name="L177"></a><tt class="py-lineno">177</tt>  <tt class="py-line">        <tt class="py-keyword">assert</tt> <tt class="py-name">len</tt><tt class="py-op">(</tt><tt class="py-name">plan</tt><tt class="py-op">)</tt> <tt class="py-op">==</tt> <tt class="py-number">2</tt><tt class="py-op">,</tt> <tt class="py-string">"plan must be len-2 tuple/set/list or ndarray"</tt> </tt>
+<a name="L178"></a><tt class="py-lineno">178</tt>  <tt class="py-line">        <tt class="py-name">plan</tt> <tt class="py-op">=</tt> <tt id="link-4" class="py-name" targets="Function speckle.wrapping.wrap_plan()=speckle.wrapping-module.html#wrap_plan"><a title="speckle.wrapping.wrap_plan" class="py-name" href="#" onclick="return doclink('link-4', 'wrap_plan', 'link-4');">wrap_plan</a></tt><tt class="py-op">(</tt><tt class="py-name">plan</tt><tt class="py-op">[</tt><tt class="py-number">0</tt><tt class="py-op">]</tt><tt class="py-op">,</tt> <tt class="py-name">plan</tt><tt class="py-op">[</tt><tt class="py-number">1</tt><tt class="py-op">]</tt><tt class="py-op">)</tt> </tt>
+<a name="L179"></a><tt class="py-lineno">179</tt>  <tt class="py-line"> </tt>
+<a name="L180"></a><tt class="py-lineno">180</tt>  <tt class="py-line">    <tt class="py-keyword">return</tt> <tt class="py-name">scipy</tt><tt class="py-op">.</tt><tt class="py-name">ndimage</tt><tt class="py-op">.</tt><tt class="py-name">map_coordinates</tt><tt class="py-op">(</tt><tt class="py-name">array</tt><tt class="py-op">,</tt> <tt class="py-name">plan</tt><tt class="py-op">,</tt> <tt class="py-name">order</tt><tt class="py-op">=</tt><tt class="py-name">interpolation_order</tt><tt class="py-op">)</tt> </tt>
+</div><a name="L181"></a><tt class="py-lineno">181</tt>  <tt class="py-line"> </tt><script type="text/javascript">
+<!--
+expandto(location.href);
+// -->
+</script>
+</pre>
+<br />
+<!-- ==================== NAVIGATION BAR ==================== -->
+<table class="navbar" border="0" width="100%" cellpadding="0"
+       bgcolor="#a0c0ff" cellspacing="0">
+  <tr valign="middle">
+  <!-- Home link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="speckle-module.html">Home</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Tree link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="module-tree.html">Trees</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Index link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="identifier-index.html">Indices</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Help link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="help.html">Help</a>&nbsp;&nbsp;&nbsp;</th>
+
+      <th class="navbar" width="100%"></th>
+  </tr>
+</table>
+<table border="0" cellpadding="0" cellspacing="0" width="100%%">
+  <tr>
+    <td align="left" class="footer">
+    Generated by Epydoc 3.0.1 on Mon Jun 25 16:55:50 2012
+    </td>
+    <td align="right" class="footer">
+      <a target="mainFrame" href="http://epydoc.sourceforge.net"
+        >http://epydoc.sourceforge.net</a>
+    </td>
+  </tr>
+</table>
+
+<script type="text/javascript">
+  <!--
+  // Private objects are initially displayed (because if
+  // javascript is turned off then we want them to be
+  // visible); but by default, we want to hide them.  So hide
+  // them unless we have a cookie that says to show them.
+  checkCookie();
+  // -->
+</script>
+</body>
+</html>

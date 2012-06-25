@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="ascii"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+          "DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+  <title>speckle.scattering</title>
+  <link rel="stylesheet" href="epydoc.css" type="text/css" />
+  <script type="text/javascript" src="epydoc.js"></script>
+</head>
+
+<body bgcolor="white" text="black" link="blue" vlink="#204080"
+      alink="#204080">
+<!-- ==================== NAVIGATION BAR ==================== -->
+<table class="navbar" border="0" width="100%" cellpadding="0"
+       bgcolor="#a0c0ff" cellspacing="0">
+  <tr valign="middle">
+  <!-- Home link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="speckle-module.html">Home</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Tree link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="module-tree.html">Trees</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Index link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="identifier-index.html">Indices</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Help link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="help.html">Help</a>&nbsp;&nbsp;&nbsp;</th>
+
+      <th class="navbar" width="100%"></th>
+  </tr>
+</table>
+<table width="100%" cellpadding="0" cellspacing="0">
+  <tr valign="top">
+    <td width="100%">
+      <span class="breadcrumbs">
+        <a href="speckle-module.html">Package&nbsp;speckle</a> ::
+        Module&nbsp;scattering
+      </span>
+    </td>
+    <td>
+      <table cellpadding="0" cellspacing="0">
+        <!-- hide/show private -->
+        <tr><td align="right"><span class="options">[<a href="javascript:void(0);" class="privatelink"
+    onclick="toggle_private();">hide&nbsp;private</a>]</span></td></tr>
+        <tr><td align="right"><span class="options"
+            >[<a href="frames.html" target="_top">frames</a
+            >]&nbsp;|&nbsp;<a href="speckle.scattering-pysrc.html"
+            target="_top">no&nbsp;frames</a>]</span></td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<h1 class="epydoc">Source Code for <a href="speckle.scattering-module.html">Module speckle.scattering</a></h1>
+<pre class="py-src">
+<a name="L1"></a><tt class="py-lineno">  1</tt>  <tt class="py-line"><tt class="py-docstring">"""A Library for calculating various scattering parameters such as Flangosaurus</tt> </tt>
+<a name="L2"></a><tt class="py-lineno">  2</tt>  <tt class="py-line"><tt class="py-docstring">distances, Q, and energy to wavelength conversion.</tt> </tt>
+<a name="L3"></a><tt class="py-lineno">  3</tt>  <tt class="py-line"><tt class="py-docstring"></tt> </tt>
+<a name="L4"></a><tt class="py-lineno">  4</tt>  <tt class="py-line"><tt class="py-docstring">Author: Keoki Seu (KASeu@lbl.gov)</tt> </tt>
+<a name="L5"></a><tt class="py-lineno">  5</tt>  <tt class="py-line"><tt class="py-docstring">"""</tt> </tt>
+<a name="L6"></a><tt class="py-lineno">  6</tt>  <tt class="py-line"><tt class="py-comment">#scattering</tt> </tt>
+<a name="L7"></a><tt class="py-lineno">  7</tt>  <tt class="py-line"><tt class="py-comment">#    qmaps</tt> </tt>
+<a name="L8"></a><tt class="py-lineno">  8</tt>  <tt class="py-line"><tt class="py-comment">#    intensity patterns ( cl?, e?)</tt> </tt>
+<a name="L9"></a><tt class="py-lineno">  9</tt>  <tt class="py-line"><tt class="py-comment">#    propagation</tt> </tt>
+<a name="L10"></a><tt class="py-lineno"> 10</tt>  <tt class="py-line"><tt class="py-keyword">import</tt> <tt class="py-name">numpy</tt> <tt class="py-keyword">as</tt> <tt class="py-name">np</tt> </tt>
+<a name="L11"></a><tt class="py-lineno"> 11</tt>  <tt class="py-line"> </tt>
+<a name="L12"></a><tt class="py-lineno"> 12</tt>  <tt class="py-line"><tt class="py-comment"># Constants for each component between the scattering center of the chamber and camera.</tt> </tt>
+<a name="L13"></a><tt class="py-lineno"> 13</tt>  <tt class="py-line"><tt id="link-0" class="py-name" targets="Variable speckle.scattering.bl_length_components=speckle.scattering-module.html#bl_length_components"><a title="speckle.scattering.bl_length_components" class="py-name" href="#" onclick="return doclink('link-0', 'bl_length_components', 'link-0');">bl_length_components</a></tt> <tt class="py-op">=</tt> <tt class="py-op">{</tt> </tt>
+<a name="L14"></a><tt class="py-lineno"> 14</tt>  <tt class="py-line">    <tt class="py-string">"valveLen"</tt><tt class="py-op">:</tt> <tt class="py-number">2</tt> <tt class="py-op">*</tt> <tt class="py-number">25.4</tt><tt class="py-op">,</tt> <tt class="py-comment"># manual valve 2", spec from mdc</tt> </tt>
+<a name="L15"></a><tt class="py-lineno"> 15</tt>  <tt class="py-line">    <tt class="py-string">"CCDLen"</tt><tt class="py-op">:</tt> <tt class="py-op">(</tt><tt class="py-number">2</tt> <tt class="py-op">+</tt> <tt class="py-number">0.78</tt><tt class="py-op">)</tt> <tt class="py-op">*</tt> <tt class="py-number">25.4</tt> <tt class="py-op">-</tt> <tt class="py-number">2</tt><tt class="py-op">,</tt> <tt class="py-comment"># 2" nipple and 0.78" flange (spec, mdc) that area always attached to camera. According to Andor focal plane of camera is 2.0mm +- 0.4mm behind flange</tt> </tt>
+<a name="L16"></a><tt class="py-lineno"> 16</tt>  <tt class="py-line">    <tt class="py-string">"BeamBlockDiodeLen"</tt><tt class="py-op">:</tt> <tt class="py-number">4.92</tt> <tt class="py-op">*</tt> <tt class="py-number">25.4</tt><tt class="py-op">,</tt> <tt class="py-comment"># Beam block and Diode T flange: 4.92" spec from mdc</tt> </tt>
+<a name="L17"></a><tt class="py-lineno"> 17</tt>  <tt class="py-line">    <tt class="py-string">"CSCToFlange"</tt><tt class="py-op">:</tt> <tt class="py-number">259.4</tt><tt class="py-op">,</tt> <tt class="py-comment"># CSC numbers from Tom, according to model</tt> </tt>
+<a name="L18"></a><tt class="py-lineno"> 18</tt>  <tt class="py-line">    <tt class="py-string">"CSCToThruFlange"</tt><tt class="py-op">:</tt> <tt class="py-number">368.3</tt> <tt class="py-op">+</tt> <tt class="py-number">0.78</tt><tt class="py-op">*</tt><tt class="py-number">25.4</tt><tt class="py-op">,</tt> <tt class="py-comment"># the 0.78" is for the 6" to 2.75" reducing flange on the xmission port.  0.78" spec from mdc</tt> </tt>
+<a name="L19"></a><tt class="py-lineno"> 19</tt>  <tt class="py-line"><tt class="py-op">}</tt> </tt>
+<a name="L20"></a><tt class="py-lineno"> 20</tt>  <tt class="py-line"> </tt>
+<a name="calculateQ"></a><div id="calculateQ-def"><a name="L21"></a><tt class="py-lineno"> 21</tt> <a class="py-toggle" href="#" id="calculateQ-toggle" onclick="return toggle('calculateQ');">-</a><tt class="py-line"><tt class="py-keyword">def</tt> <a class="py-def-name" href="speckle.scattering-module.html#calculateQ">calculateQ</a><tt class="py-op">(</tt> <tt class="py-param">imgshape</tt><tt class="py-op">,</tt> <tt class="py-param">center</tt><tt class="py-op">,</tt> <tt class="py-param">theta</tt><tt class="py-op">,</tt> <tt class="py-param">energy</tt><tt class="py-op">,</tt> <tt class="py-param">camera_distance</tt><tt class="py-op">,</tt> <tt class="py-param">calctype</tt><tt class="py-op">=</tt><tt class="py-string">'Qr'</tt><tt class="py-op">,</tt> <tt class="py-param">pixel_pitch</tt> <tt class="py-op">=</tt> <tt class="py-number">0.0135</tt><tt class="py-op">,</tt> <tt class="py-param">thetaOffset</tt><tt class="py-op">=</tt><tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-param">rotateAngle</tt><tt class="py-op">=</tt><tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-param">transmission</tt><tt class="py-op">=</tt><tt class="py-name">False</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+</div><div id="calculateQ-collapsed" style="display:none;" pad="+++" indent="++++"></div><div id="calculateQ-expanded"><a name="L22"></a><tt class="py-lineno"> 22</tt>  <tt class="py-line">    <tt class="py-docstring">"""Given an imput image and center, calculate Q.</tt> </tt>
+<a name="L23"></a><tt class="py-lineno"> 23</tt>  <tt class="py-line"><tt class="py-docstring">    </tt> </tt>
+<a name="L24"></a><tt class="py-lineno"> 24</tt>  <tt class="py-line"><tt class="py-docstring">    arguments:</tt> </tt>
+<a name="L25"></a><tt class="py-lineno"> 25</tt>  <tt class="py-line"><tt class="py-docstring">        imgshape - image size in (xsize, ysize)</tt> </tt>
+<a name="L26"></a><tt class="py-lineno"> 26</tt>  <tt class="py-line"><tt class="py-docstring">        center - center coordinate in (xcenter, ycenter) format</tt> </tt>
+<a name="L27"></a><tt class="py-lineno"> 27</tt>  <tt class="py-line"><tt class="py-docstring">        theta - Sample angle where Q needs to be calculated.</tt> </tt>
+<a name="L28"></a><tt class="py-lineno"> 28</tt>  <tt class="py-line"><tt class="py-docstring">        energy - Beam energy in eV.</tt> </tt>
+<a name="L29"></a><tt class="py-lineno"> 29</tt>  <tt class="py-line"><tt class="py-docstring">        camera_distance - Sample to CCD length, in mm. A dictionary of ditances can be found in bl_length_components[].</tt> </tt>
+<a name="L30"></a><tt class="py-lineno"> 30</tt>  <tt class="py-line"><tt class="py-docstring">        pixel_pitch - pixel size, in mm/px.  If the image is binned multiply by binning. Defaults to 0.0135 (13.5 um pixels, binned 1)</tt> </tt>
+<a name="L31"></a><tt class="py-lineno"> 31</tt>  <tt class="py-line"><tt class="py-docstring">        calctype - Specify the type of calculation to do. Options are 'Qx', 'Qy', 'Qz', 'Qr', 'Q'.  Defaults to 'Qr'</tt> </tt>
+<a name="L32"></a><tt class="py-lineno"> 32</tt>  <tt class="py-line"><tt class="py-docstring">        thetaOffset - This is the angle where theta=0.  It is a peak in the theta scan of the surface.  This is used to correct for theta. Defaults to 0.0.</tt> </tt>
+<a name="L33"></a><tt class="py-lineno"> 33</tt>  <tt class="py-line"><tt class="py-docstring">        rotateAngle - Rotate the image in the plane by a given angle. Sometimes the camera is not perfectly aligned with the scattering plane, so it may be necessary to rotate Q slightly to compensate.  This is seen in RPM, FeF2, HoTiO data, among others. Defaults to 0.0.</tt> </tt>
+<a name="L34"></a><tt class="py-lineno"> 34</tt>  <tt class="py-line"><tt class="py-docstring">    returns:</tt> </tt>
+<a name="L35"></a><tt class="py-lineno"> 35</tt>  <tt class="py-line"><tt class="py-docstring">        calculated q vector of dimension imgshape. The units of the qmap is A^{-1}</tt> </tt>
+<a name="L36"></a><tt class="py-lineno"> 36</tt>  <tt class="py-line"><tt class="py-docstring">    """</tt> </tt>
+<a name="L37"></a><tt class="py-lineno"> 37</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">type</tt><tt class="py-op">(</tt><tt class="py-name">theta</tt><tt class="py-op">)</tt> <tt class="py-keyword">in</tt> <tt class="py-op">(</tt><tt class="py-name">int</tt><tt class="py-op">,</tt> <tt class="py-name">float</tt><tt class="py-op">)</tt> <tt class="py-keyword">and</tt> <tt class="py-name">theta</tt> <tt class="py-op">&gt;</tt> <tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-string">"theta must be greater than 0"</tt> </tt>
+<a name="L38"></a><tt class="py-lineno"> 38</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">type</tt><tt class="py-op">(</tt><tt class="py-name">energy</tt><tt class="py-op">)</tt> <tt class="py-keyword">in</tt> <tt class="py-op">(</tt><tt class="py-name">int</tt><tt class="py-op">,</tt> <tt class="py-name">float</tt><tt class="py-op">)</tt> <tt class="py-keyword">and</tt> <tt class="py-name">energy</tt> <tt class="py-op">&gt;</tt> <tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-string">"energy must be greater than 0"</tt> </tt>
+<a name="L39"></a><tt class="py-lineno"> 39</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">type</tt><tt class="py-op">(</tt><tt class="py-name">camera_distance</tt><tt class="py-op">)</tt> <tt class="py-keyword">in</tt> <tt class="py-op">(</tt><tt class="py-name">int</tt><tt class="py-op">,</tt> <tt class="py-name">float</tt><tt class="py-op">)</tt> <tt class="py-keyword">and</tt> <tt class="py-name">camera_distance</tt> <tt class="py-op">&gt;</tt> <tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-string">"camera_distance must be greater than 0"</tt> </tt>
+<a name="L40"></a><tt class="py-lineno"> 40</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">type</tt><tt class="py-op">(</tt><tt class="py-name">pixel_pitch</tt><tt class="py-op">)</tt> <tt class="py-keyword">in</tt> <tt class="py-op">(</tt><tt class="py-name">int</tt><tt class="py-op">,</tt> <tt class="py-name">float</tt><tt class="py-op">)</tt> <tt class="py-keyword">and</tt> <tt class="py-name">pixel_pitch</tt> <tt class="py-op">&gt;</tt> <tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-string">"pixel_pitch must be greater than 0"</tt> </tt>
+<a name="L41"></a><tt class="py-lineno"> 41</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">len</tt><tt class="py-op">(</tt><tt class="py-name">imgshape</tt><tt class="py-op">)</tt> <tt class="py-op">==</tt> <tt class="py-number">2</tt><tt class="py-op">,</tt> <tt class="py-string">"image is not 2d"</tt> </tt>
+<a name="L42"></a><tt class="py-lineno"> 42</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">len</tt><tt class="py-op">(</tt><tt class="py-name">center</tt><tt class="py-op">)</tt> <tt class="py-op">==</tt> <tt class="py-number">2</tt><tt class="py-op">,</tt> <tt class="py-string">"center is not a pair"</tt> </tt>
+<a name="L43"></a><tt class="py-lineno"> 43</tt>  <tt class="py-line"> </tt>
+<a name="L44"></a><tt class="py-lineno"> 44</tt>  <tt class="py-line">    <tt class="py-keyword">if</tt> <tt class="py-name">calctype</tt> <tt class="py-keyword">not</tt> <tt class="py-keyword">in</tt> <tt class="py-op">(</tt><tt class="py-string">'Q'</tt><tt class="py-op">,</tt> <tt class="py-string">'Qx'</tt><tt class="py-op">,</tt> <tt class="py-string">'Qy'</tt> <tt class="py-op">,</tt><tt class="py-string">'Qz'</tt><tt class="py-op">,</tt> <tt class="py-string">'Qr'</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+<a name="L45"></a><tt class="py-lineno"> 45</tt>  <tt class="py-line">        <tt class="py-keyword">print</tt><tt class="py-op">(</tt><tt class="py-string">"calculateQ: invalid calctype %s. Defaulting to Qr.\n"</tt> <tt class="py-op">%</tt> <tt class="py-name">calctype</tt><tt class="py-op">)</tt> </tt>
+<a name="L46"></a><tt class="py-lineno"> 46</tt>  <tt class="py-line">        <tt class="py-name">calctype</tt> <tt class="py-op">=</tt> <tt class="py-string">'Qr'</tt> </tt>
+<a name="L47"></a><tt class="py-lineno"> 47</tt>  <tt class="py-line"> </tt>
+<a name="L48"></a><tt class="py-lineno"> 48</tt>  <tt class="py-line">    <tt class="py-comment"># the location of the specular in two-theta.</tt> </tt>
+<a name="L49"></a><tt class="py-lineno"> 49</tt>  <tt class="py-line">    <tt class="py-name">thetaSpecular</tt> <tt class="py-op">=</tt> <tt class="py-number">2.0</tt> <tt class="py-op">*</tt> <tt class="py-op">(</tt><tt class="py-name">theta</tt> <tt class="py-op">-</tt> <tt class="py-name">thetaOffset</tt><tt class="py-op">)</tt> <tt class="py-op">*</tt> <tt class="py-op">(</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">pi</tt><tt class="py-op">/</tt><tt class="py-number">180.0</tt><tt class="py-op">)</tt> </tt>
+<a name="L50"></a><tt class="py-lineno"> 50</tt>  <tt class="py-line"><tt class="py-comment">#    print("calculateQ: theta - %0.2f degrees.\nthetaOffset - %0.2f degrees\n2theta - %0.2f degrees.\ncamera_distance - %0.1f mm\nenergy - %0.1f eV" % (theta, thetaOffset, thetaSpecular*180/np.pi, camera_distance, energy))</tt> </tt>
+<a name="L51"></a><tt class="py-lineno"> 51</tt>  <tt class="py-line"> </tt>
+<a name="L52"></a><tt class="py-lineno"> 52</tt>  <tt class="py-line">    <tt class="py-comment"># Image parameters</tt> </tt>
+<a name="L53"></a><tt class="py-lineno"> 53</tt>  <tt class="py-line">    <tt class="py-name">xs</tt><tt class="py-op">,</tt> <tt class="py-name">ys</tt> <tt class="py-op">=</tt> <tt class="py-name">imgshape</tt> </tt>
+<a name="L54"></a><tt class="py-lineno"> 54</tt>  <tt class="py-line">    <tt class="py-name">cimgx</tt><tt class="py-op">,</tt> <tt class="py-name">cimgy</tt> <tt class="py-op">=</tt> <tt class="py-name">center</tt> </tt>
+<a name="L55"></a><tt class="py-lineno"> 55</tt>  <tt class="py-line"><tt class="py-comment">#    print("calculateQ: xsize=%d, ysize=%d; xcenter=%d, ycenter=%d" % (xs, ys, cimgx, cimgy))</tt> </tt>
+<a name="L56"></a><tt class="py-lineno"> 56</tt>  <tt class="py-line"> </tt>
+<a name="L57"></a><tt class="py-lineno"> 57</tt>  <tt class="py-line">    <tt class="py-comment"># set up camera coordinates. The coordinates are sample coordinates meaning x = manipulator z, y = manipulator x, z= manipulator y.  This is done so that </tt> </tt>
+<a name="L58"></a><tt class="py-lineno"> 58</tt>  <tt class="py-line">    <tt class="py-name">xr</tt> <tt class="py-op">=</tt> <tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">ones</tt><tt class="py-op">(</tt><tt class="py-name">xs</tt><tt class="py-op">,</tt><tt class="py-name">dtype</tt><tt class="py-op">=</tt><tt class="py-name">float</tt><tt class="py-op">)</tt> </tt>
+<a name="L59"></a><tt class="py-lineno"> 59</tt>  <tt class="py-line">    <tt class="py-name">yr</tt> <tt class="py-op">=</tt> <tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">ones</tt><tt class="py-op">(</tt><tt class="py-name">ys</tt><tt class="py-op">,</tt><tt class="py-name">dtype</tt><tt class="py-op">=</tt><tt class="py-name">float</tt><tt class="py-op">)</tt> </tt>
+<a name="L60"></a><tt class="py-lineno"> 60</tt>  <tt class="py-line"> </tt>
+<a name="L61"></a><tt class="py-lineno"> 61</tt>  <tt class="py-line">    <tt class="py-comment"># set up the x,y,z coordinates. right handed system has Qx along beam, + Qx downstream; Qy out of scattering plane, + is towards loadlock; and Qz, + is perpendicular to sample surface</tt> </tt>
+<a name="L62"></a><tt class="py-lineno"> 62</tt>  <tt class="py-line">    <tt class="py-name">x</tt> <tt class="py-op">=</tt> <tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">ones</tt><tt class="py-op">(</tt><tt class="py-name">ys</tt><tt class="py-op">,</tt><tt class="py-name">dtype</tt><tt class="py-op">=</tt><tt class="py-name">float</tt><tt class="py-op">)</tt><tt class="py-op">*</tt><tt class="py-name">camera_distance</tt> </tt>
+<a name="L63"></a><tt class="py-lineno"> 63</tt>  <tt class="py-line">    <tt class="py-name">y</tt> <tt class="py-op">=</tt> <tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">arange</tt><tt class="py-op">(</tt><tt class="py-number">0</tt><tt class="py-op">,</tt><tt class="py-name">xs</tt><tt class="py-op">,</tt><tt class="py-number">1</tt><tt class="py-op">,</tt><tt class="py-name">dtype</tt><tt class="py-op">=</tt><tt class="py-name">float</tt><tt class="py-op">)</tt> </tt>
+<a name="L64"></a><tt class="py-lineno"> 64</tt>  <tt class="py-line">    <tt class="py-name">z</tt> <tt class="py-op">=</tt> <tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">arange</tt><tt class="py-op">(</tt><tt class="py-number">0</tt><tt class="py-op">,</tt><tt class="py-name">ys</tt><tt class="py-op">,</tt><tt class="py-number">1</tt><tt class="py-op">,</tt><tt class="py-name">dtype</tt><tt class="py-op">=</tt><tt class="py-name">float</tt><tt class="py-op">)</tt> </tt>
+<a name="L65"></a><tt class="py-lineno"> 65</tt>  <tt class="py-line">    <tt class="py-comment"># Translate CCD coordinates so most intense peak is at (y,z) = 0</tt> </tt>
+<a name="L66"></a><tt class="py-lineno"> 66</tt>  <tt class="py-line">    <tt class="py-name">y</tt> <tt class="py-op">=</tt> <tt class="py-name">y</tt> <tt class="py-op">-</tt> <tt class="py-name">cimgx</tt> </tt>
+<a name="L67"></a><tt class="py-lineno"> 67</tt>  <tt class="py-line">    <tt class="py-name">z</tt> <tt class="py-op">=</tt> <tt class="py-name">z</tt> <tt class="py-op">-</tt> <tt class="py-name">cimgy</tt> </tt>
+<a name="L68"></a><tt class="py-lineno"> 68</tt>  <tt class="py-line"> </tt>
+<a name="L69"></a><tt class="py-lineno"> 69</tt>  <tt class="py-line">    <tt class="py-comment"># convert coordinates to mm</tt> </tt>
+<a name="L70"></a><tt class="py-lineno"> 70</tt>  <tt class="py-line">    <tt class="py-comment"># x is already in mm</tt> </tt>
+<a name="L71"></a><tt class="py-lineno"> 71</tt>  <tt class="py-line">    <tt class="py-name">y</tt> <tt class="py-op">=</tt> <tt class="py-name">y</tt><tt class="py-op">*</tt><tt class="py-name">pixel_pitch</tt> </tt>
+<a name="L72"></a><tt class="py-lineno"> 72</tt>  <tt class="py-line">    <tt class="py-name">z</tt> <tt class="py-op">=</tt> <tt class="py-name">z</tt><tt class="py-op">*</tt><tt class="py-name">pixel_pitch</tt> </tt>
+<a name="L73"></a><tt class="py-lineno"> 73</tt>  <tt class="py-line"> </tt>
+<a name="L74"></a><tt class="py-lineno"> 74</tt>  <tt class="py-line">    <tt class="py-comment"># get our xyz coordinate matricies</tt> </tt>
+<a name="L75"></a><tt class="py-lineno"> 75</tt>  <tt class="py-line">    <tt class="py-name">X</tt> <tt class="py-op">=</tt> <tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">outer</tt><tt class="py-op">(</tt><tt class="py-name">x</tt><tt class="py-op">,</tt><tt class="py-name">xr</tt><tt class="py-op">)</tt> </tt>
+<a name="L76"></a><tt class="py-lineno"> 76</tt>  <tt class="py-line">    <tt class="py-name">Y</tt> <tt class="py-op">=</tt> <tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">outer</tt><tt class="py-op">(</tt><tt class="py-name">yr</tt><tt class="py-op">,</tt><tt class="py-name">y</tt><tt class="py-op">)</tt> </tt>
+<a name="L77"></a><tt class="py-lineno"> 77</tt>  <tt class="py-line">    <tt class="py-name">Z</tt> <tt class="py-op">=</tt> <tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">outer</tt><tt class="py-op">(</tt><tt class="py-name">z</tt><tt class="py-op">,</tt><tt class="py-name">xr</tt><tt class="py-op">)</tt> </tt>
+<a name="L78"></a><tt class="py-lineno"> 78</tt>  <tt class="py-line">     </tt>
+<a name="L79"></a><tt class="py-lineno"> 79</tt>  <tt class="py-line">    <tt class="py-comment"># calculate the distance to camera and normalize coordinates</tt> </tt>
+<a name="L80"></a><tt class="py-lineno"> 80</tt>  <tt class="py-line">    <tt class="py-name">camdistance</tt> <tt class="py-op">=</tt> <tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">sqrt</tt><tt class="py-op">(</tt><tt class="py-name">X</tt><tt class="py-op">*</tt><tt class="py-name">X</tt> <tt class="py-op">+</tt> <tt class="py-name">Y</tt><tt class="py-op">*</tt><tt class="py-name">Y</tt> <tt class="py-op">+</tt> <tt class="py-name">Z</tt><tt class="py-op">*</tt><tt class="py-name">Z</tt><tt class="py-op">)</tt> </tt>
+<a name="L81"></a><tt class="py-lineno"> 81</tt>  <tt class="py-line">    <tt class="py-name">X</tt> <tt class="py-op">=</tt> <tt class="py-name">X</tt><tt class="py-op">/</tt><tt class="py-name">camdistance</tt> </tt>
+<a name="L82"></a><tt class="py-lineno"> 82</tt>  <tt class="py-line">    <tt class="py-name">Y</tt> <tt class="py-op">=</tt> <tt class="py-name">Y</tt><tt class="py-op">/</tt><tt class="py-name">camdistance</tt> </tt>
+<a name="L83"></a><tt class="py-lineno"> 83</tt>  <tt class="py-line">    <tt class="py-name">Z</tt> <tt class="py-op">=</tt> <tt class="py-name">Z</tt><tt class="py-op">/</tt><tt class="py-name">camdistance</tt> </tt>
+<a name="L84"></a><tt class="py-lineno"> 84</tt>  <tt class="py-line"> </tt>
+<a name="L85"></a><tt class="py-lineno"> 85</tt>  <tt class="py-line">    <tt class="py-name">k</tt> <tt class="py-op">=</tt> <tt id="link-1" class="py-name" targets="Function speckle.scattering.energy_to_wavevector()=speckle.scattering-module.html#energy_to_wavevector"><a title="speckle.scattering.energy_to_wavevector" class="py-name" href="#" onclick="return doclink('link-1', 'energy_to_wavevector', 'link-1');">energy_to_wavevector</a></tt><tt class="py-op">(</tt><tt class="py-name">energy</tt><tt class="py-op">)</tt> </tt>
+<a name="L86"></a><tt class="py-lineno"> 86</tt>  <tt class="py-line"> </tt>
+<a name="L87"></a><tt class="py-lineno"> 87</tt>  <tt class="py-line">    <tt class="py-comment"># rotate to new angle. Rotate along Qy for twotheta, and rotate along Qx for rotateAngle</tt> </tt>
+<a name="L88"></a><tt class="py-lineno"> 88</tt>  <tt class="py-line"><tt class="py-comment">#    print("calculateQ: 2theta/2 = %0.2f degrees, rotateAngle = %0.2f degrees, %s is in A^-1." % ((thetaSpecular/2)*(180/np.pi), rotateAngle, calctype))</tt> </tt>
+<a name="L89"></a><tt class="py-lineno"> 89</tt>  <tt class="py-line">    <tt class="py-comment"># this rotates counter-clockwise about center of peak on CCD</tt> </tt>
+<a name="L90"></a><tt class="py-lineno"> 90</tt>  <tt class="py-line">    <tt class="py-keyword">if</tt> <tt class="py-name">rotateAngle</tt> <tt class="py-op">!=</tt> <tt class="py-number">0</tt><tt class="py-op">:</tt> </tt>
+<a name="L91"></a><tt class="py-lineno"> 91</tt>  <tt class="py-line">        <tt class="py-name">Y</tt><tt class="py-op">,</tt> <tt class="py-name">Z</tt> <tt class="py-op">=</tt> <tt id="link-2" class="py-name" targets="Function speckle.scattering._rotateX()=speckle.scattering-module.html#_rotateX"><a title="speckle.scattering._rotateX" class="py-name" href="#" onclick="return doclink('link-2', '_rotateX', 'link-2');">_rotateX</a></tt><tt class="py-op">(</tt><tt class="py-name">Y</tt><tt class="py-op">,</tt> <tt class="py-name">Z</tt><tt class="py-op">,</tt> <tt class="py-name">rotateAngle</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">pi</tt><tt class="py-op">/</tt><tt class="py-number">180</tt><tt class="py-op">)</tt> </tt>
+<a name="L92"></a><tt class="py-lineno"> 92</tt>  <tt class="py-line"> </tt>
+<a name="L93"></a><tt class="py-lineno"> 93</tt>  <tt class="py-line">    <tt class="py-comment"># in transmission the coordinates change slightly, X-&gt;Z, Z-&gt;X.</tt> </tt>
+<a name="L94"></a><tt class="py-lineno"> 94</tt>  <tt class="py-line">    <tt class="py-comment"># The reason my calculation does not work for both reflection and transmission is that I assume that sample angle = detector 2theta.  This is not true for transmission (sample angle =90, detector =0)</tt> </tt>
+<a name="L95"></a><tt class="py-lineno"> 95</tt>  <tt class="py-line">    <tt class="py-keyword">if</tt> <tt class="py-name">transmission</tt><tt class="py-op">:</tt> </tt>
+<a name="L96"></a><tt class="py-lineno"> 96</tt>  <tt class="py-line"><tt class="py-comment">#        print("calculating for transmission")</tt> </tt>
+<a name="L97"></a><tt class="py-lineno"> 97</tt>  <tt class="py-line">        <tt class="py-op">(</tt><tt class="py-name">X</tt><tt class="py-op">,</tt> <tt class="py-name">Z</tt><tt class="py-op">)</tt> <tt class="py-op">=</tt> <tt class="py-op">(</tt><tt class="py-name">Z</tt><tt class="py-op">,</tt> <tt class="py-name">X</tt><tt class="py-op">)</tt> </tt>
+<a name="L98"></a><tt class="py-lineno"> 98</tt>  <tt class="py-line">        <tt class="py-op">(</tt><tt class="py-name">kx_i</tt><tt class="py-op">,</tt> <tt class="py-name">ky_i</tt><tt class="py-op">,</tt> <tt class="py-name">kz_i</tt><tt class="py-op">)</tt> <tt class="py-op">=</tt> <tt class="py-op">(</tt><tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-name">k</tt><tt class="py-op">)</tt> </tt>
+<a name="L99"></a><tt class="py-lineno"> 99</tt>  <tt class="py-line">    <tt class="py-keyword">else</tt><tt class="py-op">:</tt> </tt>
+<a name="L100"></a><tt class="py-lineno">100</tt>  <tt class="py-line">        <tt class="py-op">(</tt><tt class="py-name">kx_i</tt><tt class="py-op">,</tt> <tt class="py-name">ky_i</tt><tt class="py-op">,</tt> <tt class="py-name">kz_i</tt><tt class="py-op">)</tt> <tt class="py-op">=</tt> <tt class="py-op">(</tt><tt class="py-name">k</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">cos</tt><tt class="py-op">(</tt><tt class="py-name">thetaSpecular</tt><tt class="py-op">/</tt><tt class="py-number">2</tt><tt class="py-op">)</tt><tt class="py-op">,</tt> <tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-op">-</tt><tt class="py-name">k</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">sin</tt><tt class="py-op">(</tt><tt class="py-name">thetaSpecular</tt><tt class="py-op">/</tt><tt class="py-number">2</tt><tt class="py-op">)</tt><tt class="py-op">)</tt> </tt>
+<a name="L101"></a><tt class="py-lineno">101</tt>  <tt class="py-line"> </tt>
+<a name="L102"></a><tt class="py-lineno">102</tt>  <tt class="py-line">    <tt class="py-comment"># this rotates to correct 2theta angle</tt> </tt>
+<a name="L103"></a><tt class="py-lineno">103</tt>  <tt class="py-line">    <tt class="py-keyword">if</tt> <tt class="py-name">thetaSpecular</tt> <tt class="py-op">!=</tt> <tt class="py-number">0</tt><tt class="py-op">:</tt> </tt>
+<a name="L104"></a><tt class="py-lineno">104</tt>  <tt class="py-line">        <tt class="py-name">X</tt><tt class="py-op">,</tt> <tt class="py-name">Z</tt> <tt class="py-op">=</tt> <tt id="link-3" class="py-name" targets="Function speckle.scattering._rotateY()=speckle.scattering-module.html#_rotateY"><a title="speckle.scattering._rotateY" class="py-name" href="#" onclick="return doclink('link-3', '_rotateY', 'link-3');">_rotateY</a></tt><tt class="py-op">(</tt><tt class="py-name">X</tt><tt class="py-op">,</tt> <tt class="py-name">Z</tt><tt class="py-op">,</tt> <tt class="py-name">thetaSpecular</tt><tt class="py-op">/</tt><tt class="py-number">2</tt><tt class="py-op">)</tt> </tt>
+<a name="L105"></a><tt class="py-lineno">105</tt>  <tt class="py-line"> </tt>
+<a name="L106"></a><tt class="py-lineno">106</tt>  <tt class="py-line">    <tt class="py-name">Qx</tt> <tt class="py-op">=</tt> <tt class="py-name">k</tt><tt class="py-op">*</tt><tt class="py-name">X</tt> <tt class="py-op">-</tt> <tt class="py-name">kx_i</tt> </tt>
+<a name="L107"></a><tt class="py-lineno">107</tt>  <tt class="py-line">    <tt class="py-name">Qy</tt> <tt class="py-op">=</tt> <tt class="py-name">k</tt><tt class="py-op">*</tt><tt class="py-name">Y</tt> <tt class="py-op">-</tt> <tt class="py-name">ky_i</tt> </tt>
+<a name="L108"></a><tt class="py-lineno">108</tt>  <tt class="py-line">    <tt class="py-name">Qz</tt> <tt class="py-op">=</tt> <tt class="py-name">k</tt><tt class="py-op">*</tt><tt class="py-name">Z</tt> <tt class="py-op">-</tt> <tt class="py-name">kz_i</tt> </tt>
+<a name="L109"></a><tt class="py-lineno">109</tt>  <tt class="py-line"> </tt>
+<a name="L110"></a><tt class="py-lineno">110</tt>  <tt class="py-line">    <tt class="py-name">Q</tt> <tt class="py-op">=</tt> <tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">sqrt</tt><tt class="py-op">(</tt><tt class="py-name">Qx</tt><tt class="py-op">*</tt><tt class="py-name">Qx</tt> <tt class="py-op">+</tt> <tt class="py-name">Qy</tt><tt class="py-op">*</tt><tt class="py-name">Qy</tt> <tt class="py-op">+</tt> <tt class="py-name">Qz</tt><tt class="py-op">*</tt><tt class="py-name">Qz</tt><tt class="py-op">)</tt> </tt>
+<a name="L111"></a><tt class="py-lineno">111</tt>  <tt class="py-line">    <tt class="py-name">Qr</tt> <tt class="py-op">=</tt> <tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">sqrt</tt><tt class="py-op">(</tt><tt class="py-name">Qx</tt><tt class="py-op">*</tt><tt class="py-name">Qx</tt> <tt class="py-op">+</tt> <tt class="py-name">Qy</tt><tt class="py-op">*</tt><tt class="py-name">Qy</tt><tt class="py-op">)</tt> </tt>
+<a name="L112"></a><tt class="py-lineno">112</tt>  <tt class="py-line"> </tt>
+<a name="L113"></a><tt class="py-lineno">113</tt>  <tt class="py-line">    <tt class="py-keyword">return</tt> <tt class="py-name">eval</tt><tt class="py-op">(</tt><tt class="py-name">calctype</tt><tt class="py-op">)</tt> </tt>
+</div><a name="L114"></a><tt class="py-lineno">114</tt>  <tt class="py-line"> </tt>
+<a name="L115"></a><tt class="py-lineno">115</tt>  <tt class="py-line"><tt class="py-comment"># These three functions are rotation matricies.  See, for example, http://en.wikipedia.org/wiki/Rotation_matrix#The_3-dimensional_rotation_matrices</tt> </tt>
+<a name="_rotateX"></a><div id="_rotateX-def"><a name="L116"></a><tt class="py-lineno">116</tt> <a class="py-toggle" href="#" id="_rotateX-toggle" onclick="return toggle('_rotateX');">-</a><tt class="py-line"><tt class="py-keyword">def</tt> <a class="py-def-name" href="speckle.scattering-module.html#_rotateX">_rotateX</a><tt class="py-op">(</tt><tt class="py-param">Y</tt><tt class="py-op">,</tt> <tt class="py-param">Z</tt><tt class="py-op">,</tt> <tt class="py-param">angle</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+</div><div id="_rotateX-collapsed" style="display:none;" pad="+++" indent="++++"></div><div id="_rotateX-expanded"><a name="L117"></a><tt class="py-lineno">117</tt>  <tt class="py-line">    <tt class="py-docstring">"""Rotate distance matricies about the X axis.</tt> </tt>
+<a name="L118"></a><tt class="py-lineno">118</tt>  <tt class="py-line"><tt class="py-docstring">    """</tt> </tt>
+<a name="L119"></a><tt class="py-lineno">119</tt>  <tt class="py-line">    <tt class="py-name">newY</tt> <tt class="py-op">=</tt> <tt class="py-name">Y</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">cos</tt><tt class="py-op">(</tt><tt class="py-name">angle</tt><tt class="py-op">)</tt> <tt class="py-op">+</tt> <tt class="py-name">Z</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">sin</tt><tt class="py-op">(</tt><tt class="py-name">angle</tt><tt class="py-op">)</tt> </tt>
+<a name="L120"></a><tt class="py-lineno">120</tt>  <tt class="py-line">    <tt class="py-name">newZ</tt> <tt class="py-op">=</tt> <tt class="py-op">-</tt><tt class="py-name">Y</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">sin</tt><tt class="py-op">(</tt><tt class="py-name">angle</tt><tt class="py-op">)</tt> <tt class="py-op">+</tt> <tt class="py-name">Z</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">cos</tt><tt class="py-op">(</tt><tt class="py-name">angle</tt><tt class="py-op">)</tt> </tt>
+<a name="L121"></a><tt class="py-lineno">121</tt>  <tt class="py-line">    <tt class="py-keyword">return</tt> <tt class="py-name">newY</tt><tt class="py-op">,</tt> <tt class="py-name">newZ</tt> </tt>
+</div><a name="L122"></a><tt class="py-lineno">122</tt>  <tt class="py-line"> </tt>
+<a name="_rotateY"></a><div id="_rotateY-def"><a name="L123"></a><tt class="py-lineno">123</tt> <a class="py-toggle" href="#" id="_rotateY-toggle" onclick="return toggle('_rotateY');">-</a><tt class="py-line"><tt class="py-keyword">def</tt> <a class="py-def-name" href="speckle.scattering-module.html#_rotateY">_rotateY</a><tt class="py-op">(</tt><tt class="py-param">X</tt><tt class="py-op">,</tt> <tt class="py-param">Z</tt><tt class="py-op">,</tt> <tt class="py-param">angle</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+</div><div id="_rotateY-collapsed" style="display:none;" pad="+++" indent="++++"></div><div id="_rotateY-expanded"><a name="L124"></a><tt class="py-lineno">124</tt>  <tt class="py-line">    <tt class="py-docstring">"""Rotate distance matricies about the Y axis.</tt> </tt>
+<a name="L125"></a><tt class="py-lineno">125</tt>  <tt class="py-line"><tt class="py-docstring">    """</tt> </tt>
+<a name="L126"></a><tt class="py-lineno">126</tt>  <tt class="py-line">    <tt class="py-name">newX</tt> <tt class="py-op">=</tt> <tt class="py-name">X</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">cos</tt><tt class="py-op">(</tt><tt class="py-name">angle</tt><tt class="py-op">)</tt> <tt class="py-op">-</tt> <tt class="py-name">Z</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">sin</tt><tt class="py-op">(</tt><tt class="py-name">angle</tt><tt class="py-op">)</tt> </tt>
+<a name="L127"></a><tt class="py-lineno">127</tt>  <tt class="py-line">    <tt class="py-name">newZ</tt> <tt class="py-op">=</tt> <tt class="py-name">X</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">sin</tt><tt class="py-op">(</tt><tt class="py-name">angle</tt><tt class="py-op">)</tt> <tt class="py-op">+</tt> <tt class="py-name">Z</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">cos</tt><tt class="py-op">(</tt><tt class="py-name">angle</tt><tt class="py-op">)</tt> </tt>
+<a name="L128"></a><tt class="py-lineno">128</tt>  <tt class="py-line">    <tt class="py-keyword">return</tt> <tt class="py-name">newX</tt><tt class="py-op">,</tt> <tt class="py-name">newZ</tt> </tt>
+</div><a name="L129"></a><tt class="py-lineno">129</tt>  <tt class="py-line"> </tt>
+<a name="energy_to_wavevector"></a><div id="energy_to_wavevector-def"><a name="L130"></a><tt class="py-lineno">130</tt> <a class="py-toggle" href="#" id="energy_to_wavevector-toggle" onclick="return toggle('energy_to_wavevector');">-</a><tt class="py-line"><tt class="py-keyword">def</tt> <a class="py-def-name" href="speckle.scattering-module.html#energy_to_wavevector">energy_to_wavevector</a><tt class="py-op">(</tt><tt class="py-param">energy</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+</div><div id="energy_to_wavevector-collapsed" style="display:none;" pad="+++" indent="++++"></div><div id="energy_to_wavevector-expanded"><a name="L131"></a><tt class="py-lineno">131</tt>  <tt class="py-line">    <tt class="py-docstring">"""Converts energy in eV to wavevector in Angstroms^{-1}.</tt> </tt>
+<a name="L132"></a><tt class="py-lineno">132</tt>  <tt class="py-line"><tt class="py-docstring">    </tt> </tt>
+<a name="L133"></a><tt class="py-lineno">133</tt>  <tt class="py-line"><tt class="py-docstring">    arguments:</tt> </tt>
+<a name="L134"></a><tt class="py-lineno">134</tt>  <tt class="py-line"><tt class="py-docstring">        energy - energy, in eV</tt> </tt>
+<a name="L135"></a><tt class="py-lineno">135</tt>  <tt class="py-line"><tt class="py-docstring">    returns:</tt> </tt>
+<a name="L136"></a><tt class="py-lineno">136</tt>  <tt class="py-line"><tt class="py-docstring">        wavevector - in A^{-1}</tt> </tt>
+<a name="L137"></a><tt class="py-lineno">137</tt>  <tt class="py-line"><tt class="py-docstring">    """</tt> </tt>
+<a name="L138"></a><tt class="py-lineno">138</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">energy</tt> <tt class="py-op">&gt;</tt> <tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-string">"energy less than 0"</tt> </tt>
+<a name="L139"></a><tt class="py-lineno">139</tt>  <tt class="py-line">    <tt class="py-comment"># k=2*pi/lambda    </tt> </tt>
+<a name="L140"></a><tt class="py-lineno">140</tt>  <tt class="py-line">    <tt class="py-keyword">return</tt> <tt class="py-number">2</tt><tt class="py-op">*</tt><tt class="py-name">np</tt><tt class="py-op">.</tt><tt class="py-name">pi</tt><tt class="py-op">/</tt><tt id="link-4" class="py-name" targets="Function speckle.scattering.energy_to_wavelength()=speckle.scattering-module.html#energy_to_wavelength"><a title="speckle.scattering.energy_to_wavelength" class="py-name" href="#" onclick="return doclink('link-4', 'energy_to_wavelength', 'link-4');">energy_to_wavelength</a></tt><tt class="py-op">(</tt><tt class="py-name">energy</tt><tt class="py-op">)</tt> </tt>
+</div><a name="L141"></a><tt class="py-lineno">141</tt>  <tt class="py-line"> </tt>
+<a name="energy_to_wavelength"></a><div id="energy_to_wavelength-def"><a name="L142"></a><tt class="py-lineno">142</tt> <a class="py-toggle" href="#" id="energy_to_wavelength-toggle" onclick="return toggle('energy_to_wavelength');">-</a><tt class="py-line"><tt class="py-keyword">def</tt> <a class="py-def-name" href="speckle.scattering-module.html#energy_to_wavelength">energy_to_wavelength</a><tt class="py-op">(</tt><tt class="py-param">energy</tt><tt class="py-op">)</tt><tt class="py-op">:</tt> </tt>
+</div><div id="energy_to_wavelength-collapsed" style="display:none;" pad="+++" indent="++++"></div><div id="energy_to_wavelength-expanded"><a name="L143"></a><tt class="py-lineno">143</tt>  <tt class="py-line">    <tt class="py-docstring">"""Converts energy in eV to wavelength in Angstroms.</tt> </tt>
+<a name="L144"></a><tt class="py-lineno">144</tt>  <tt class="py-line"><tt class="py-docstring"></tt> </tt>
+<a name="L145"></a><tt class="py-lineno">145</tt>  <tt class="py-line"><tt class="py-docstring">    arguments:</tt> </tt>
+<a name="L146"></a><tt class="py-lineno">146</tt>  <tt class="py-line"><tt class="py-docstring">        energy - energy, in eV</tt> </tt>
+<a name="L147"></a><tt class="py-lineno">147</tt>  <tt class="py-line"><tt class="py-docstring">    returns:</tt> </tt>
+<a name="L148"></a><tt class="py-lineno">148</tt>  <tt class="py-line"><tt class="py-docstring">        wavelength - in A</tt> </tt>
+<a name="L149"></a><tt class="py-lineno">149</tt>  <tt class="py-line"><tt class="py-docstring">    """</tt> </tt>
+<a name="L150"></a><tt class="py-lineno">150</tt>  <tt class="py-line">    <tt class="py-keyword">assert</tt> <tt class="py-name">energy</tt> <tt class="py-op">&gt;</tt> <tt class="py-number">0</tt><tt class="py-op">,</tt> <tt class="py-string">"energy less than 0"</tt> </tt>
+<a name="L151"></a><tt class="py-lineno">151</tt>  <tt class="py-line">    <tt class="py-comment"># lam = hc/energy ; hc = 1239.84187433099714 eV*nm = 12398.4187433099714 eV*A</tt> </tt>
+<a name="L152"></a><tt class="py-lineno">152</tt>  <tt class="py-line">    <tt class="py-keyword">return</tt> <tt class="py-number">12398.4187433099714</tt><tt class="py-op">/</tt><tt class="py-name">energy</tt> </tt>
+</div><a name="L153"></a><tt class="py-lineno">153</tt>  <tt class="py-line"> </tt><script type="text/javascript">
+<!--
+expandto(location.href);
+// -->
+</script>
+</pre>
+<br />
+<!-- ==================== NAVIGATION BAR ==================== -->
+<table class="navbar" border="0" width="100%" cellpadding="0"
+       bgcolor="#a0c0ff" cellspacing="0">
+  <tr valign="middle">
+  <!-- Home link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="speckle-module.html">Home</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Tree link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="module-tree.html">Trees</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Index link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="identifier-index.html">Indices</a>&nbsp;&nbsp;&nbsp;</th>
+
+  <!-- Help link -->
+      <th>&nbsp;&nbsp;&nbsp;<a
+        href="help.html">Help</a>&nbsp;&nbsp;&nbsp;</th>
+
+      <th class="navbar" width="100%"></th>
+  </tr>
+</table>
+<table border="0" cellpadding="0" cellspacing="0" width="100%%">
+  <tr>
+    <td align="left" class="footer">
+    Generated by Epydoc 3.0.1 on Mon Jun 25 16:55:51 2012
+    </td>
+    <td align="right" class="footer">
+      <a target="mainFrame" href="http://epydoc.sourceforge.net"
+        >http://epydoc.sourceforge.net</a>
+    </td>
+  </tr>
+</table>
+
+<script type="text/javascript">
+  <!--
+  // Private objects are initially displayed (because if
+  // javascript is turned off then we want them to be
+  // visible); but by default, we want to hide them.  So hide
+  // them unless we have a cookie that says to show them.
+  checkCookie();
+  // -->
+</script>
+</body>
+</html>
