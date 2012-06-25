@@ -230,8 +230,8 @@ def apodize(data,kt=8,threshold=0.01,sigma=5,return_type='data'):
 
     # find the center of mass
     rows,cols = numpy.indices(data.shape,float)
-    av_row    = int(numpy.sum(data*rows)/numpy.sum(data))
-    av_col    = int(numpy.sum(data*cols)/numpy.sum(data))
+    av_row    = numpy.sum(data*rows)/numpy.sum(data)
+    av_col    = numpy.sum(data*cols)/numpy.sum(data)
     
     # determine the maximum unwrapping radius
     R = int(min([av_row,len(data)-av_row,av_col,len(data)-av_col]))
@@ -240,15 +240,17 @@ def apodize(data,kt=8,threshold=0.01,sigma=5,return_type='data'):
     unwrap_plan = wrapping.unwrap_plan(0,R,(av_col,av_row)) # very important to set r = 0!
     unwrapped   = wrapping.unwrap(data,unwrap_plan)
     ux          = unwrapped.shape[1]
+    uder        = unwrapped-numpy.roll(unwrapped,-1,axis=0)
     
     # at each column, find the edge of the data by stepping along rows until the object
     # is found. ways to make this faster?
     threshold = float(threshold)
     boundary = numpy.zeros(ux,float)
+    indices = numpy.arange(R-1)
     for col in range(ux):
-        n, temp = 1,unwrapped[:,col]
-        while temp[-n] < threshold: n += 1
-        boundary[col] = R-n
+        udercol = uder[:,col]
+        ave = numpy.sum(udercol[:-1]*indices)/numpy.sum(udercol[:-1])
+        boundary[col] = ave
         
     # smooth the edge values by convolution with a gaussian
     kernel = fftshift(shape.gaussian((ux,),(sigma,),normalization=1.0))

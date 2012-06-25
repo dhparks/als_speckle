@@ -23,7 +23,7 @@ def unwrap_plan(r,R,center,max_angle=None):
     assert r >= 0, "r must be >= 0"
     assert isinstance(center, (list, tuple, set)) and len(center) == 2, "center must be 2-tuple"
     # don't bother checking if center is int, just cast it. Found out that numpy.int64 type is not considered IntType
-    center = [int(i) for i in center]
+    #center = [int(i) for i in center]
 
     if max_angle == None: max_angle = 2*scipy.pi
     assert isinstance(max_angle, (float, int)), "max_angle must be float"
