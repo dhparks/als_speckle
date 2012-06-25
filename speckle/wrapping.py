@@ -1,3 +1,8 @@
+""" A Library for wrapping and unwrapping arrays that have circular symmetry.
+
+Author: Daniel Parks (dparks@uoregon.edu)
+"""
+
 import scipy
 
 def unwrap_plan(r,R,center,max_angle=None):

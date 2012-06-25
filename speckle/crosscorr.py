@@ -1,3 +1,7 @@
+""" Functions that calculate the image cross-correlation between two images. Implements the sptaial memory algorithms.
+
+Author: Keoki Seu (KASeu@lbl.gov)
+"""
 import numpy as np
 
 from . import averaging

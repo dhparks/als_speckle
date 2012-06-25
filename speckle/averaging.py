@@ -1,3 +1,7 @@
+"""A Library for image averaging of various functions.  Generally these are smoothing functions of image data.
+
+Author: Keoki Seu (KASeu@lbl.gov)
+"""
 import numpy as np
 
 def fftconvolve(imgA, imgB):

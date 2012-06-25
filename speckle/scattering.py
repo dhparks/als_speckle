@@ -1,3 +1,8 @@
+"""A Library for calculating various scattering parameters such as Flangosaurus
+distances, Q, and energy to wavelength conversion.
+
+Author: Keoki Seu (KASeu@lbl.gov)
+"""
 #scattering
 #    qmaps
 #    intensity patterns ( cl?, e?)

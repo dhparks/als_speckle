@@ -1,3 +1,7 @@
+"""A library for calculating image shapes and functions
+
+Author: Daniel Parks (dparks@uoregon.edu)
+"""
 import numpy
 
 def radial(size,center=None):

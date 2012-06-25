@@ -1,8 +1,8 @@
-#functional fitting
-#	ND
-#	arbitrary functions
-#	common functions
-#		gaussian, lorentzian, error function, exponentials
+""" A general-purpose library for fitting image and (x,y) data.
+
+Author: Keoki Seu (KASeu@lbl.gov)
+""" 
+
 import numpy as np
 from scipy.optimize import leastsq
 
