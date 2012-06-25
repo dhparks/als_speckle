@@ -81,7 +81,7 @@ def smooth_with_circle(img, radius):
 
     assert isinstance(img, np.ndarray), "Must be an array"
     assert img.ndim == 2, "Must be two-dimensional"
-    assert radius in (float, int), "radius must be a float or int"
+    assert type(radius) in (float, int), "radius must be a float or int"
 
     (ys, xs) = img.shape
     return _apply_smooth(img, shape.circle(img.shape, radius, AA=False))
@@ -98,3 +98,35 @@ def smooth_with_gaussian(img, fwhm):
 
     sigma_x = fwhm/(2*np.sqrt(2*np.log(2)))
     return _apply_smooth(img, shape.gaussian(img.shape, (sigma_x, sigma_x)))
+
+def smooth_with_spline(img, nx, ny, order=3):
+    """Smooth an image with a spline. It returns the fitted spline.
+    parameters:
+        img - Two-dimensional image.  If img is complex, abs(img) is calculated.
+        nx - number of control points in x (columns).
+        ny - number control points in y (rows).
+        order - order of splines. Defaults to 3.
+    returns:
+        spline - The fit of the image with the same dimension as img.
+    """
+    from scipy.ndimage import map_coordinates
+    assert img.ndim == 2, "image must be two dimensional"
+    assert (type(nx), type(ny)) == (int,int), "nx and ny must be int"
+    assert order in range(0,6), "Spline interpolation order must be betwen 0-5."
+    order = int(order)
+    j = complex(0,1)
+    (ys, xs) = img.shape
+
+    # reduce image down to (ny, nx) shape
+    new_idx = np.mgrid[0:ys-1:ny*j, 0:xs-1:nx*j]
+
+    # take absolute value if complex. map_coordinates doen't work
+    # for some reason, map_coordinates crashes even if np.iscomplex().any() is false.
+    img = abs(img)
+
+    reduced = map_coordinates(img, new_idx, order=order)
+
+    # blow image back up to img.shape
+    (rys, rxs) = reduced.shape
+    out_idx = np.mgrid[0:rys-1:ys*j, 0:rxs-1:xs*j]
+    return map_coordinates(reduced, out_idx, order=order)

@@ -13,17 +13,19 @@ Author: Daniel Parks (dhparks@lbl.gov)
 
 """
 # if you make a new file/module name, put it here
-__all__ = ["fit",
-           "io",
-           "scattering",
-           "shape",
-           "wrapping",
-           "conditioning",
-           "propagate",
-           "xpcs",
-           "averaging"
-            ]
+__all__ = [
+    "fit",
+    "io",
+    "scattering",
+    "shape",
+    "wrapping",
+    "conditioning",
+    "propagate",
+    "xpcs",
+    "averaging",
+    "crosscorr",
+]
 
 for mod in __all__:
-    exec("from . import " + mod)
+    exec("import %s" % mod)
 del mod
