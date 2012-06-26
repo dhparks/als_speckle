@@ -222,3 +222,39 @@ def ccd_to_photons(img, energy, gain_readout=1e-6, guess_dark=True):
     print "1 photon is %d counts" % int(1.0/photonsPerCount)
     return np.where(img.astype('int') < 0, 0, img.astype('int'))
 
+def calculate_bragg((a, b, c), (h, k, l), energy):
+    """ Calculate the bragg reflection for lattice spacing [a,b,c] and
+        reflection [h, k, l] for and energy (in eV).
+
+    arguments:
+        [a, b, c] - Lattice vectors (a, b, c).  Can be float or int.
+        [h, k, l] - Reflections (h, k, l).  Can be float or int
+    returns:
+        TwoTheta - Bragg angle, in degrees, if it exists.
+    """
+    assert type(a) in (float, int), "a must be an integer or float"
+    assert type(b) in (float, int), "b must be an integer or float"
+    assert type(c) in (float, int), "c must be an integer or float"
+    assert type(h) in (float, int), "h must be an integer or float"
+    assert type(k) in (float, int), "k must be an integer or float"
+    assert type(l) in (float, int), "l must be an integer or float"
+    assert type(energy) in (float, int), "energy must be an integer or float"
+        
+    lam = energy_to_wavelength(energy)
+    
+    d = 1.0/np.sqrt( (float(h)/float(a))**2 + (float(k)/float(b))**2 + (float(l)/float(c))**2 )
+
+    Theta = np.arcsin(lam/(2*d))*180/np.pi
+    TwoTheta = 2*Theta
+
+    print "Energy: %4.1f eV. lambda: %2.4f Ang." % (energy, lam)
+    print "abc: (%1.2f %1.2f %1.2f). hkl: (%1.2f %1.2f %1.2f). distance %2.3f Ang." % (a, b, c, h, k, l, d)
+    if np.isnan(TwoTheta):
+        print("Cannot access the (%1.2f,%1.2f,%1.2f) reflection at %1.1f eV." % (h, k, l, energy))
+        return None
+    else:
+        # port*18+alpha=TwoTheta
+        port = round(TwoTheta/18.0,0)
+        alpha = TwoTheta-port*18
+        print "2Theta is %2.1f degrees. Use Flangosaurus port %d, chamber angle alpha %1.2f degrees." % (TwoTheta, port, alpha)
+        return TwoTheta
