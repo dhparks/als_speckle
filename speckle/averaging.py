@@ -4,8 +4,6 @@ Author: Keoki Seu (KASeu@lbl.gov)
 """
 import numpy as np
 
-from . import crosscorr
-
 def smooth_with_rectangle(img, boxsize):
     """Uses a convolution to average each pixel of an image by a surrounding box
         of boxsize pixels.
@@ -56,12 +54,12 @@ def _apply_smooth(img, mask):
         masksum = mask.sum()
         for i in range(img.shape[0]):
             # normalize result by number of pixels in the mask
-            result[i] = np.real(crosscorr.fftconvolve(img[i], mask))/(masksum)
+            result[i] = np.real(fftconvolve(img[i], mask))/(masksum)
         return result
     else:
         assert mask.shape == img.shape, "image and mask must have the same x/y dimensions"
         # normalize result by number of pixels in the mask
-        return np.real(crosscorr.fftconvolve(img, mask))/(mask.sum())
+        return np.real(fftconvolve(img, mask))/(mask.sum())
 
 def smooth_with_circle(img, radius):
     """Uses a convolution to average each pixel of an image by a surrounding
@@ -154,3 +152,23 @@ def calculate_average(img, mask=None):
     stddev = np.std(oneDarray)
     numpix = mask.sum()
     return avg, stddev, numpix
+def fftconvolve(imgA, imgB):
+    """ Calculates the convoluton of two input images.
+
+    arguments:
+        imgA - 1st image to convolve.
+        imgB - 2nd image to convolve.  imgA and imgB must be the same shape.
+
+    returns:
+        Conv(imgA, imgB).  Shape is same as inputs.
+    """
+
+    assert isinstance(imgA, np.ndarray) and isinstance(imgB, np.ndarray), "Images must be arrays"
+    assert imgA.shape == imgB.shape, "Images must be the same shape."
+    assert imgA.ndim == 2, "Images must be two-dimensional."
+
+    (ysize, xsize) = imgA.shape
+    result = np.fft.ifft2(np.fft.fft2(imgA) * np.fft.fft2(imgB))
+    result = np.roll(result, int(ysize/2), axis=0)
+    result = np.roll(result, int(xsize/2), axis=1)
+    return result

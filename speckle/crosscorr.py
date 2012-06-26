@@ -300,24 +300,3 @@ def autocorr(img):
         ac(img) - autocorrelation of input image
     """
     return crosscorr(img, img)
-
-def fftconvolve(imgA, imgB):
-    """ Calculates the convoluton of two input images.
-
-    arguments:
-        imgA - 1st image to convolve.
-        imgB - 2nd image to convolve.  imgA and imgB must be the same shape.
-
-    returns:
-        Conv(imgA, imgB).  Shape is same as inputs.
-    """
-
-    assert isinstance(imgA, np.ndarray) and isinstance(imgB, np.ndarray), "Images must be arrays"
-    assert imgA.shape == imgB.shape, "Images must be the same shape."
-    assert imgA.ndim == 2, "Images must be two-dimensional."
-
-    (ysize, xsize) = imgA.shape
-    result = np.fft.ifft2(np.fft.fft2(imgA) * np.fft.fft2(imgB))
-    result = np.roll(result, int(ysize/2), axis=0)
-    result = np.roll(result, int(xsize/2), axis=1)
-    return result
