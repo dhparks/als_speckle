@@ -136,27 +136,47 @@ def smooth_with_spline(img, nx, ny, order=3):
     return map_coordinates(reduced, out_idx, order=order)
 
 def calculate_average(img, mask=None):
-    """Calculate the average and standard deviation of a 1d or 2d image with a mask.
+    """Calculate the average and standard deviation of an image with a mask.
 
     arguments:
-        img - image to calculate. Can be 1d or 2d.
+        img - image to calculate. Can be 1d or 2d, or 3d.  If the image is 3d,
+            the average and standard deviation is calculated for each 2d frame
+            of the 3d image.
         mask - mask to apply pixels.  Must be the same dimension as img.
             If None, no mask is applied.
 
     returns:
-        average - average value
-        stddev - standard deviation
-        numpix - number of pixels used in the calculation
+        [average, stddev, numpix].  If the input is 3d, a Nx3 array is returned
+            with these values.
     """
-    assert img.ndim in (1,2), "img must be 1d or 2d."
+    assert img.ndim in (1,2,3), "img must be 1d, 2d, or 3d."
     if mask != None:
-        assert img.shape == mask.shape, "img and mask must be the same shape."
+        if img.ndim == 3:
+            assert img[0].shape == mask.shape, "img[0] and mask must be the same shape."
+        else:            
+            assert img.shape == mask.shape, "img and mask must be the same shape."
+    else:
+        if img.ndim == 3:
+            mask = np.ones_like(img[0])
+        else:
+            mask = np.ones_like(img)
 
-    oneDarray = (img.ravel()).compress(mask.ravel())
-    avg = np.average(oneDarray)
-    stddev = np.std(oneDarray)
-    numpix = mask.sum()
-    return avg, stddev, numpix
+    def calc_avg(img, mask):
+        oneDarray = (img.ravel()).compress(mask.ravel())
+        avg = np.average(oneDarray)
+        stddev = np.std(oneDarray)
+        numpix = mask.sum()
+        return avg, stddev, numpix
+
+    if img.ndim == 3:
+        (fr, ys, xs) = img.shape
+        avgs = np.zeros((fr, 3))
+        for f in range(fr):
+            avgs[f] = calc_avg(img[f], mask)
+        return avgs
+    else:
+        return calc_avg(img, mask)
+
 def fftconvolve(imgA, imgB):
     """ Calculates the convoluton of two input images.
 
