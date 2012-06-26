@@ -9,7 +9,7 @@ from . import shape
 
 def point_memory( imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None, flatten_width=30, removeCCBkg=True, pickPeakMethod="integrate", intermediates=False):
     """Calculates the cross-correlation coefficient between two image pairs imgA
-    and imgB. Basically, this calculates the value rho where:
+    and imgB. This calculates the value rho where:
         rho = \frac{\sum(CC(imgA, imgB))}{\sqrt{AC(A) AC(B)}}.
 
     Darks, quasi-ACFs, and qACF darks can also be provided, as well as a mask to
@@ -41,10 +41,13 @@ def point_memory( imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None,
             to "integrate".
         intermediates - Weather or not the program should return intermediate
             arrays. If this is true, it returns a dictionary of intermediate
-            calculations, such as ACFs, qACFs, spline fits...etc. XXX This is not implemented yet XXX
+            calculations, such as ACFs, qACFs, spline fits..etc.  The
+            calculations are numbered in the order that they are calculated.
 
     returns:
-        CC-coefficient - the correlation coeffiecient.  Typically this is a number between [0,1].
+        CC-coefficient - the correlation coeffiecient.  Typically this is a
+        number between [0,1]. If intermediates is set, a dictonary of
+        intermediate arrays is also returned.
     """
     FLATTEN_WIDTH = 30 # radius used for flattening the speckle pattern before ACs are calculated.
     PEAK_INTEGRATE_RADIUS = 8 # radius of the circle that we integrate the speckle peak over.
@@ -59,14 +62,11 @@ def point_memory( imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None,
     assert pickPeakMethod in ("integrate", "max"), "pickPeakMethod must be 'integrate' or 'max'"
 
     if intermediates:
-        from . import io
         intermediate_arrays = {}
 
     # helper function for storing intermediate arrays 
     def store(key, val):
-#        if intermediates: intermediate_arrays[key] = val
-        if intermediates: io.writefits("speckle-test/%s.fits" % key, np.abs(val), overwrite=True)
-
+        if intermediates: intermediate_arrays[key] = val
 
     if isinstance(flatten_width, bool):
         if flatten_width == True:
@@ -181,7 +181,6 @@ def point_memory( imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None,
         make_even = lambda v: v % 2 == 1 and v - 1 or v
         xctlpts = make_even(int(np.floor(xs/(PEAK_INTEGRATE_RADIUS*2)-1)))
         yctlpts = make_even(int(np.floor(ys/(PEAK_INTEGRATE_RADIUS*2)-1)))
-        ctlpts = max(xctlpts, yctlpts)
 
         spl_cc = averaging.smooth_with_spline(cc, xctlpts, yctlpts)
         spl_autoA = averaging.smooth_with_spline(autoA, xctlpts, yctlpts)
@@ -258,8 +257,9 @@ def apply_shrink_mask(img, mask):
         return apply_shrink(img, mask)
 
 def crosscorr(imgA, imgB):
-    """ calculates the cross correlation of the function. Returns the complex-valued cross-correlation of imgA and imgB.
-    Inputs:
+    """ Calculates the cross correlation of the function. Returns the
+    complex-valued cross-correlation of imgA and imgB.
+    arguments:
         imgA - two-dimensional image
         imgB - two-dimensional image
     returns:
@@ -288,7 +288,7 @@ def crosscorr(imgA, imgB):
 
 def autocorr(img):
     """ calculates the autocorrelation of an image.
-    Inputs:
+    arguments:
         img - two-dimensional image
     Returns:
         ac(img) - autocorrelation of input image
