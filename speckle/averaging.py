@@ -4,31 +4,17 @@ Author: Keoki Seu (KASeu@lbl.gov)
 """
 import numpy as np
 
-def fftconvolve(imgA, imgB):
-    """ calculates the convoluton of two input images.
-    arguments:
-        imgA - 1st image to convolve.
-        imgB - 2nd image to convolve.  imgA and imgB must be the same shape.
-    returns:
-        Conv(imgA, imgB).  Shape is same as inputs.
-    """
-    from scipy.fftpack import fft2, ifft2
-
-    assert isinstance(imgA, np.ndarray) and isinstance(imgB, np.ndarray), "Images must be arrays"
-    assert imgA.shape == imgB.shape, "Images must be the same shape."
-    assert imgA.ndim == 2, "Images must be two-dimensional."
-
-    (ysize, xsize) = imgA.shape
-    result = ifft2(fft2(imgA) * fft2(imgB))
-    result = np.roll(result, int(ysize/2), axis=0)
-    result = np.roll(result, int(xsize/2), axis=1)
-    return result
+from . import crosscorr
 
 def smooth_with_rectangle(img, boxsize):
-    """Uses a convolution to average each pixel of an image by a surrounding box of boxsize pixels.
+    """Uses a convolution to average each pixel of an image by a surrounding box
+        of boxsize pixels.
+
     arguments:
         img - input image to average over
-        boxsize - size of box of which to average over. This can be a single number or a 2-tuple.
+        boxsize - size of box of which to average over. This can be a single
+            number or a 2-tuple.
+
     returns:
         rectangle averaged img
     """
@@ -52,10 +38,14 @@ def smooth_with_rectangle(img, boxsize):
     return _apply_smooth(img, mask)
 
 def _apply_smooth(img, mask):
-    """ Apply a smoothing mask to an image.  This is a helper function that encapsulates much of what each of these functions do once the mask is generated.
+    """ Apply a smoothing mask to an image.  This is a helper function that
+        encapsulates much of what each of these functions do once the mask is
+        generated.
+
     arguments:
         img - image to smooth.  Can be 2d or 3d.
         mask - mask to smooth.  must be two dimensional, and the same shape as the x/y dimensions in img.
+
     returns:
         result - the smoothed array
     """
@@ -66,18 +56,21 @@ def _apply_smooth(img, mask):
         masksum = mask.sum()
         for i in range(img.shape[0]):
             # normalize result by number of pixels in the mask
-            result[i] = np.real(fftconvolve(img[i], mask))/(masksum)
+            result[i] = np.real(crosscorr.fftconvolve(img[i], mask))/(masksum)
         return result
     else:
         assert mask.shape == img.shape, "image and mask must have the same x/y dimensions"
         # normalize result by number of pixels in the mask
-        return np.real(fftconvolve(img, mask))/(mask.sum())
+        return np.real(crosscorr.fftconvolve(img, mask))/(mask.sum())
 
 def smooth_with_circle(img, radius):
-    """Uses a convolution to average each pixel of an image by a surrounding circle of radius.
+    """Uses a convolution to average each pixel of an image by a surrounding
+        circle of radius.
+
     arguments:
         img - input image to average over
         radius - radius of circle to average over
+
     returns:
         circularly-averaged img.
     """
@@ -92,9 +85,11 @@ def smooth_with_circle(img, radius):
 
 def smooth_with_gaussian(img, fwhm):
     """Uses a convolution to average each pixel of an image by a 2d gaussian of fwhm
+
     arguments:
         img - input image to average over
         fwhm - size of box of which to average over
+
     returns:
         img replaced by the gaussian function of fwhm.
     """
@@ -105,11 +100,13 @@ def smooth_with_gaussian(img, fwhm):
 
 def smooth_with_spline(img, nx, ny, order=3):
     """Smooth an image with a spline. It returns the fitted spline.
-    parameters:
+
+    arguments:
         img - Two-dimensional image.  If img is complex, abs(img) is calculated.
         nx - number of control points in x (columns).
         ny - number control points in y (rows).
         order - order of splines. Defaults to 3.
+
     returns:
         spline - The fit of the image with the same dimension as img.
     """
@@ -134,3 +131,26 @@ def smooth_with_spline(img, nx, ny, order=3):
     (rys, rxs) = reduced.shape
     out_idx = np.mgrid[0:rys-1:ys*j, 0:rxs-1:xs*j]
     return map_coordinates(reduced, out_idx, order=order)
+
+def calculate_average(img, mask=None):
+    """Calculate the average and standard deviation of a 1d or 2d image with a mask.
+
+    arguments:
+        img - image to calculate. Can be 1d or 2d.
+        mask - mask to apply pixels.  Must be the same dimension as img.
+            If None, no mask is applied.
+
+    returns:
+        average - average value
+        stddev - standard deviation
+        numpix - number of pixels used in the calculation
+    """
+    assert img.ndim in (1,2), "img must be 1d or 2d."
+    if mask != None:
+        assert img.shape == mask.shape, "img and mask must be the same shape."
+
+    oneDarray = (img.ravel()).compress(mask.ravel())
+    avg = np.average(oneDarray)
+    stddev = np.std(oneDarray)
+    numpix = mask.sum()
+    return avg, stddev, numpix
