@@ -187,7 +187,7 @@ def g2_standard_norm(img, numtau, qAvg = ("circle", 10)):
     img, fr, ys, xs = _convert_to_3d(img)
 
     if ys < avgSize or xs < avgSize:
-        print("warning: size for averaging %d is larger than array size, changing to %d" % min(xs,ys))
+        print("warning: size for averaging %d is larger than array size, changing to %d" % (avgSize, min(xs,ys)))
         avgSize = min(ys,xs)
 
     # in standard normalization defined by Borthwick, the img array is modified by the q-averaged intensity then used to calculate g2.
@@ -405,7 +405,7 @@ def sp_bin_by_time(data, frameTime, counterTime=40.0e-9):
         counterTime - Clock time of the camera. Anton Tremsin says its 40 ns.
     returns:
         binnedData - a 3-dimension array (frames, y, x) of the binned data.
-        also returns edges?? check
+        binEdges - edges of the bins.
     """
     assert isinstance(data, np.ndarray), "Data must be an ndarray."
     assert data.ndim == 1, "Data must be 1-dimensional."
