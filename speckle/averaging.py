@@ -146,8 +146,8 @@ def calculate_average(img, mask=None):
             If None, no mask is applied.
 
     returns:
-        [average, stddev, numpix].  If the input is 3d, a Nx3 array is returned
-            with these values.
+        [average, stddev, numpix].  If the input is 3d, a Nx4 array is returned
+            with and index value for the frame and these values.
     """
     assert img.ndim in (1,2,3), "img must be 1d, 2d, or 3d."
     if mask != None:
@@ -170,9 +170,10 @@ def calculate_average(img, mask=None):
 
     if img.ndim == 3:
         (fr, ys, xs) = img.shape
-        avgs = np.zeros((fr, 3))
+        avgs = np.zeros((fr, 4))
         for f in range(fr):
-            avgs[f] = calc_avg(img[f], mask)
+            avgs[f,0] = f
+            avgs[f,1:] = calc_avg(img[f], mask)
         return avgs
     else:
         return calc_avg(img, mask)
