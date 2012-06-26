@@ -24,6 +24,7 @@ __all__ = [
     "xpcs",
     "averaging",
     "crosscorr",
+    "phasing"
 ]
 
 for mod in __all__:

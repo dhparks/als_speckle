@@ -18,7 +18,6 @@ def gpu_propagate_distance(gpuinfo,data,distances,energy_or_wavelength,pixel_pit
     try:
         import pyopencl as cl
         import pyopencl.array as cl_array
-        import kernels
         from pyopencl.elementwise import ElementwiseKernel
         from pyfft.cl import Plan
     except ImportError:
