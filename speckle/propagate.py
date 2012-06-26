@@ -63,22 +63,22 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
     return IDFT(data*phase)
 
 def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=None,subarraysize=None):
-    """ Propagates a complex-valued wavefield through a range of distances, with the ability to use a GPU
-    for faster computation.
+    """ Propagates a complex-valued wavefield through a range of distances using the CPU. A GPU-accelerated version
+    is available: gpu/gpu_propagate_distance().
     
     Required input:
-    data: a square numpy.ndarray, either float32 or complex64, to be propagated
-    distances: an iterable set of distances (in meters!) over which the propagated field is calculated
-    energy_or_wavelength: the energy (in eV) or wavelength (in meters) of the wavefield. It's assumed that if the number is < 1 it is a wavelength.
-    pixel_pitch: the size (in meters) of each pixel in data.
+        data: a square numpy.ndarray, either float32 or complex64, to be propagated
+        distances: an iterable set of distances (in meters!) over which the propagated field is calculated
+        energy_or_wavelength: the energy (in eV) or wavelength (in meters) of the wavefield. It's assumed that if the number is < 1 it is a wavelength.
+        pixel_pitch: the size (in meters) of each pixel in data.
     
     Optional input:
-    gpuinfo: pass the bundle of information coming from gpu.init() here to use the GPU.
-    subarraysize: because the number of files can be large a subarray cocentered with data can be specified.
+        subarraysize: because the number of files can be large a subarray cocentered with data can be specified.
     
     Returns: a complex-valued 3d ndarray of shape (len(distances),subarraysize,subarraysize). If the subarraysize argument wasn't used the
     size of the output array is (len(distances),len(data),len(data)). returned[n] is the wavefield propagated to distances[n].
     """
+    
     from . import scattering
     #import scattering
    
@@ -92,14 +92,7 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=N
     assert isinstance(pixel_pitch, (int,float)),                             "pixel_pitch must be a float saying how big each pixel is in meters"
     if subarraysize == None: subarraysize = len(data)
     assert isinstance(subarraysize, int) and subarraysize <= len(data),      "subarray must be int smaller than supplied length of data"
-    assert isinstance(gpuinfo,(tuple,type(None))),                           "gpuinfo not recognized"
-    if isinstance(gpuinfo,tuple):
-        usegpu = True
-        import gpu
-        assert subarraysize%2 == 0, "subarraylength on gpu should be even number"
-        context, device, queue = gpuinfo
-    if gpuinfo == None: usegpu = False
-    
+
     # convert energy_or_wavelength to wavelength.  If < 1 assume it's a wavelength.
     if energy_or_wavelength < 1: wavelength = energy_or_wavelength
     else: wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
@@ -114,81 +107,17 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=N
     # limits the reliability of the phase component, although the magnitude component is still useful.
     upperlimit = (pixel_pitch*N)**2/(wavelength*N)
 
-    if not usegpu: 
-        # compute the distances of back propagations on the cpu.
-        # precompute the fourier signal. define the phase as a lambda function. loop through the distances
-        # calling phase and propagate_one_distance. save the region of interest (subarray) to the buffer.
-        fourier = DFT(data)
-        r = fftshift((shape.radial((N,N)))**2)
-        cpu_phase = lambda z: numpy.exp(-I*numpy.pi*wavelength*z*r/(pixel_pitch*N)**2)
-        for n,z in enumerate(distances):
-            phase_z = cpu_phase(z)
-            back = propagate_one_distance(fourier,phase=phase_z,data_is_fourier=True)
-            buffer[n] = back[N/2-subarraysize/2:N/2+subarraysize/2,N/2-subarraysize/2:N/2+subarraysize/2]
-
-    if usegpu:
-        
-        import pyopencl as cl
-        import pyopencl.array as cl_array
-        import kernels
-        from pyopencl.elementwise import ElementwiseKernel
-        from pyfft.cl import Plan
-        
-        # make the fft plan for NxN interleaved (ie, complex64) data
-        print N
-        fftplan = Plan((N,N),queue=queue)
-        print "here"
-
-        # make the kernel which computes the phase factor
-        t = numpy.float32(numpy.pi*wavelength/((pixel_pitch*N)**2))
-        phase_factor = ElementwiseKernel(context,
-            "float *r, "   # r-array
-            "float t, "    # combination of factors (pi,lambda,pitch,etc)
-            "float z, "    # z, the dependent variable: DISTANCE
-            "float2 *out", # output is complex type so float2
-            "out[i] = (float2)(native_cos(t*z*r[i]),native_sin(-1*t*z*r[i]))",
-            "phase_factor")
-        
-        complex_multiply = ElementwiseKernel(context,
-            "float2 *a, " # in1
-            "float2 *b, " # in2
-            "float2 *c",  # product
-            "c[i] = (float2)(a[i].x*b[i].x-a[i].y*b[i].y, a[i].x*b[i].y+a[i].y*b[i].x)",
-            "mult_buffs")
-        
-        # build the copy kernel from the kernels file
-        copy_to_buffer = gpu.build_kernel(context, device, kernels.copy_to_buffer)
-        print "done with kernels"
-        
-        # precompute the fourier signals
-        r = fftshift((shape.radial((N,N)))**2)
-        f = DFT(data)
-        
-        # put the signals onto the gpu along with buffers for the various operations
-        L = subarraysize
-        gpu_rarray  = cl_array.to_device(queue,r.astype(numpy.float32))   # r array
-        gpu_fourier = cl_array.to_device(queue,f.astype(numpy.complex64)) # fourier data
-        gpu_phase   = cl_array.empty(queue,(N,N),numpy.complex64)         # buffer for phase factor and phase-fourier product
-        gpu_back    = cl_array.empty(queue,(N,N),numpy.complex64)         # buffer for propagated wavefield, +z direction
-        try:
-            gpu_buffer  = cl_array.empty(queue,(len(distances),L,L),numpy.complex64) # allocate propagation buffer
-        except:
-            print "probably ran out of memory. make subarraysize smaller or have fewer points in the distances"
-            exit()
-
-        # now compute the propagations
-        for n,z in enumerate(distances):
-            # compute on gpu and transfer to buffer.
-            phase_factor(gpu_rarray,t,numpy.float32(z),gpu_phase)    # form the phase factor
-            complex_multiply(gpu_phase,gpu_fourier,gpu_phase)        # form the phase-data product. store in gpu_phase
-            fftplan.execute(gpu_phase.data,data_out=gpu_back.data,   # inverse transform
-                            inverse=True,wait_for_finish=True)
-
-            copy_to_buffer.execute(queue,(L,L),                                     # opencl stuff
-                                   gpu_buffer.data, gpu_back.data,                  # destination, source
-                                   numpy.int32(n), numpy.int32(L), numpy.int32(N))  # frame number, destination frame size,source frame size
-
-        buffer = gpu_buffer.get()
+    # compute the distances of back propagations on the cpu.
+    # precompute the fourier signal. define the phase as a lambda function. loop through the distances
+    # calling phase and propagate_one_distance. save the region of interest (subarray) to the buffer.
+    fourier = DFT(data)
+    r = fftshift((shape.radial((N,N)))**2)
+    cpu_phase = lambda z: numpy.exp(-I*numpy.pi*wavelength*z*r/(pixel_pitch*N)**2)
+    for n,z in enumerate(distances):
+        if z > upperlimit: print "propagation distance (%s) exceeds accuracy upperlimit (%s)"%(z,upperlimit)
+        phase_z = cpu_phase(z)
+        back = propagate_one_distance(fourier,phase=phase_z,data_is_fourier=True)
+        buffer[n] = back[N/2-subarraysize/2:N/2+subarraysize/2,N/2-subarraysize/2:N/2+subarraysize/2]
 
     return buffer
             
@@ -199,18 +128,15 @@ def apodize(data,kt=8,threshold=0.01,sigma=5,return_type='data'):
         # 2. find the boundary at each angle
         # 3. do a 1d filter along each angle
         # 4. rewrap
-        
-    This function works best with binary supports where the edge is clearly defined. Antialiased objects will lead to filters
-    with some artifacts.
 
-    Required input:
-    data: 2d ndarray containing the data to be apodized. This data should be been sliced so that the only object is the target data. For example, a phase reconstruction with a multipartite support should be sliced so that only one component of the support is passed to this function (this may change in the future but object detection can be tricky). data should also be sufficiently symmetric such that at each angle after unwrapping there is only a single solution to the location of the object boundary.
+    Required arguments:
+        data: 2d ndarray containing the data to be apodized. This data should be been sliced so that the only object is the target data.
     
-    Optional named input:
-    kt: strength of apodizer. float or int.
-    threshold: float or int value defines the boundary of the data.
-    sigma: boundary locations are smoothed to avoid with jagged edges; this sets  the smoothing. float or int.
-    return_type: can return the filtered data, just the filter, or intermediates for debugging/inspection
+    Optional arguments:
+        kt: strength of apodizer. float or int.
+        threshold: float or int value defines the boundary of the data.
+        sigma: boundary locations are smoothed to avoid with jagged edges; this sets  the smoothing. float or int.
+        return_type: can return the filtered data, just the filter, or intermediates for debugging/inspection. Basically, for debugging.
     
     Returns: apodized array
     """
@@ -276,20 +202,19 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
     does the acutance of the magnitude component.
     
     Required input:
-    data: 2d or 3d ndarray object. if 3d, the acutance of each frame will be calculated
+        data -- 2d or 3d ndarray object. if 3d, the acutance of each frame will be calculated
     
     Optional input:
-    method -- keyword indicating how to compute the discrete derivative. options are 'sobel' and 'roll'.
+        method -- keyword indicating how to compute the discrete derivative. options are 'sobel' and 'roll'.
             Default is 'sobel'
-    exponent -- raise the modulus of the gradient to this value. 2 by default.
-    normalized -- normalize all the back propagated signals so they have the same amount of power. Default is True.
-    mask -- you can supply a binary ndarray as mask so that the calculation happens only in a certain
-        region of space. If no mask is supplied the calculation is over all space.
-        Default is None
+        exponent -- raise the modulus of the gradient to this value. 2 by default.
+        normalized -- normalize all the back propagated signals so they have the same amount of power. Default is True.
+        mask -- you can supply a binary ndarray as mask so that the calculation happens only in a certain
+            region of space. If no mask is supplied the calculation is over all space.
+            Default is None
      
     Returns:
     a list of acutance values, one for each frame of the supplied data.
-    
     """
    
     # check types
