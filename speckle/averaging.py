@@ -74,12 +74,15 @@ def smooth_with_circle(img, radius):
     """
     from . import shape
 
-    assert isinstance(img, np.ndarray), "Must be an array"
-    assert img.ndim == 2, "Must be two-dimensional"
     assert type(radius) in (float, int), "radius must be a float or int"
+    assert isinstance(img, np.ndarray) and img.ndim in (2,3), "must be 2 or 3-dimensional array"
 
-    (ys, xs) = img.shape
-    return _apply_smooth(img, shape.circle(img.shape, radius, AA=False))
+    if img.ndim == 3:
+        (fr, ys, xs) = img.shape
+    else:
+        (ys, xs) = img.shape
+
+    return _apply_smooth(img, shape.circle((ys,xs), radius, AA=False))
 
 def smooth_with_gaussian(img, fwhm):
     """Uses a convolution to average each pixel of an image by a 2d gaussian of fwhm
@@ -92,6 +95,8 @@ def smooth_with_gaussian(img, fwhm):
         img replaced by the gaussian function of fwhm.
     """
     from . import shape
+
+    assert type(fwhm) in (float, int), "FWHM must be a float or int"
 
     sigma_x = fwhm/(2*np.sqrt(2*np.log(2)))
     return _apply_smooth(img, shape.gaussian(img.shape, (sigma_x, sigma_x)))
