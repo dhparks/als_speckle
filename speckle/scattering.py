@@ -144,9 +144,81 @@ def energy_to_wavelength(energy):
 
     arguments:
         energy - energy, in eV
+
     returns:
         wavelength - in A
     """
     assert energy > 0, "energy less than 0"
     # lam = hc/energy ; hc = 1239.84187433099714 eV*nm = 12398.4187433099714 eV*A
     return 12398.4187433099714/energy
+
+def andor_ccd_efficiency(energy):
+    """return the andor CCD DO436 detector efficiency (in percent) for a given
+        energy.
+
+    arguments:
+        energy - energy at which the efficiency should be calculated
+
+    returns:
+        pct - detector efficiency in %
+    """
+    # energy vs quantum efficiency array, from DO436 manual. Traced with PlotDigitizer
+    Energies = np.array([  1.23983,   1.30828,   1.55564, 1.67120,   1.78466,   1.92872, 2.07200,   2.52331,   2.75976, 3.14721,   3.30120,   3.32097, 3.44212,   3.65392,   3.78721, 3.97252,   4.31890,   4.39697, 4.61212,   5.01427,   5.32281, 5.65034,   5.92682,   6.32920, 10.0239,   20.0386,   30.0757, 100.479,   104.144,   301.476, 602.675,   742.764,   995.234, 1415.58,   1797.50,   1808.26, 3040.07,   4001.09,   5361.09, 9067.11,   10278.5,   20062.5])
+    QEs = np.array([ 16.819, 30.713, 56.2157, 60.2377, 61.7916, 61.9744, 61.2431, 58.7751, 55.3016, 49.3601, 43.3272, 39.4881, 38.8483, 40.4936, 40.3108, 39.3053, 34.2779, 27.6051, 24.9543, 32.7239, 33.9123, 33.9123, 34.1865, 33.181, 18.0073, 20.3839, 25.0457, 44.6984, 25.3199, 39.9452, 65.0823, 85.192, 94.6984, 90.0366, 64.8995, 96.5265, 94.1499, 74.5887, 58.0439, 18.6472, 13.2541, 2.01097])
+
+    assert type(energy) in (float, int), "energy must be float or int"
+    assert Energies.min() < energy < Energies.max(), "energy must be between %f and %f." % (Energies.min(), Energies.max())
+
+    return np.interp(energy, Energies, QEs)
+
+def ccd_to_photons(img, energy, gain_readout=1e-6, guess_dark=True):
+    """Convert a CCD image to number of photons.  This calculates the number of
+        photons that would be incident assuming a detector of 100% efficiency.
+
+    arguments:
+        img - array to convert.  Can be 1d, 2d or 3d.
+        energy - energy (in eV).
+        gain_readout -readout time of the CCD.  Defaults to 1e-6 (1us).  This
+            can be one of (1e-6, 2e-6, 16e-6, 32e-6).
+        guess_dark - weather we should try and guess the dark count from the
+            corners of the array.  If true, it subtracts this value off all of
+            the pixels.  Defaults to True.
+
+    returns:
+        photon_array - array of photon counts that is the same size as the input
+            array. The final array is casted as int and the values smaller than
+            zero are removed.
+    """
+    assert isinstance(img, np.ndarray) and img.ndim in (1,2,3), "img must be an 1d, 2d, or 3d, array"
+    assert type(energy) in (float, int), "energy must be float or int"
+    # readtime and gain map from the do436 manual
+    gain_readtime = {
+        32e-6: 0.7,
+        16e-6: 1.4,
+        2e-6: 2,
+        1e-6: 2
+    }
+    assert gain_readout in gain_readtime.keys(), "gain is not a recognized value"
+    assert isinstance(guess_dark, bool)
+
+    if guess_dark:
+        if img.ndim == 3:
+            avg = np.average(np.concatenate((img[:,0,0], img[:,-1,0], img[:,0,-1], img[:,-1,-1])))
+            print "3d, avg", avg
+        elif img.ndim == 2:
+            avg = np.average(np.concatenate((img[0,0], img[-1,0], img[0,-1], img[-1,-1])))
+            print "2d, avg", avg
+        elif img.ndim == 1:
+            avg = np.average(np.concatenate((img[0], img[-1])))
+            print "1d, avg", avg
+
+        img = img - avg
+
+    gain = gain_readtime[gain_readout]
+    QE = andor_ccd_efficiency(energy)
+    PEconv = energy/3.65 # number of electrons created from one photon
+    photonsPerCount = (100.0/QE) * gain/ PEconv
+    img = img * photonsPerCount
+    print "1 photon is %d counts" % int(1.0/photonsPerCount)
+    return np.where(img.astype('int') < 0, 0, img.astype('int'))
+
