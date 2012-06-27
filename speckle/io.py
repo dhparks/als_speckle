@@ -9,7 +9,7 @@ Author: Daniel Parks (dhparks@lbl.gov)
 
 """
 import numpy
-import shape
+from . import shape
 
 # global overwrite option for FITS files
 overwrite_default = False
