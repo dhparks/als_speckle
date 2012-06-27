@@ -23,7 +23,8 @@ except ImportError:
 __all__ = [
     "gpu",
     "gpu_propagate",
-    "gpu_phasing"
+    "gpu_phasing",
+    "gpu_domain_generator"
 ]
 
 if have_pyopencl and have_pyfft:

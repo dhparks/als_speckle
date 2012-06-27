@@ -6,7 +6,7 @@ except ImportError:
 dependencies = ['scipy', 'numpy']
 
 # run glob on the gpu/kernels directory to get a list
-# of all the files to copy
+# of all the .cl files to copy
 import glob
 kernel_files = glob.glob('./speckle/gpu/kernels/*.cl')
 

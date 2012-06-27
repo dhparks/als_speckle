@@ -4,9 +4,12 @@ import pyopencl as cl
 import pyopencl.array as cl_array
 from pyopencl.elementwise import ElementwiseKernel as EK
 from scipy.optimize import fminbound
+import string
 
-# common libs
-import shape,io,wrapping,gpu
+# common libs. do some ugly stuff to get the path set to the kernels directory
+from .. import io,wrapping,shape
+import gpu
+kp = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/'
 
 # cpu fft
 DFT = numpy.fft.fft2
@@ -36,13 +39,14 @@ class generator():
         self.fftplan_split = fft_plan((self.N,self.N), dtype=numpy.float32, queue=self.queue) # fft plan which accepts 2 float32 inputs as re and im
 
         # complicated (or non-elementwise) kernels built from opencl/c99 code
-        self.get_m0                = gpu.build_kernel_file(self.context, self.device, 'kernels/get_m0.cl')
-        self.replace_dc_component1 = gpu.build_kernel_file(self.context, self.device, 'kernels/replace_dc_1.cl')
-        self.replace_dc_component2 = gpu.build_kernel_file(self.context, self.device, 'kernels/replace_dc_2.cl')
-        self.envelope_rescale      = gpu.build_kernel_file(self.context, self.device, 'kernels/envelope_rescale.cl')
-        self.findwalls             = gpu.build_kernel_file(self.context, self.device, 'kernels/find_walls.cl') # looks at the 8 nearest neighbors.
-        self.recency               = gpu.build_kernel_file(self.context, self.device, 'kernels/recency.cl')
-        self.update_whenflipped    = gpu.build_kernel_file(self.context, self.device, 'kernels/update_whenflipped.cl')
+
+        self.get_m0                = gpu.build_kernel_file(self.context, self.device, kp+'get_m0.cl')
+        self.replace_dc_component1 = gpu.build_kernel_file(self.context, self.device, kp+'replace_dc_1.cl')
+        self.replace_dc_component2 = gpu.build_kernel_file(self.context, self.device, kp+'replace_dc_2.cl')
+        self.envelope_rescale      = gpu.build_kernel_file(self.context, self.device, kp+'envelope_rescale.cl')
+        self.findwalls             = gpu.build_kernel_file(self.context, self.device, kp+'find_walls.cl') # looks at the 8 nearest neighbors.
+        self.recency               = gpu.build_kernel_file(self.context, self.device, kp+'recency.cl')
+        self.update_whenflipped    = gpu.build_kernel_file(self.context, self.device, kp+'update_whenflipped.cl')
     
         # simple kernels written as pyopencl objects
         self.copy = EK(self.context,
@@ -254,6 +258,8 @@ class generator():
         temp_envelope = numpy.zeros((self.N,self.N),float)
 
         for element in parameter_list:
+            
+            assert element[0] in ('isotropic','modulation','supplied','goal_m'), "command type %s unrecognized in make_envelope"%element[0]
 
             if element[0] == 'isotropic':
                 parameters = element[1:]
@@ -307,15 +313,9 @@ class generator():
                 
         self.goal_envelope.set(fftshift(temp_envelope.astype(numpy.float32)))
 
-        if 'envelope' in self.interrupts:
-            io.save('output/gpudg/envelope %s.fits'%self.transitions,temp_envelope)
-            io.save('output/gpudg/blurkernel %s.fits'%self.transitions,fftshift(self.blur_kernel.get()))
-            
-        if 'envelope_img' in self.interrupts:
-            io.save('output/gpudg/envelope %s.png'%self.transitions,temp_envelope)
-            io.save('output/gpudg/blurkernel %s.png'%self.transitions,fftshift(self.blur_kernel.get()))
-        
         self.transitions += 1
+
+        if 'envelope' in self.interrupts: return temp_envelope
 
     def rescale_speckle(self):
         # this function implements the fourier operation: rescaling the envelope
@@ -512,12 +512,12 @@ class generator():
             needed_m = self.goal_m-net_m
     
             if needed_m > 0:
-                self.make_available(self.available,self.negwalls,self.negpins,self.pospins)
+                self.make_available1(self.available,self.negwalls,self.negpins,self.pospins)
                 sites = cl_array.sum(self.available).get()
                 spa = min([self.spa_max,needed_m/sites])
                 
             if needed_m < 0:
-                self.make_available(self.available,self.poswalls,self.negpins,self.pospins)
+                self.make_available1(self.available,self.poswalls,self.negpins,self.pospins)
                 sites = cl_array.sum(self.available).get()
                 spa = max([-1*self.spa_max,needed_m/sites])
 
@@ -547,6 +547,8 @@ def _gaussian_kernel(sx,sy,N):
 def function_eval(x,Parameters):
     # for making the envelope
     Type = Parameters[0]
+    
+    assert Type in ('linear','lorentzian','lorentzian_sq','gaussian','top hat','sinusoid','uniform'), "function type %s unrecognized in make_envelope->function_eval"%Type
     
     if Type == 'linear':
         Slope,yIntercept = Parameters[1:]

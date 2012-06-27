@@ -134,7 +134,7 @@ class GPUPR:
         x = numpy.random.rand(self.N,self.N)
         y = numpy.random.rand(self.N,self.N)
         z = (x+complex(0,1)*y)
-        self.psi_in = cla.to_device(self.queue,numpy.complex64(z))
+        self.psi_in.set(numpy.complex64(z),queue=self.queue)
  
     def update_support(self,threshold = 0.2,retain_bounds=True):
         
