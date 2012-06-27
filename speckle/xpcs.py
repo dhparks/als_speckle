@@ -392,7 +392,7 @@ def sp_bin_by_space_and_time(data, frameTime, xybin=8, counterTime=40.0e-9):
 #        print i, j, len(idx_to_delete)
 
     if binnedData.sum() != datalen:
-        print "warning: # of binned data photons (%d) do not match with dataset (%d)" % (binnedData.sum(), datalen)
+        print "warning: # of binned data photons (%d) do not match original dataset (%d)" % (binnedData.sum(), datalen)
 
     return binnedData
 
@@ -422,7 +422,7 @@ def sp_bin_by_time(data, frameTime, counterTime=40.0e-9):
 
     return np.histogram(data+0.5, bin_edges)[0]
 
-def sp_sum_bin_all(data, xybin=4, counterTime=40.0e-9):
+def sp_sum_bin_all(data, xybin=4):
     """ Sum and bin all of the data from the single photon detector into one frame.
 
     arguments:
@@ -432,11 +432,16 @@ def sp_sum_bin_all(data, xybin=4, counterTime=40.0e-9):
     """
     assert isinstance(data, np.ndarray), "Data must be an ndarray."
     assert data.shape[1] == 4, "Second dimension must be 4."
+    assert type(xybin) == int, "xybin must be integer."
 
-    firsttime = data[:, 3].min()
-    lasttime = data[:,3].max()
+    # This algorithm is significantly faster than calling sp_bin_by_time() with large times.
+    xybins = SP_MAX_SIZE // xybin
+    binned = np.zeros((xybins, xybins))
 
-    return sp_bin_by_space_and_time(data, lasttime*counterTime, xybin=xybin, counterTime=counterTime)
+    for x, y, g, t in data:
+        binned[y//xybin,x//xybin] += 1
+
+    return binned
 
 def intersect(a, b, assume_unique=False):
     """ implements the matlab intersect() function. Details of the function are
@@ -456,13 +461,60 @@ def intersect(a, b, assume_unique=False):
     bi = np.nonzero(np.in1d(b, res, assume_unique=False))
     return res, ai, bi
 
+def sp_autocorrelation_range(data, xr, yr, p=30, m=2):
+    """Implements the time-to-tag correlation algorithm outlined by Wahl et al.
+        in Opt. Exp. 11 3583. A (Nx4) array must be provided so that the program
+        can figure out what photons occur within the xr and yr.
+
+    arguments:
+        data - a 4 col, N row list of photon incidence times and locations.
+        xr - range in x.  Must be a 2-tuple or list.
+        xr - range in y.  Must be a 2-tuple or list.
+        p - number of linear points. Defaults to 30.
+        m - factor that the time is changed for each correlator. Defaults to 2.    
+
+    returns:
+        corr - A (1 x bins) autocorrelation of data.
+        corrtime - A (1 x bins ) list of time ranges.        
+    """
+    return sp_autocorrelation(sp_select_ROI(data, xr, yr)[:,3], p, m)
+
+def sp_select_ROI(data, xr, yr):
+    """ Selects a region defined by xr = (xmin, xmax), yr = (ymin, ymax) and
+        returns the data that is between these regions. A (Nx4) array must be
+        provided so that the program can figure out what photons occur within
+        the xr and yr.
+
+        arguemnts:
+            data - a 4 col, N row list of photon incidence times and locations.
+            xr - tuple of (xmin, xmax)
+            yr - tuple of (ymin, ymax)
+
+        returns:
+            subset of data that is within xr and yr.
+    """
+    assert isinstance(data, np.ndarray), "Data must be an ndarray."
+    assert data.shape[1] == 4, "Second dimension must be 4."
+    assert type(xr) in (list, tuple) and len(xr) == 2, "xr must be len 2 tuple/list."
+    assert type(yr) in (list, tuple) and len(yr) == 2, "yr must be len 2 tuple/list."
+    assert type(xr[0]) == int and type(xr[1]) == int, "xr must be integers."
+    assert type(yr[0]) == int and type(yr[1]) == int, "yr must be integers."
+
+    reg = (xr[0] <= data[:,0]) & (data[:,0] <= xr[1] ) & (yr[0] <= data[:,1]) & (data[:,1] <= yr[1])
+
+    idx = [i for i in range(len(reg)) if reg[i]]
+    print("sp_select_ROI: found %d elements" % len(idx))
+    return data[idx, :]
+
 def sp_autocorrelation(data, p=30, m=2):
-    """Implements the time-to-tag correlation algorithm outlined by Wahl et al. in Opt. Exp. 11 3583
+    """Implements the time-to-tag correlation algorithm outlined by Wahl et al.
+        in Opt. Exp. 11 3583
 
     arguments:
         data - A sorted (1xN) array of incidence times.
         p - number of linear points. Defaults to 30.
         m - factor that the time is changed for each correlator. Defaults to 2.
+
     returns:
         corr - A (1 x bins) autocorrelation of data.
         corrtime - A (1 x bins ) list of time ranges.
@@ -470,17 +522,18 @@ def sp_autocorrelation(data, p=30, m=2):
     return sp_crosscorrelation(data, data, p, m)
 
 def sp_crosscorrelation(d1, d2, p=30, m=2):
-    """Implements the time-to-tag correlation algorithm outlined by Wahl et al. in Opt. Exp. 11 3583
+    """Implements the time-to-tag correlation algorithm outlined by Wahl et al.
+        in Opt. Exp. 11 3583
 
     arguments:
         d1 - A sorted (1xN) array of incidence times for the 1st signal.
         d2 - A sorted (1xN) array of incidence times for the 2nd signal.
         p - number of linear points. Defaults to 30.
         m - factor that the time is changed for each correlator. Defaults to 2.
+
     returns:
         corr - A (1 x bins) crosscorrelation between (d1, d2).
         corrtime - A (1 x bins ) list of time ranges.
-
     """
     import sys
     assert isinstance(d1, np.ndarray) and isinstance(d2, np.ndarray), "d1 and d2 must 1-dim be arrays"
@@ -525,8 +578,10 @@ def sp_crosscorrelation(d1, d2, p=30, m=2):
 
 def _sort_data(data, col=3):
     """ Helper function to sort data by increasing photon incidence value along column col.
+
     arguments:
         data - data to process.  Must be two dimensional
+
     returns:
         sorted data by increasing photon incidence value
     """
@@ -535,8 +590,8 @@ def _sort_data(data, col=3):
 
 def _list_duplicates(seq):
     """ 
-    helper function used by _half_data() to get a list of duplicate entries in an iteratable
-    from http://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list
+    helper function used by _half_data() to get a list of duplicate entries in
+    an iteratable. From http://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list
     """
     from collections import defaultdict
 
@@ -546,7 +601,10 @@ def _list_duplicates(seq):
     return ((key,locs) for key,locs in tally.items() if len(locs)>1)
 
 def _half_data(data, m, w):
-    """ Helper function that halves the data by dividing the incidence times in data by m and finding duplicates.  The w matrix is augmented depending on the number of duplicates found.  The algorithm is found in Opt. Exp. 11 3583.
+    """ Helper function that halves the data by dividing the incidence times in
+        data by m and finding duplicates.  The w matrix is augmented depending
+        on the number of duplicates found.  The algorithm is found in
+        Opt. Exp. 11 3583.
     """
     import sys
     halvedData = np.floor(data/float(m)).astype('int64')
