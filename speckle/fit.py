@@ -91,16 +91,20 @@ class OneDimFit():
 
         try:
             # calculate the errors the same way that gnuplot uses, namely sqrt(diagonal(cov_x)*chisq/df).
-            self.final_params_errors = np.sqrt(np.diagonal(cov_x))*np.sqrt(self.final_chisq/(self.npoints - len(self.params)))
+            self.final_errors = np.sqrt(np.diagonal(cov_x))*np.sqrt(self.final_chisq/(self.npoints - len(self.params)))
         except ValueError:
             print "Error: The fit did not converge. Please change initial parameters and try again"
-            self.final_params_errors = np.zeros_like(self.params)
+            self.final_errors = np.zeros_like(self.params)
 
         if ier not in (1,2,3,4):
             # read somewhere that ier = 1, 2, 3, 4 also gives correct solution. http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=474930
             print "Error: No solution found!"
-            self.final_params_errors = np.zeros_like(self.params)
+            self.final_errors = np.zeros_like(self.params)
         
+        self.final_params_errors = {}
+        for k, v in self.params_map.iteritems():
+            self.final_params_errors[v] = (optimized[k], self.final_errors[k])
+
     def format_results(self, header=True, outfile=None):
         """ Format the final, fitting data for printing or writing to disk.
 
@@ -111,19 +115,21 @@ class OneDimFit():
         returns:
             the formatted results string.
         """
-        if len(self.final_params) == len(self.final_params_errors):
-            pass
+#        if len(self.final_params) == len(self.final_params_errors):
+#            pass
 
         fun = "# fitting functional %s\n" % self.functional
         hdr = "# "
         hdr_e = ""
         outstr = ""
         outstr_e = ""
-        for i in range(len(self.final_params)):
-            hdr += "%s\t" % self.params_map[i]
-            hdr_e += "error(%s)\t" % self.params_map[i]
-            outstr += "%1.7e\t" % self.final_params[i]
-            outstr_e += "%1.7e\t" % self.final_params_errors[i]
+        for i in range(len(self.final_params_errors)):
+            pm = self.params_map
+            var_name = pm[i]
+            hdr += "%s\t" % var_name
+            hdr_e += "error(%s)\t" % var_name
+            outstr += "%1.7e\t" % self.final_params_errors[var_name][0]
+            outstr_e += "%1.7e\t" % self.final_params_errors[var_name][1]
 
         hdr_e += "function calls\tchi^2\tR^2\n"
         outstr_e += "%d\t%1.7e\t%1.7f\n" % (self.final_fn_evaulations, self.final_chisq, self.final_Rsquared)
