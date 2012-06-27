@@ -24,13 +24,13 @@ __all__ = [
     "gpu",
     "gpu_propagate",
     "gpu_phasing",
-    "gpu_domain_generator"
+    "gpu_domain_generator",
 ]
 
 if have_pyopencl and have_pyfft:
     for mod in __all__:
         exec("import %s" % mod)
     del mod
-    
-if not have_pyopencl: print "gpu functions failed; need pyopencl"
-if not have_pyfft   : print "gpu functions failed; need pyfft"
+    print "gpu functions enabled"
+else:
+    print "gpu functions not enabled"
