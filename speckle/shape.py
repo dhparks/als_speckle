@@ -156,7 +156,7 @@ def ellipse(size,axes,center=None,angle=0,AA=True):
     assert isinstance(AA,bool) or AA in (0,1), "AA value must be boolean evaluable"
     
     # we can do this like a circle by stetching the coordinates along an axis
-    rows,cols = _indices(size,center,angle)
+    rows,cols = _make_indicies(size,center,angle)
 
     ratio = float(axes[1])/float(axes[0])
     if ratio >= 1:
@@ -172,14 +172,23 @@ def ellipse(size,axes,center=None,angle=0,AA=True):
     if AA: return 1-numpy.clip(r-radius,0,1)
         
 def gaussian(size,lengths,center=None,angle=0,normalization=None):
-    """ Returns an 1-dimensional or 2-dimensional gausssian.
+    """ Returns an 1-dimensional or 2-dimensional gausssian. This implements
+
+        f(x) = exp(-(x-x0)^2/(2*sigma^2)
+    
+    where x0 are the center coordinate(s) and sigma are the length(s).
     
     arguments:
         size: size of array (rows,columns). must be int.
         lengths: stdevs of gaussian (rows,columns). float or int.
-        center: recenter coordinate system to (row,column).
-                Boundary conditions are NOT cyclic.
-        normalization: Normalize the integrated gaussian to the value normalization.
+        center: Coordinates to place the gaussian.  The center coordinates can
+            be larger than the size, in that case the peak will be outside the
+            array.
+        angle: if it's a 2d gaussian, rotates the gaussian by an angle.  The
+            angle is in degrees.
+        normalization: Normalize the integrated gaussian to the value
+            normalization.
+
     returns:
         numpy array (1d or 2d) with a gaussian of the given parameters.
     """
@@ -229,24 +238,91 @@ def gaussian(size,lengths,center=None,angle=0,normalization=None):
         if angle != 0:
             # if angle != 0, we have to evaluate the whole array because the function
             # is no longer separable. this takes about 2x as long as the angle = 0 case
-            rows,cols = _indices(size,center,angle)
+            rows,cols = _make_indicies(size,center,angle)
             gaussian = numpy.exp(-rows**2/(2*lengths[0]**2))*numpy.exp(-cols**2/(2*lengths[1]**2))
 
     if normalization == None: return gaussian
     else: return gaussian*float(normalization)/(numpy.sum(gaussian))
-    
-def _indices(size,center,angle):
-    
+
+def _make_indicies(size,center,angle):
+    """Generate array indicies for an array of size, centered on center rotated by angle.  The rotation is in a clockwise direction.
+    """
     rows,cols = numpy.indices(size).astype('float')
         
-    rows += -center[0]
-    cols += -center[1]
+    rows -= center[0]
+    cols -= center[1]
     
     if angle != 0:
         angle *= numpy.pi/180.
-        new_rows = rows*numpy.cos(angle)+cols*numpy.sin(angle)
-        new_cols = cols*numpy.cos(angle)-rows*numpy.sin(angle)
-        rows = new_rows
-        cols = new_cols
+        rows = rows*numpy.cos(angle)+cols*numpy.sin(angle)
+        cols = cols*numpy.cos(angle)-rows*numpy.sin(angle)
         
     return rows, cols
+
+def lorentzian(size,widths,center=None,angle=0,normalization=None):
+    """ Returns an 1-dimensional or 2-dimensional lorentzian. This implements
+
+        f(x) = 1/( ((x-x0)/w)^2 + 1 )
+
+    where x0 are the center coordinate(s) and w are the half-width(s) half-max.
+    
+    arguments:
+        size: size of array (rows,columns). must be int.
+        lengths: HWHM of lorentzian (rows,columns). float or int.
+        center: Coordinates to place the lorentzian.  The center coordinates can
+            be larger than the size, in that case the peak will be outside the
+            array.
+        angle: if it's a 2d lorentzian, rotates the lorentzian by an angle.  The
+            angle is in degrees.
+        normalization: Normalize the integrated lorentzian to the value
+            normalization.
+
+    returns:
+        numpy array (1d or 2d) with a gaussian of the given parameters.
+    """
+    assert isinstance(size,tuple), "size must be a tuple"
+    for d in range(len(size)): assert type(size[d]) is int, "size values must be int"
+    assert isinstance(widths,tuple), "widths must be a tuple"
+    assert len(size) == len(widths), "size and widths must be same dimensionality"
+    for d in range(len(widths)): assert isinstance(widths[d],(int,float)), "widths values must be float or int"
+    
+    if center != None:
+        assert isinstance(center,tuple), "center must be supplied as a tuple"
+        assert len(center) == len(size), "size and center must be same dimensionality"
+        for d in range(len(center)): assert isinstance(center[d],(int,float)), "center values must be float or int"
+    else:
+        center = numpy.zeros_like(size)
+        for d in range(len(center)): center[d] = size[d]/2.
+
+    if normalization is not None:
+        assert isinstance(normalization,(float,int)), "normalization must be float or int"
+
+    linlor = lambda x, c, w: 1./( ((x-c)/w)**2 + 1. )
+
+    # now build the lorentzian.
+    if len(size) == 1:
+        x = numpy.arange(size[0]).astype('float')
+        s = widths[0]
+        c = center[0]
+        lorentzian = 1./( ((x-c)/s)**2 + 1. )
+        
+    if len(size) == 2:
+        
+        if angle == 0:
+            # if angle = 0, we can use separability for speed
+            y = ((numpy.arange(size[0],dtype=float) - center[0])/widths[0])**2
+            x = ((numpy.arange(size[1],dtype=float) - center[1])/widths[1])**2
+            denom = 1 + numpy.add.outer(y,x)
+            lorentzian = 1./denom
+        
+        if angle != 0:
+            # if angle != 0, we have to evaluate the whole array because the function
+            # is no longer separable. this takes about 2x as long as the angle = 0 case
+            rows,cols = _make_indicies(size,center,angle)
+            lorentzian = 1. / ( (rows/widths[0])**2 + (cols/widths[1])**2 + 1)
+
+    if normalization == None:
+        return lorentzian
+    else:
+        return lorentzian*float(normalization)/lorentzian.sum()
+
