@@ -6,55 +6,6 @@ import numpy
 DFT = numpy.fft.fft2
 IDFT = numpy.fft.ifft2
 
-def covariance_matrix(data,save_memory=False):
-    
-    """ Given 3d data, cross-correlates every frame with every other frame. This is useful
-    for determining which frames to sum in the presence of drift or slow dynamics.
-    
-    Requires:
-        data - 3d ndarray
-        
-    Optional:
-        save_memory: if True, DFTs of frames of data are precomputed which massively improves
-        speed at the expense of memory. Default is False.
-        
-    Returns:
-        a 2d ndarray of normalized covariances max values where returned[row,col] is the
-        cross-correlation max of frames data[row] and data[col]"""
-        
-    assert isinstance(data, numpy.ndarray) and data.ndim == 3, "data must be 3d ndarray"
-    
-    frames = data.shape[0]
-    dfts = numpy.zeros_like(data).astype('complex')
-    ACs = numpy.zeros(frames,float)
-        
-    # precompute the dfts and autocorrelation-maxes
-    for n in range(frames):
-        dft = DFT(data[n].astype('float'))
-        if not save_memory: dfts[n] = dft
-        ACs[n]  = abs(IDFT(dft*numpy.conjugate(dft))).max()
-          
-    # calculate the pair-wise normalized covariances  
-    covars = numpy.zeros((frames,frames),float)
-        
-    for j in range(frames):
-        for k in range(frames-j):
-            k += j
-            ac = ACs[j]
-            bc = ACs[k]
-            if save_memory:
-                d1 = DFT(data[j])
-                d2 = numpy.conjugate(DFT(data[k]))
-            else:
-                d1 = dfts[j]
-                d2 = numpy.conjugate(dfts[k])
-            cc = abs(IDFT(d1*d2)).max()
-            covar = cc/numpy.sqrt(ac*bc)
-            covars[j,k] = covar
-            covars[k,j] = covar
-            
-    return covars
-
 def remove_dust(data,dust_mask,dust_plan=None):
     """ Attempts to remove dust and burn marks from CCD images by interpolating in regions marked as
     defective in a plan file.
@@ -270,8 +221,10 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
                        just the alignment coordinates; keywords for these are 'data', 'sum', and
                        'coordinates', respectively. Default is 'data'.
               
-    Returns: an array of shape and dtype identical to data, data summed along the 0 axis, or a
-             list of alignment coordinates depending on return_type argument."""
+    Returns: an array of shape and dtype identical to data, data summed along the 0 axis, or an
+             array of alignment coordinates depending on return_type argument."""
+             
+    from . import crosscorr
     
     # check types
     assert isinstance(data,numpy.ndarray),                        "data to align must be an array"
@@ -283,9 +236,8 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     if data.ndim == 2 and return_type == 'sum': print             "summing 2d data is non-sensical" # not an assert!
     
     # define some simple helper functions to improve readability
-    if use_mag_only: dft2 = lambda x: DFT(abs(x))
-    if not use_mag_only: dft2 = lambda x: DFT(x)
-    corr_max = lambda x,y: abs(IDFT(x*y)).argmax() # the incoming frames have both been ffted already
+    if use_mag_only: abs2 = lambda x: abs(x)
+    if not use_mag_only: abs2 = lambda x: x
     rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
 
     # cast 2d to 3d so the loops below are simpler
@@ -303,18 +255,14 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     if align_to == None: align_to = data[0]
     if region == None:   region = numpy.ones_like(align_to)
     # for speed, precompute the reference dft
-    dft_0 = numpy.conjugate(dft2(align_to*region))
+    ref = numpy.conjugate(DFT(abs2(align_to*region)))
     
     # get the alignment coordinates for each frame in data by the argmax of the cross
     # correlation with the reference
-    coordinates = []
-    for frame in data:
-        dft_n = dft2(frame*region)
-        cc_max = corr_max(dft_n,dft_0)
-        max_row,max_col = cc_max/cols,cc_max%cols # turn cc_max into 2d coordinates
-        if max_row > rows/2: max_row += -rows # modulo arithmetic for cyclic BCs
-        if max_col > cols/2: max_col += -cols
-        coordinates.append([-max_row,-max_col])
+    coordinates = numpy.zeros((frames,2),int)
+    irows,icols = numpy.indices((rows,cols),float)
+    for n,frame in enumerate(data):
+        coordinates[n] = crosscorr.alignment_coordinates(abs2(frame*region),ref,already_fft=(1,),conjugated=True)
         
     # now return the data according to return_type
     if return_type == 'coordinates': return coordinates
