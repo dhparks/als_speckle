@@ -258,7 +258,7 @@ def apply_shrink_mask(img, mask):
     else:
         return apply_shrink(img, mask)
 
-def crosscorr(imgA, imgB, already_fft=(), conjugated=False):
+def crosscorr(imgA, imgB, axes=(0,1), already_fft=(), conjugated=False):
     """ Calculates the cross correlation of the function. Returns the
         complex-valued cross-correlation of imgA and imgB. Note: it is always the
         fourier transfrom of imgB which is conjugated.
@@ -277,6 +277,8 @@ def crosscorr(imgA, imgB, already_fft=(), conjugated=False):
     assert imgA.ndim == 2, "images must be two-dimensional"
     assert isinstance(already_fft,(list,tuple)), "alread_fft must be list or tuple"
     for entry in already_fft: assert entry in (0,1), "unrecognized already_fft values"
+    assert isinstance(axes,tuple), "axes unrecognized type"
+    for entry in axes: assert entry in (0,1), "unrecognized axes values"
     assert conjugated in (0,1,True,False), "conjugated must be boolean-evaluable"
 
     (ysize, xsize) = imgA.shape
@@ -289,22 +291,22 @@ def crosscorr(imgA, imgB, already_fft=(), conjugated=False):
         
     # compute forward ffts accounting for pre-computed ffts and complex-conjugates
     if np.array_equal(imgA,imgB):
-        fftA = np.fft.fft2(imgA)
+        fftA = np.fft.fft2(imgA,axes=axes)
         fftB = fftA
     else:
         if 0 not in already_fft:
-            fftA = np.fft.fft2(imgA)
+            fftA = np.fft.fft2(imgA,axes=axes)
         if 0 in already_fft:
             fftA = imgA
         if 1 not in already_fft:
-            fftB = np.conjugate(np.fft.fft2(imgB))
+            fftB = np.conjugate(np.fft.fft2(imgB,axes=axes))
         if 1 in already_fft:
             fftB = imgB
             if not conjugated:
                 fftB = np.conjugate(fftB)
         
-    return np.fft.fftshift(np.fft.ifft2(fftA*fftB))
-
+    return np.fft.fftshift(np.fft.ifft2(fftA*fftB,axes=axes))
+    
 def autocorr(img):
     """ Calculates the autocorrelation of an image.
 

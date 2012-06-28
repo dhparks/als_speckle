@@ -1,5 +1,5 @@
 import numpy
-from . import wrapping
+from . import wrapping, crosscorr
 DFT = numpy.fft.fft2
 IDFT = numpy.fft.ifft2
 
@@ -43,30 +43,6 @@ def decompose(ac,cosines):
             decomposition[y,x] = numpy.sum(row*cosine)
     return decomposition
 
-def acx(unwrapped,norm_rows=True):
-    
-    """ Perform an autocorrelation along only the xaxis (the angular direction
-    for unwrapped data)
-    
-    arguments:
-        unwrapped: incoming unwrapped data
-        norm_rows: if True, normalizes the autocorrelation values to 1 along each row
-        
-    returns:
-        autocorrelation, ndarray of same shape as unwrapped"""
-        
-    assert isinstance(unwrapped,numpy.ndarray), "unwrapped must be array"
-    assert norm_rows in (True,False,0,1), "norm_rows must be boolean-evaluable"
-    
-    # autocorrelation
-    ac = abs(IDFT(abs(DFT(unwrapped,axes=(1,)))**2,axes=(1,)))
-    
-    if norm_rows:
-        for n in range(ac.shape[0]):
-            ac[n] *= 1./ac[n].max()
-            
-    return ac
-    
 def rot_sym(speckles,plan=None,components=None,cosines=None):
     """ Given a speckle pattern, decompose its angular autocorrelation into a cosine series.
     
@@ -105,8 +81,10 @@ def rot_sym(speckles,plan=None,components=None,cosines=None):
         if len(plan) == 3: unwrapped = wrapping.unwrap(speckles,plan)
     if plan == None: unwrapped = wrapping.unwrap(speckles,(0,R/2,(N/2,M/2)))
         
-    # autocorrelate the unwrapped speckle
-    autocorrelation = acx(unwrapped)
+    # autocorrelate the unwrapped speckle. normalize each row individually.
+    autocorrelation = crosscorr.crosscorr_axis(unwrapped,axis=1)
+    for row,row_data in enumerate(autocorrelation.shape[0]):
+        autocorrelation[row] = row_data*(1./abs(row_data).max())
     
     # generate components and cosines if necessary
     if components == None: components = numpy.arange(2,20,2).astype('float')
