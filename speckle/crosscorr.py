@@ -307,16 +307,17 @@ def crosscorr(imgA, imgB, axes=(0,1), already_fft=(), conjugated=False):
         
     return np.fft.fftshift(np.fft.ifft2(fftA*fftB,axes=axes))
     
-def autocorr(img):
+def autocorr(img,axes=(0,1)):
     """ Calculates the autocorrelation of an image.
 
     arguments:
         img - two-dimensional image
+        axes - tuple of dimensions along which to calculate the autocorrelation
 
     returns:
         ac(img) - autocorrelation of input image
     """
-    return crosscorr(img, img)
+    return crosscorr(img, img, axes=axes)
     
 def pairwise_covariances(data,save_memory=False):
     
