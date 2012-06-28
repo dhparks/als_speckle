@@ -7,13 +7,17 @@ import time
 import string
 
 # common libs. do some ugly stuff to get the path set to the kernels directory
-from .. import io,wrapping,shape
+from .. import wrapping,shape
 import gpu
 kp = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/'
 
 # cpu fft
 DFT = numpy.fft.fft2
 from numpy.fft import fftshift
+
+import matplotlib
+matplotlib.use('Agg')
+import pylab
 
 class angular_correlations():
 
@@ -30,8 +34,9 @@ class angular_correlations():
         assert isinstance(pinhole,(int,float,numpy.ndarray)), "pinhole must be a radius (float or integer type) or a custom supplied array"
         assert isinstance(cosine_components,(list,tuple,numpy.ndarray)), "cosine components must be iterable: list, tuple, ndarray"
         for component in cosine_components: assert isinstance(component,int), "each cosine component must be an integer"
+        assert ur > 0, "unwrapped_r must be > 0"
         
-        self.context, self.device, self.queue = gpuinfo
+        self.context, self.device, self.queue, platform = gpuinfo
         if isinstance(object_or_N,numpy.ndarray):
             self.N = len(object_or_N)
             self.master_object = cla.to_device(self.queue,object_or_N.astype(numpy.float32))
@@ -42,7 +47,12 @@ class angular_correlations():
         self.ur = ur
         self.uR = uR
         self.rows = uR-ur
+        assert self.uR <= self.N/2, "unwrapped_R must be < N/2"
         
+        # check for the apple/nvidia problem
+        if 'Apple' in str(platform) and 'GeForce' in str(self.device) and ispower2(self.rows): self.adjust_rows()
+        print self.ur,self.uR,self.rows
+
         Pitch = 35e-9
         CL_x = 3e-6
         CL_y = 4e-6
@@ -58,9 +68,10 @@ class angular_correlations():
             self.fftplan_correls = fft_plan((self.rows,512), dtype=numpy.float32, queue=self.queue, axes=(1,))
             self.pyfft_x = True
         except:
+            print "couldn't build axis=1 fft. instead, will build a 1d fft and loop to correlate rows, which is much slower!"
+            print "for fast 1d ffts, install plan.py and cl.py from the repo into the pyfft directory"
             self.fftplan_correls = fft_plan((512,),dtype=numpy.float32,queue=self.queue)
             self.pyfft_x = False
-        print self.pyfft_x
 
         # Build OpenCL programs from external kernel files.
         self.slice_view    = _build_kernel_file(self.context, self.device, kp+'slice_view.cl')    # for extracting a small array from a larger one
@@ -147,6 +158,7 @@ class angular_correlations():
 
         # make the unwrap plan. put the buffers into gpu memory
         xTable,yTable,self.unwrap_cols = _unwrap_plan(self.N,self.ur,self.uR,self.N/2,self.N/2)
+        print self.unwrap_cols
         self.unwrap_x_gpu  = cla.to_device(self.queue,xTable.astype(numpy.float32))
         self.unwrap_y_gpu  = cla.to_device(self.queue,yTable.astype(numpy.float32))
         self.unwrapped_gpu = cla.empty(self.queue,(self.rows,self.unwrap_cols), numpy.float32)
@@ -165,6 +177,7 @@ class angular_correlations():
         # depending on presence of axis = 1 support in pyfft, set up the correct buffers
         if self.pyfft_x:
             self.resized512z = cla.empty(self.queue,r512_x.shape,numpy.float32) # an array of zeros for the xaxis-only split fft
+            self.set_zero(self.resized512z)
         if not self.pyfft_x:
             self.active_row  = cla.empty(self.queue,(512,),numpy.float32)
             self.dummy_row   = cla.empty(self.queue,(512,),numpy.float32)
@@ -172,8 +185,6 @@ class angular_correlations():
         # these interrupts need a blocker
         if 'speckle_blocker' in interrupts or 'blurred_blocker' in interrupts:
             self.blocker     = 1-shape.circle((self.N,self.N),self.ur)
-        
-        self.set_zero(self.resized512z)
         
         # make the cosine array and the buffers for cosine reduction
         # make the buffer for doing row-correlations
@@ -188,6 +199,26 @@ class angular_correlations():
         # initialize the returns dictionary
         self.returnables = {}
         
+    def adjust_rows(self):
+        """ Change the value of unwrapped_R or unwrapped_r in the case of a GeForce
+        card on Apple when unwrapped_R-unwrapped_r is a power of 2. For unknown reasons
+        (most likely Apple's OpenCL compiler), this combination can lead to NaNs."""
+        
+        print "Warning! Numbers of unwrapped rows that are powers of 2 on NVidia+Apple can lead to NaN."
+        
+        if self.uR < self.N/2:
+            self.uR += -1
+            self.rows += -1
+            print "subtracted 1 from unwrapped_R to avoid the issue"
+            
+        if self.uR >= self.N/2:
+                self.ur += 1
+                self.rows += -1
+                print "added 1 to unwrapped_r to avoid the issue"
+                
+        if self.uR >= self.N/2 and self.ur == 0:
+            print "check output spectra for NaN. if present adjust unwrapped_r or unwrapped_R"
+                             
     def load_object(self,object):
         """ Load an object into the self.master_object GPU memory space. It must be the same
         size that the class instance was initialized with."""
@@ -212,8 +243,8 @@ class angular_correlations():
             site (optional): 
             
         Interrupts:
-            object: save the master object to interrupt_path
-            sliced: save the sliced object to interrupt_path
+            object: the master (unsliced) object 
+            sliced: the sliced (active) object
         """
         
         self.slice_time0 = time.time()
@@ -233,9 +264,9 @@ class angular_correlations():
         output at particular illumination locations. The speckle pattern is stored in self.intensity_sum_re.
         
         Available interrupts:
-            illuminated: the product of self.active_object and self.pinhole. Saved as png
-            speckle: the fully coherent speckle pattern. Saved as fits after shifting for ease of inspection.
-            speckle_blocker: the speckle pattern saved as fits with a blocker of radius self.ur in the center.
+            illuminated: the product of self.active_object and self.pinhole.
+            speckle: the fully coherent speckle pattern.
+            speckle_blocker: the speckle pattern with a blocker of radius self.ur in the center.
         """
 
         # reset intensity_sum for each iteration by filling with zeros
@@ -268,14 +299,13 @@ class angular_correlations():
         self.make_time1 = time.time()
 
     def blur_speckle(self):
-        # convolve the speckle with the partial-coherence kernel via 2xfft
         """ Turn the fully-coherent speckle pattern in self.intensity_sum_re into a partially coherent
         speckle pattern through convolution with a mutual intensity function. This method accepts no input.
         The blurred speckle is saved in self.intensity_sum_re.
 
         Available interrupts:
-            blurred
-            blurred_blocker
+            blurred: blurred speckle
+            blurred_blocker: blurred speckle with a blocker in the center
         """
 
         self.blur_time0 = time.time()
@@ -300,8 +330,10 @@ class angular_correlations():
         This method accepts no input.
         
         Available interrupts:
-            unwrapped
-            resized"""
+            unwrapped: unwrapped speckle
+            resized: unwrapped speckle resized to 512 pixels wide"""
+            
+        # can this be combined into a single operation?
         
         #unwrap
         self.unwrap_time0 = time.time()
@@ -320,8 +352,6 @@ class angular_correlations():
         
         if 'unwrapped' in self.interrupts: self.returnables['unwrapped'] = self.unwrapped_gpu.get()
         if 'resized' in self.interrupts: self.returnables['resized'] = self.resized512.get()
-        io.save('test unwrapped.fits',self.unwrapped_gpu.get())
-        io.save('test resized.fits',self.resized512.get())
 
     def gpu_autocorrelation(self,fftplan,re_data,im_data,data_out=None):
         """ A helper function which does the autocorrelation of complex data according to the supplied plan.
@@ -347,31 +377,39 @@ class angular_correlations():
         This method requires installation of the hacked pyfft code to allow for single-axis transformations.
         
         Available interrupts:
-            correlation
+            correlation: the autocorrelated data after normalization
         """
         
         # fft, square, ifft each row of the image
         self.correlation_time0 = time.time()
 
         self.set_zero(self.corr_denoms) # have to use this function because array.set() is crashing for unknown reasons
-        self.set_zero(self.resized512z)
-
-        # get the denominaters
-        self.sum_rows.execute(self.queue, (self.rows,),
+        
+        if self.pyfft_x:
+            # zero the buffer for imaginary data
+            self.set_zero(self.resized512z)
+            
+            # get the denominaters
+            self.sum_rows.execute(self.queue, (self.rows,),
                               self.resized512.data,
                               self.corr_denoms.data,numpy.int32(self.rows))
-        
-        # autocorrelate the rows
-        if self.pyfft_x: self.gpu_autocorrelation(self.fftplan_correls,self.resized512,self.resized512z)
+            
+            self.gpu_autocorrelation(self.fftplan_correls,self.resized512,self.resized512z)
         
         if not self.pyfft_x:
+            
+            # get the denominaters
+            self.sum_rows.execute(self.queue, (self.rows,),
+                              self.resized512.data,
+                              self.corr_denoms.data,numpy.int32(1))
+            
             for r in range(self.rows):
                 # slice out active row. autocorrelate the row. put the autocorrelation back in.
                 offset = numpy.int32(512*r)
                 self.set_zero(self.dummy_row)
-                self.slice_row.execute(self.queue,(self.rows,),self.resized512.data,self.active_row.data,offset)
+                self.slice_row.execute(self.queue,(512,),self.resized512.data,self.active_row.data,offset)
                 self.gpu_autocorrelation(self.fftplan_correls,self.active_row,self.dummy_row)
-                self.put_row.execute(self.queue,(self.rows,),self.active_row.data,self.resized512.data,offset)
+                self.put_row.execute(self.queue,(512,),self.active_row.data,self.resized512.data,offset)
         
         self.row_divide.execute(self.queue, (512,self.rows), # normalize the row_corr_re output by dividing each row by the
             self.resized512.data,                            # normalization constants found in corr_denoms
@@ -384,8 +422,6 @@ class angular_correlations():
             self.r360_x_gpu.data,  self.r360_y_gpu.data, numpy.int32(self.interpolation_order)).wait()  # plan, interpolation order 
 
         if 'correlation' in self.interrupts: self.returnables['correlation'] = self.resized360.get()
-        io.save('correlation test.fits',self.resized512.get())
-        io.save('resized360 test.fits',self.resized360.get())
 
         self.correlation_time1 = time.time()
 
@@ -410,8 +446,6 @@ class angular_correlations():
         self.decomp_time1 = time.time()
         
         if 'spectrum' in self.interrupts: self.returnables['spectrum'] = self.spectrum_gpu.get()
-        print self
-        io.save('test spectrum.fits',self.spectrum_gpu.get())
 
 def make_raster_coords(N,xstep,ystep,size=None):
 
@@ -491,6 +525,9 @@ def _build_kernel(c,d,kernel):
     program.build(devices=[d])
 
     return program
+
+def ispower2(N):
+    return (N&(N-1)) == 0
 
 # old code no longer being used for dichroic magnetism
 """

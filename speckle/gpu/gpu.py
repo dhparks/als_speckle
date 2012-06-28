@@ -4,11 +4,14 @@ def init():
     """ Initialize the GPU with all the pyopencl magic words. By default, takes the first
     GPU in the list. Multi-GPU computers is too esoteric to consider."""
     
-    platforms = pyopencl.get_platforms()
-    device    = platforms[0].get_devices(pyopencl.device_type.GPU)[0]
+    platform  = pyopencl.get_platforms()[0]
+    try: device = platform.get_devices(pyopencl.device_type.GPU)[0]
+    except:
+        print "no gpu detected, exiting"
+        exit()
     context   = pyopencl.Context([device])
     queue     = pyopencl.CommandQueue(context)
-    return context,device,queue
+    return context,device,queue,platform
 
 def build_kernel(c,d,kernel):
     
