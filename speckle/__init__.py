@@ -25,7 +25,8 @@ __all__ = [
     "averaging",
     "crosscorr",
     "phasing",
-	"gpu",
+    "gpu",
+    "symmetries",
 ]
 
 for mod in __all__:

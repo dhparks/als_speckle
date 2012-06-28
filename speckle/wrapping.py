@@ -1,4 +1,4 @@
-""" A Library for wrapping and unwrapping arrays that have circular symmetry.
+""" A Library for wrapping and unwrapping arrays that have azimuthal symmetry.
 
 Author: Daniel Parks (dparks@uoregon.edu)
 """

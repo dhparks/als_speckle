@@ -25,6 +25,7 @@ __all__ = [
     "gpu_propagate",
     "gpu_phasing",
     "gpu_domain_generator",
+    "gpu_correlations"
 ]
 
 if have_pyopencl and have_pyfft:

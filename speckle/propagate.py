@@ -1,3 +1,7 @@
+""" A library for simulating the near-field propagation of a complex wavefield.
+
+Author: Daniel Parks (dhparks@lbl.gov)"""
+
 import numpy
 DFT = numpy.fft.fft2
 IDFT = numpy.fft.ifft2
@@ -123,7 +127,7 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=N
             
 def apodize(data,kt=8,threshold=0.01,sigma=5,return_type='data'):
     """ Apodizes a 2d array so that upon back propagation ringing from the aperture is at least somewhat suppressed.
-    This steps this function follows are as follows:
+    The steps this function follows are as follows:
         # 1. unwrap the data
         # 2. find the boundary at each angle
         # 3. do a 1d filter along each angle
@@ -139,6 +143,8 @@ def apodize(data,kt=8,threshold=0.01,sigma=5,return_type='data'):
         return_type: can return the filtered data, just the filter, or intermediates for debugging/inspection. Basically, for debugging.
     
     Returns: apodized array
+    
+    To-do: make kt radius-invariant
     """
     
     # check types
@@ -226,7 +232,7 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
     assert isinstance(mask, (type(None), numpy.ndarray)), "mask must be None or ndarray"
     
     if data.ndim == 2: data.shape = (1,data.shape[0],data.shape[1])
-    if mask == None: mask = numpy.zeros(data.shape[1:],float)
+    if mask == None: mask = numpy.ones(data.shape[1:],float)
 
     # calculate the acutance
     acutance_list = []
@@ -249,12 +255,12 @@ def _acutance_calc(data,method,normalized,mask,exponent):
 
     gradient  = numpy.sqrt(dx**2+dy**2)**exponent
             
-    a = numpy.sum(d*mask)
+    a = numpy.sum(gradient*mask)
     if normalized: a *= 1./numpy.sum(frame*mask)
     return a
     
 def _apodization_f(x,n,kt):
-    F = 1./(numpy.exp((x-(n-1.5))/kt)+1) # why n-1.5 instead of just n???
+    F = 1./(numpy.exp((x-n)/kt)+1) # why n-1.5 instead of just n???
     F += -.5
     F[F < 0] = 0
     F *= 1./F.max()

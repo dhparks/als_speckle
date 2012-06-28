@@ -18,8 +18,8 @@ def make_cosines(components,N):
 
     x = (numpy.arange(N).astype(float))*(2*numpy.pi/N)
     cosines = numpy.zeros((len(components),N),float)
-    for n,c in enumerate(components): cosines[n] = numpy.cos(x*c)
-    return cosines
+    for n,c in enumerate(components): cosines[n] = x*c
+    return numpy.cos(cosines)
 
 def decompose(ac,cosines):
     
@@ -111,7 +111,6 @@ def rot_sym(speckles,plan=None,components=None,cosines=None):
     # generate components and cosines if necessary
     if components == None: components = numpy.arange(2,20,2).astype('float')
     if cosines == None: cosines = make_cosines(components,len(autocorrelation[0]))
-    print components
     
     # run cosine decomposition
     decomposition = decompose(autocorrelation,cosines)

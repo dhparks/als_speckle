@@ -11,7 +11,7 @@ dg = gpulib.gpu_domain_generator
 # set the io default to overwrite files
 speckle.io.set_overwrite(True)
 
-# plotting
+# plotting. use 'agg' backend for remote plotting ie on magnon
 import matplotlib
 matplotlib.use('Agg')
 import pylab
@@ -35,7 +35,7 @@ def fit_speckle(data):
     w0 = fwhm*N/2048.
     
     pylab.xlim([c0-2*w0,c0+2*w0])
-    pylab.savefig('out/envelope fit %s %s.png'%(center,fwhm))
+    pylab.savefig('domain generator/out/envelope fit %s %s.png'%(center,fwhm))
     
     fitted.final_params[1] *= 2048./N
     fitted.final_params[2] *= 2048./N*1.29 # convert from w in the fit to fwhm in the report
@@ -90,12 +90,12 @@ def simulate_domains(gpuinfo,domain_N,center,fwhm,seed):
 info = gpulib.gpu.init()
 
 # open the seed file for domain generation
-seed = speckle.io.openfits('resources/real phi0 1024 random.fits').astype('float32')
+seed = speckle.io.openfits('domain generator/resources/real phi0 1024 random.fits').astype('float32')
 
 # specify the basic envelope parameters. these describe the lineshape as it would be
 # measured on a 2048x2048 ccd on beamline 12.0.2 at 780eV.
 center = 240
-fwhm = 20.
+fwhm = 80.
 N = 512
 
 domains = simulate_domains(info,N,center,fwhm,seed)
@@ -109,6 +109,6 @@ print "fit speckle to L^2:"
 print "  center: %.2f"%fit_params[1]
 print "  width:  %.2f (will be slightly less than goal)"%fit_params[2]
 
-speckle.io.save('out/melted domains %s %s.png'%(center,fwhm),domains,components=('real'))
-speckle.io.save('out/melted speckle %s %s.png'%(center,fwhm),numpy.sqrt(speckles),color_map='B')
+speckle.io.save('domain generator/out/melted domains %s %s.png'%(center,fwhm),domains,components=('real'))
+speckle.io.save('domain generator/out/melted speckle %s %s.png'%(center,fwhm),numpy.sqrt(speckles),color_map='B')
 

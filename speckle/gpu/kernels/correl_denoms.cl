@@ -14,4 +14,4 @@ __kernel void execute(
 		out[j] += current*current/rows;
 	}
 	
-}"""
+}
