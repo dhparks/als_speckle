@@ -1,4 +1,4 @@
-""" Functions that calculate the image cross-correlation between two images. Implements the sptaial memory algorithms.
+""" Functions that calculate the image cross-correlation between two images. Implements the spatial memory algorithms.
 
 Author: Keoki Seu (KASeu@lbl.gov)
 """
@@ -258,19 +258,26 @@ def apply_shrink_mask(img, mask):
     else:
         return apply_shrink(img, mask)
 
-def crosscorr(imgA, imgB):
+def crosscorr(imgA, imgB, already_fft=(), conjugated=False):
     """ Calculates the cross correlation of the function. Returns the
-        complex-valued cross-correlation of imgA and imgB.
+        complex-valued cross-correlation of imgA and imgB. Note: it is always the
+        fourier transfrom of imgB which is conjugated.
 
     arguments:
         imgA - two-dimensional image
         imgB - two-dimensional image
+        already_fft - (optional) tuple listing which (if any) inputs have already been ffted
+        conjugated - (optional) boolean describing whether imgB has already been conjugated
+            (if it has already been ffted, of course)
 
     returns:
         cc(imgA, imgB) - cross correlation of imgA with imgB
     """
     assert imgA.shape == imgB.shape, "images not the same size"
     assert imgA.ndim == 2, "images must be two-dimensional"
+    assert isinstance(already_fft,(list,tuple)), "alread_fft must be list or tuple"
+    for entry in already_fft: assert entry in (0,1), "unrecognized already_fft values"
+    assert conjugated in (0,1,True,False), "conjugated must be boolean-evaluable"
 
     (ysize, xsize) = imgA.shape
     
@@ -278,17 +285,25 @@ def crosscorr(imgA, imgB):
     if imgA.dtype.byteorder == '>':
         imgA = imgA.astype(imgA.dtype.name)
     if imgB.dtype.byteorder == '>':
-        imgB = imgB.astype(imgB.dtype.name)     
-
-    # detect if we're doing an AC and save a FFT.
-    if np.array_equal(imgA, imgB):
+        imgB = imgB.astype(imgB.dtype.name)
+        
+    # compute forward ffts accounting for pre-computed ffts and complex-conjugates
+    if np.array_equal(imgA,imgB):
         fftA = np.fft.fft2(imgA)
-        cc = np.fft.ifft2(fftA*np.conjugate(fftA))
+        fftB = fftA
     else:
-        cc = np.fft.ifft2(np.fft.fft2(imgA)*np.conjugate(np.fft.fft2(imgB)))
-
-    return np.fft.fftshift(cc)
-
+        if 0 not in already_fft:
+            fftA = np.fft.fft2(imgA)
+        if 0 in already_fft:
+            fftA = imgA
+        if 1 not in already_fft:
+            fftB = np.conjugate(np.fft.fft2(imgB))
+        if 1 in already_fft:
+            fftB = imgB
+            if not conjugated:
+                fftB = np.conjugate(fftB)
+        
+    return np.fft.fftshift(np.fft.ifft2(fftA*fftB))
 
 def autocorr(img):
     """ Calculates the autocorrelation of an image.
@@ -300,3 +315,93 @@ def autocorr(img):
         ac(img) - autocorrelation of input image
     """
     return crosscorr(img, img)
+    
+def pairwise_covariances(data,save_memory=False):
+    
+    """ Given 3d data, cross-correlates every frame with every other frame to generate
+    all the normalized pairwise covariances (ie, "similarity" or "rho" in Pierce etc).
+    This is useful for determining which frames to sum in the presence of drift or slow
+    dynamics. The pairwise calculation between A and B is computed as:
+    
+    cross_correlation(A,B).max/sqrt(autocorrelation(A).max*autocorrelation(B).max)
+    
+    Requires:
+        data - 3d ndarray
+        
+    Optional:
+        save_memory: if True, DFTs of frames of data are precomputed which massively improves
+        speed at the expense of memory. Default is False.
+        
+    Returns:
+        a 2d ndarray of normalized covariances values where returned[row,col] is the
+        cross-correlation max of frames data[row] and data[col]."""
+        
+    assert isinstance(data, np.ndarray) and data.ndim == 3, "data must be 3d ndarray"
+
+    frames = data.shape[0]
+    dfts = np.zeros_like(data).astype('complex')
+    ACs = np.zeros(frames,float)
+    
+    covar = lambda c,a,b: c/np.sqrt(a*b)
+        
+    # precompute the dfts and autocorrelation-maxes for speed
+    for n in range(frames):
+        dft = DFT(data[n].astype('float'))
+        if not save_memory: dfts[n] = dft
+        ACs[n] = abs(crosscorr(dft,dft,already_fft=(0,1))).max()
+          
+    # calculate the pair-wise normalized covariances  
+    covars = np.zeros((frames,frames),float)
+        
+    for j in range(frames):
+        ac = ACs[j]
+        for k in range(frames-j):
+            k += j
+            bc = ACs[j],ACs[k]
+            if save_memory: corr = crosscorr(data[j],data[k])
+            else: corr = crosscorr(dfts[j],dfts[k],already_fft=(0,1))
+            fill = covar(abs(corr).max(),ac,bc)
+            covars[j,k] = fill
+            covars[k,j] = fill
+            
+    return covars
+
+def alignment_coordinates(obj, ref, already_fft=(),conjugated=False):
+    """ Computes the roll coordinates to align imgA and imgB. The returned values r0
+    and r1 are such the following numpy command will align obj to ref.
+    
+    aligned_to_ref = np.roll(np.roll(obj,r0,axis=0),r1,axis=1)
+    
+    arguments:
+        obj - image (numpy array) which will be aligned to ref
+        ref - reference image (numpy array) to which obj will be aligned
+        already_fft - (optional) tuple listing which (if any) inputs have already been ffted
+        conjugated - (optional) boolean describing whether ref has already been conjugated
+            (if it has already been ffted, of course)
+            
+    returns:
+        coords - (r0,r1) which describe how to align obj to ref using np.roll"""
+    
+    assert isinstance(ref,np.ndarray) and ref.ndim==2, "ref must be 2d array"
+    assert isinstance(obj,np.ndarray) and obj.ndim==2, "obj must be 2d array"
+    assert ref.shape == obj.shape, "ref and obj must have same same"
+    
+    rows,cols = ref.shape
+    
+    # compute the cross correlation and find the location of the max
+    corr = crosscorr(obj,ref,already_fft=already_fft,conjugated=conjugated)
+    cc_max = abs(corr).argmax()
+    max_row,max_col = cc_max/cols,cc_max%cols
+    
+    # do modulo arithmetic to account for the fftshift in crosscorr and the
+    # cyclic boundary conditions of the fft
+    max_row += -rows/2
+    max_col += -cols/2
+    if max_row > rows/2: max_row += -rows
+    if max_col > cols/2: max_col += -cols
+    
+    return -max_row, -max_col
+    
+        
+        
+    
