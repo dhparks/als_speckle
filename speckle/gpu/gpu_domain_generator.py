@@ -1,7 +1,7 @@
 # core
 import numpy
 import pyopencl as cl
-import pyopencl.array as cl_array
+import pyopencl.array as cla
 from pyopencl.elementwise import ElementwiseKernel as EK
 from scipy.optimize import fminbound
 import string
@@ -16,6 +16,8 @@ DFT = numpy.fft.fft2
 from numpy.fft import fftshift
 
 class generator():
+    
+    """ GPU-accelerated copd-type domain generation. """
     
     def __init__(self,gpuinfo,N,domains,alpha=0.5,interrupts=(),ggr=None):
         
@@ -165,30 +167,30 @@ class generator():
     
         # initialize the arrays for making envelopes
         self.transitions = 0
-        self.goal_envelope = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.goal_envelope = cla.empty(self.queue,(self.N,self.N),numpy.float32)
         self.r_array       = shape.radial((self.N,self.N))
         self.phi_array     = numpy.mod(shape.angular((self.N,self.N))+2*numpy.pi,2*numpy.pi)
         self.powerlist     = [] # for convergence tracking
         
         # initialize buffers and kernels for speckle rescaling (ie, the function F)
-        self.domains_dft_re = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-        self.domains_dft_im = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-        self.speckle        = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-        self.dummy_zeros    = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-        self.rescaler       = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-        self.domain_diff    = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-        self.m0_1           = cl_array.empty(self.queue,(1,), numpy.complex64)
-        self.m0_2           = cl_array.empty(self.queue,(1,), numpy.complex64)
-        self.power          = cl_array.empty(self.queue,(2,), numpy.float32)
+        self.domains_dft_re = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.domains_dft_im = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.speckle        = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.dummy_zeros    = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.rescaler       = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.domain_diff    = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.m0_1           = cla.empty(self.queue,(1,), numpy.complex64)
+        self.m0_2           = cla.empty(self.queue,(1,), numpy.complex64)
+        self.power          = cla.empty(self.queue,(2,), numpy.float32)
 
         # initialize buffers and kernels for real-space and magnetization constraints (ie, the function M)
-        self.incoming  = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-        self.allwalls  = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-        self.poswalls  = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-        self.negwalls  = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-        self.negpins   = cl_array.empty(self.queue,(self.N,self.N),numpy.float32) # 1 means ok to change, 0 means retain value
-        self.pospins   = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-        self.available = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.incoming  = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.allwalls  = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.poswalls  = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.negwalls  = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.negpins   = cla.empty(self.queue,(self.N,self.N),numpy.float32) # 1 means ok to change, 0 means retain value
+        self.pospins   = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        self.available = cla.empty(self.queue,(self.N,self.N),numpy.float32)
         
         self.set_ones(self.negpins)
         self.set_ones(self.pospins)
@@ -198,7 +200,7 @@ class generator():
         assert x >= self.N, "must supply a seed with correct size"
         if x > self.N: domains = domains[x/2-self.N/2:x/2+self.N/2,x/2-self.N/2:x/2+self.N/2]
         m0 = numpy.sum(domains)/self.N2
-        self.domains  = cl_array.to_device(self.queue,domains.astype(numpy.float32))
+        self.domains  = cla.to_device(self.queue,domains.astype(numpy.float32))
         
         if ggr != None:
             
@@ -207,8 +209,8 @@ class generator():
             # running the ggr routine requires additional objects for the spa optimization
             window_length      = 10  # can be changed but not exposed for simplicity      
             rate               = (1+growth_rate)**(1./window_length)-1                 
-            self.spa_buffer    = cl_array.empty(self.queue,(self.N,self.N),numpy.float32)
-            self.whenflipped   = cl_array.empty(self.queue,(self.N,self.N),numpy.int32)
+            self.spa_buffer    = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+            self.whenflipped   = cla.empty(self.queue,(self.N,self.N),numpy.int32)
             self.plan          = self._ggr_make_plan(m0,rate,0.02,50)
             self.target        = 0
             self.optimized_spa = 0.05
@@ -221,7 +223,7 @@ class generator():
             rmin, rmax, rrate = 0.05, 2., 0.5
             x = numpy.arange(len(self.plan)).astype('float')
             recency_need = rmin*rmax*numpy.exp(rrate*x)/(rmax+rmin*numpy.exp(rrate*x))
-            self.recency_need = cl_array.to_device(self.queue,recency_need.astype(numpy.float32))
+            self.recency_need = cla.to_device(self.queue,recency_need.astype(numpy.float32))
         
             self.set_zero(self.whenflipped)
             
@@ -318,6 +320,7 @@ class generator():
         if 'envelope' in self.interrupts: return temp_envelope
 
     def rescale_speckle(self):
+        
         # this function implements the fourier operation: rescaling the envelope
 
         # just to be safe, reset the temporary buffer which holds imaginary components
@@ -333,7 +336,7 @@ class generator():
         # replace the (0,0) component with the average of the surrounding neighbors to prevent envelope distortion due to non-zero average magnetization
         self.get_m0.execute(self.queue,(1,), self.domains_dft_re.data, self.domains_dft_im.data, self.m0_1.data)
         self.make_speckle(self.domains_dft_re,self.domains_dft_im, self.speckle)
-        power1 = cl_array.sum(self.speckle).get()-(self.m0_1.get()[0])**2
+        power1 = cla.sum(self.speckle).get()-(self.m0_1.get()[0])**2
         self.replace_dc_component1.execute(self.queue,(1,), self.speckle.data, self.speckle.data, numpy.int32(self.N))
 
         # blur with the convolution kernel using internal kernels
@@ -351,7 +354,7 @@ class generator():
         # preserve the total amount of speckle power outside the (0,0) component
         self.get_m0.execute(self.queue,(1,), self.domains_dft_re.data, self.domains_dft_im.data, self.m0_2.data)
         self.make_speckle(self.domains_dft_re,self.domains_dft_im, self.speckle) # for computing out-going power
-        power2 = cl_array.sum(self.speckle).get()-(self.m0_2.get()[0])**2
+        power2 = cla.sum(self.speckle).get()-(self.m0_2.get()[0])**2
         ratio = (numpy.sqrt(power1/power2)).astype(numpy.float32)
         self.scalar_multiply(ratio,self.domains_dft_re)
         self.scalar_multiply(ratio,self.domains_dft_im)
@@ -396,7 +399,7 @@ class generator():
     def ggr_iteration(self,iteration):
 
         # get the target net magnetization
-        net_m       = cl_array.sum(self.domains).get()
+        net_m       = cla.sum(self.domains).get()
         self.goal_m = self.plan[iteration+1]
         needed_m    = self.goal_m*self.N2-net_m
         self.target = numpy.sign(needed_m).astype(numpy.float32)
@@ -431,7 +434,7 @@ class generator():
         self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,numpy.int32(self.N))
 
         # now adjust the magnetization so that it reaches the target
-        net_m       = cl_array.sum(self.domains).get()
+        net_m       = cla.sum(self.domains).get()
         needed_m    = self.goal_m*self.N2-net_m
         self.target = numpy.sign(needed_m).astype(numpy.float32)
         spa         = self.optimized_spa
@@ -447,7 +450,7 @@ class generator():
         # use the optimized spa value to actually promote the spins in self.domains
         self.ggr_promote_spins(self.domains,self.available,self.domains,self.target*self.optimized_spa)
         self.bound(self.domains,self.domains)
-        m_out   = (cl_array.sum(self.domains).get())/self.N2
+        m_out   = (cla.sum(self.domains).get())/self.N2
         m_error = abs(m_out-self.goal_m)
         
         # update the whenflipped data, which records the iteration when each pixel changed sign
@@ -475,7 +478,7 @@ class generator():
         
         self.ggr_promote_spins(self.domains,self.available,self.spa_buffer,self.target*spa)
         self.bound(self.spa_buffer,self.spa_buffer)
-        buffer_average = (cl_array.sum(self.spa_buffer).get())/self.N2
+        buffer_average = (cla.sum(self.spa_buffer).get())/self.N2
         e = abs(buffer_average-self.goal_m)
         #print "    %.6e, %.3e"%(spa,e)
         return e
@@ -508,17 +511,17 @@ class generator():
             self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,numpy.int32(self.N))
             
             # now attempt to adjust the net magnetization in real space to achieve the target magnetization.
-            net_m = cl_array.sum(self.domains).get()
+            net_m = cla.sum(self.domains).get()
             needed_m = self.goal_m-net_m
     
             if needed_m > 0:
                 self.make_available1(self.available,self.negwalls,self.negpins,self.pospins)
-                sites = cl_array.sum(self.available).get()
+                sites = cla.sum(self.available).get()
                 spa = min([self.spa_max,needed_m/sites])
                 
             if needed_m < 0:
                 self.make_available1(self.available,self.poswalls,self.negpins,self.pospins)
-                sites = cl_array.sum(self.available).get()
+                sites = cla.sum(self.available).get()
                 spa = max([-1*self.spa_max,needed_m/sites])
 
             self.promote_spins(self.domains,self.available,spa)
@@ -531,7 +534,7 @@ class generator():
         
         # sum the difference array and divide by the area of the simulation as a metric of how much the two domains
         # configurations differ. 
-        power = (cl_array.sum(self.domain_diff).get())/self.N2
+        power = (cla.sum(self.domain_diff).get())/self.N2
         self.powerlist.append(power)
         
         # set the convergence condition
