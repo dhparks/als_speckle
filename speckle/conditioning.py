@@ -255,14 +255,14 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     if align_to == None: align_to = data[0]
     if region == None:   region = numpy.ones_like(align_to)
     # for speed, precompute the reference dft
-    ref = numpy.conjugate(DFT(abs2(align_to*region)))
+    ref = DFT(abs2(align_to*region))
     
     # get the alignment coordinates for each frame in data by the argmax of the cross
     # correlation with the reference
     coordinates = numpy.zeros((frames,2),int)
     irows,icols = numpy.indices((rows,cols),float)
     for n,frame in enumerate(data):
-        coordinates[n] = crosscorr.alignment_coordinates(abs2(frame*region),ref,already_fft=(1,),conjugated=True)
+        coordinates[n] = crosscorr.alignment_coordinates(abs2(frame*region),ref,already_fft=(1,))
         
     # now return the data according to return_type
     if return_type == 'coordinates': return coordinates

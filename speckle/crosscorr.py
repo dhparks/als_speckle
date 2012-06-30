@@ -258,54 +258,60 @@ def apply_shrink_mask(img, mask):
     else:
         return apply_shrink(img, mask)
 
-def crosscorr(imgA, imgB, axes=(0,1), already_fft=(), conjugated=False):
+def crosscorr(imgA, imgB, axes=(0,1), already_fft=(), shift=True):
     """ Calculates the cross correlation of the function. Returns the
-        complex-valued cross-correlation of imgA and imgB. Note: it is always the
-        fourier transfrom of imgB which is conjugated.
+        complex-valued cross-correlation of imgA and imgB. Note: it is always
+        the Fourier transfrom of imgB which is conjugated.
 
     arguments:
         imgA - two-dimensional image
         imgB - two-dimensional image
-        already_fft - (optional) tuple listing which (if any) inputs have already been ffted
-        conjugated - (optional) boolean describing whether imgB has already been conjugated
-            (if it has already been ffted, of course)
+        axes - tuple of dimensions along which to calculate the autocorrelation.
+            Defaults to both (0,1).
+        already_fft - (optional) tuple listing which (if any) inputs have
+            already been ffted.
+        shift - Weather or not the image should be rolled to the center.
+            Defaults to True.
 
     returns:
         cc(imgA, imgB) - cross correlation of imgA with imgB
     """
     assert imgA.shape == imgB.shape, "images not the same size"
     assert imgA.ndim == 2, "images must be two-dimensional"
-    assert isinstance(already_fft,(list,tuple)), "alread_fft must be list or tuple"
-    for entry in already_fft: assert entry in (0,1), "unrecognized already_fft values"
-    assert isinstance(axes,tuple), "axes unrecognized type"
-    for entry in axes: assert entry in (0,1), "unrecognized axes values"
-    assert conjugated in (0,1,True,False), "conjugated must be boolean-evaluable"
+    assert isinstance(already_fft,(list,tuple,int)), "already_fft must be list or tuple"
+    if isinstance(already_fft, int):
+        already_fft = [already_fft]
+    assert all([e in (0, 1, -1, -2) for e in already_fft]), "unrecognized already_fft values"
+    assert isinstance(shift, (bool, int)), "shift must be bool or int"
 
     (ysize, xsize) = imgA.shape
-    
+
     # This makes the FFT work for datatypes of '>f4'.  We occasionally see data that is in this format.
     if imgA.dtype.byteorder == '>':
         imgA = imgA.astype(imgA.dtype.name)
     if imgB.dtype.byteorder == '>':
         imgB = imgB.astype(imgB.dtype.name)
         
-    # compute forward ffts accounting for pre-computed ffts and complex-conjugates
-    if np.array_equal(imgA,imgB):
-        fftA = np.fft.fft2(imgA,axes=axes)
-        fftB = fftA
+    if np.array_equal(imgA,imgB): # AC condition
+        fftA = fftB = np.fft.fft2(imgA, axes=axes)
     else:
-        if 0 not in already_fft:
-            fftA = np.fft.fft2(imgA,axes=axes)
+        # compute forward ffts accounting for pre-computed ffts and complex-conjugates
         if 0 in already_fft:
             fftA = imgA
-        if 1 not in already_fft:
-            fftB = np.conjugate(np.fft.fft2(imgB,axes=axes))
+        else:
+            fftA = np.fft.fft2(imgA,axes=axes)
+
         if 1 in already_fft:
             fftB = imgB
-            if not conjugated:
-                fftB = np.conjugate(fftB)
-        
-    return np.fft.fftshift(np.fft.ifft2(fftA*fftB,axes=axes))
+        else:
+            fftB = np.fft.fft2(imgB,axes=axes)
+
+    cc = np.fft.ifft2(fftA*np.conjugate(fftB),axes=axes)
+
+    if shift:
+        return np.fft.fftshift(cc, axes=axes)
+    else:
+        return cc
     
 def autocorr(img,axes=(0,1)):
     """ Calculates the autocorrelation of an image.

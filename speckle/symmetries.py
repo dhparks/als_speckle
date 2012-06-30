@@ -82,7 +82,7 @@ def rot_sym(speckles,plan=None,components=None,cosines=None):
     if plan == None: unwrapped = wrapping.unwrap(speckles,(0,R/2,(N/2,M/2)))
         
     # autocorrelate the unwrapped speckle. normalize each row individually.
-    autocorrelation = crosscorr.crosscorr(unwrapped,axes=(1,))
+    autocorrelation = crosscorr.autocorr(unwrapped,axes=(1,))
     for row,row_data in enumerate(autocorrelation.shape[0]):
         autocorrelation[row] = row_data*(1./abs(row_data).max())
     
