@@ -1,7 +1,8 @@
-# For helper functions which beat on raw experimental data until it is suitable for proper analysis.
-# I expect most of this code will be mostly experiment-specific but at least some may be relatively
-# universal (ie, alignment or dust-removal).
+""" Helper functions which are intended to beat on raw data until it is suitable
+for proper analysis. The goal is to be able to transparently handle experimental
+and simulated data through the same analytical functions.
 
+Author: Daniel Parks (dhparks@lbl.gov)"""
 import numpy
 DFT = numpy.fft.fft2
 IDFT = numpy.fft.ifft2
@@ -236,9 +237,11 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     if data.ndim == 2 and return_type == 'sum': print             "summing 2d data is non-sensical" # not an assert!
     
     # define some simple helper functions to improve readability
-    if use_mag_only: abs2 = lambda x: abs(x)
-    if not use_mag_only: abs2 = lambda x: x
     rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
+    def prep(x):
+        if use_mag_only: x = abs(x)
+        if region != None: x *= region
+        return x
 
     # cast 2d to 3d so the loops below are simpler
     was2d = False
@@ -251,18 +254,18 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     if region != None:   assert region.shape == (rows,cols),    "region and data frames must be same shape"
     if align_to != None: assert align_to.shape == (rows,cols),  "align_to and data frames must be same shape"
 
-    # set up explicit region and align_to in case of None
+    # set up explicit align_to in case of None
     if align_to == None: align_to = data[0]
-    if region == None:   region = numpy.ones_like(align_to)
+    
     # for speed, precompute the reference dft
-    ref = DFT(abs2(align_to*region))
+    ref = DFT(prep(align_to))
     
     # get the alignment coordinates for each frame in data by the argmax of the cross
     # correlation with the reference
     coordinates = numpy.zeros((frames,2),int)
     irows,icols = numpy.indices((rows,cols),float)
     for n,frame in enumerate(data):
-        coordinates[n] = crosscorr.alignment_coordinates(abs2(frame*region),ref,already_fft=(1,))
+        coordinates[n] = crosscorr.alignment_coordinates(prep(frame),ref,already_fft=(1,))
         
     # now return the data according to return_type
     if return_type == 'coordinates': return coordinates

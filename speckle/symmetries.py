@@ -253,7 +253,7 @@ def rot_sym(speckles,plan=None,components=None,cosines=None):
     if plan == None: unwrapped = wrapping.unwrap(speckles,(0,R/2,(N/2,M/2)))
         
     # autocorrelate the unwrapped speckle. normalize each row individually.
-    autocorrelation = np.fft.fftshift(crosscorr.autocorr(unwrapped,axes=(1,)))
+    autocorrelation = crosscorr.crosscorr(unwrapped,unwrapped,axes=(1,),shift=False)
     for row,row_data in enumerate(autocorrelation):
         autocorrelation[row] = row_data*(1./abs(row_data).max())
     

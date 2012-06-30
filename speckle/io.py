@@ -201,6 +201,7 @@ def writefits(filename, img, headerItems={}, overwrite=None):
     assert isinstance(headerItems, dict), "headerItems must be a dictionary"
     if overwrite == None: overwrite = overwrite_default
     assert isinstance(overwrite,bool) or overwrite==None, "overwrite must be True/False"
+    assert isinstance(img,numpy.ndarray), "array to save must be an array"
 
     header = pyfits.Header()
 
@@ -234,6 +235,7 @@ def write_complex_fits(base, fits, headerItems={}, overwrite=None):
         headerItems - A dictionary of items to be added to the header. This will overwrite items if they are already in the header.
         overwrite - Whether to overwrite file. Defaults to false.
     """
+
     writefits(base + "_imag.fits", numpy.imag(fits), headerItems, overwrite)
     writefits(base + "_real.fits", numpy.real(fits), headerItems, overwrite)
 

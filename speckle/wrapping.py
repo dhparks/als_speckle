@@ -5,7 +5,7 @@ Author: Daniel Parks (dparks@uoregon.edu)
 
 import numpy as np
 
-def unwrap_plan(r,R,center,max_angle=None):
+def unwrap_plan(r,R,center,max_angle=None,modulo=None):
     """ Make the array which constitutes the unwrap plan. This is then passed
     to the actual unwrap function along with the array to be unwrapped. Generating
     a separate plan results in serious speed improvements if the unwrap plan
@@ -19,9 +19,15 @@ def unwrap_plan(r,R,center,max_angle=None):
     Optional input:
     max_angle: the portion of the azimuthal coordinate to be unwrapped.
             default is 2pi.
+    modulo: if put the coordinates through a modulo operation of this value.
+        intended for use in unwrapping machine-centered speckle without
+        requiring a fftshift. generally, this should be the array size.
 
     Returns:
     plan - an array object that contains the unwrapping plan.
+        the plan is formatted as:
+            [[y0,y1...yn,R],
+             [x0,x1...xn,r]]
     """
     assert isinstance(r, (float, int)), "r must be int or float"
     assert isinstance(R, (float, int)), "R must be int or float"
@@ -32,7 +38,7 @@ def unwrap_plan(r,R,center,max_angle=None):
     ur,uR = min([r,R]),max([r,R])
     assert ur > 0, "inner radius must be > 0"
 
-    if max_angle == None: max_angle = 2*scipy.pi
+    if max_angle == None: max_angle = 2*np.pi
     assert isinstance(max_angle, (float, int)), "max_angle must be float"
     max_angle = float(max_angle)
 
@@ -46,19 +52,24 @@ def unwrap_plan(r,R,center,max_angle=None):
     y = np.ravel(center[0]+r*np.sin(phi))
     l = len(x)
     
+    if modulo != None:
+        assert isinstance(modulo,int), "modulo must be int"
+        x = np.mod(x+modulo,modulo-1)
+        y = np.mod(y+modulo,modulo-1)
+
     # combine into the plan array
     # Plan format:
     # [[y0,y1,y2...R],[x0,x1,x2...r]]
-    plan = np.zeros((2,l),float)
-    plan[0,:-1] = x
-    plan[1,:-1] = x
-    np.mod(x0Table+N/2,N),np.mod(y0Table+N/2,N),Cols
+    plan = np.zeros((2,l+1),float)
+    
+    plan[0,:l] = y
+    plan[1,:l] = x
     
     # very last entries in the plan are the radii. this means the plan contains all information for unwrapping.
-    Plan[0,-1] = uR
-    Plan[1,-1] = ur
+    plan[0,-1] = uR
+    plan[1,-1] = ur
 
-    return Plan
+    return plan
 
 def wrap_plan(r,R,max_angle=None):
     """ Generate a plan to rewrap an array from polar coordinates into cartesian coordinates.
@@ -95,7 +106,7 @@ def wrap_plan(r,R,max_angle=None):
     
     return Plan
 
-def unwrap(array,plan,interpolation_order=3):
+def unwrap(array,plan,interpolation_order=3,modulo=None):
     """ Given an array and a pre-generated plan, unwrap an array into polar coordinates
     
     Required input:
@@ -121,7 +132,7 @@ def unwrap(array,plan,interpolation_order=3):
     if not isinstance(plan,scipy.ndarray):
         assert len(plan) == 3, "unwrap plan must be a len 2 list/tuple/set or a ndarray"
         r, R, center = plan
-        plan = unwrap_plan(r, R, center)
+        plan = unwrap_plan(r, R, center, modulo=modulo)
     
     # separate plan into coordinate map and (r,R)
     R,r = plan[:,-1]
@@ -138,8 +149,10 @@ def unwrap(array,plan,interpolation_order=3):
     
     # the unwrapped version is 1d. reshape into the correct 2d arrangement (this is why the plan needs r and R)
     unwrapped.shape = (R-r,len(plan[0])/(R-r))
+    plan.shape = (2,R-r,len(plan[0])/(R-r))
     
-    return unwrapped
+    
+    return unwrapped,plan
 
 def wrap(array,plan,interpolation_order=3):
     """ Wraps data from polar coordinates into cartesian coordinates. A plan must be supplied.
