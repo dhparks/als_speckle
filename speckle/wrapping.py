@@ -150,9 +150,8 @@ def unwrap(array,plan,interpolation_order=3,modulo=None):
     # the unwrapped version is 1d. reshape into the correct 2d arrangement (this is why the plan needs r and R)
     unwrapped.shape = (R-r,len(plan[0])/(R-r))
     plan.shape = (2,R-r,len(plan[0])/(R-r))
-    
-    
-    return unwrapped,plan
+
+    return unwrapped
 
 def wrap(array,plan,interpolation_order=3):
     """ Wraps data from polar coordinates into cartesian coordinates. A plan must be supplied.

@@ -1,12 +1,10 @@
 # core
-import numpy
-DFT = numpy.fft.fft2
-IDFT = numpy.fft.ifft2
-fftshift = numpy.fft.fftshift
+import numpy as np
+DFT = np.fft.fft2
+IDFT = np.fft.ifft2
+fftshift = np.fft.fftshift
 
 import speckle
-import speckle.gpu as gpulib
-gc = gpulib.gpu_correlations
 speckle.io.set_overwrite(True)
 
 class random_walk():
@@ -23,19 +21,19 @@ class random_walk():
             self.dft_object = DFT(fftshift(speckle.shape.circle((params.N,params.N),radius)))
             self.do_convolve = True
         
-        self.coordinates = (params.N*numpy.random.rand(n,2)).astype(float)
+        self.coordinates = (params.N*np.random.rand(n,2)).astype(float)
 
     def displace(self,stepsize):
         
         assert isinstance(stepsize,(int,float)), "step size must be float or int"
         
-        deltas = stepsize*numpy.random.randn(len(self.coordinates),2)
+        deltas = stepsize*np.random.randn(len(self.coordinates),2)
         self.coordinates += deltas
-        self.coordinates = numpy.mod(self.coordinates,params.N)
+        self.coordinates = np.mod(self.coordinates,params.N)
         
     def make(self):
         
-        grid = numpy.zeros((params.N,params.N),float)
+        grid = np.zeros((params.N,params.N),float)
     
         # i don't know how to do this without a loop, barf
         sites = len(self.coordinates)
@@ -44,18 +42,22 @@ class random_walk():
             grid[int(row),int(col)] = 1
             
         if self.do_convolve:
-            grid = numpy.clip(abs(IDFT(DFT(grid)*self.dft_object)),0,1)
+            grid = np.clip(abs(IDFT(DFT(grid)*self.dft_object)),0,1)
         return 1-grid
 
 def make_paths():
     import os
+    
     assert os.path.isdir(params.output_path), "output path does not exist!"
     ball_path = '%s/real space images/balls density%s radius%s step%s'%(params.output_path,params.density,params.ballradius,params.brownianstep)
     analysis_path = '%s/analysis/bd%s br%s bs%s pr%s'%(params.output_path,params.density,params.ballradius,params.brownianstep,params.pinhole)
+    
     try: os.makedirs(ball_path)
     except: pass
+    
     try: os.makedirs(analysis_path)
     except: pass
+    
     return ball_path, analysis_path
 
 def samples():
@@ -82,7 +84,7 @@ def modulo_indices(index,shape):
     nd = len(shape)
     indices = []
     for n in range(nd-1):
-        length = numpy.product(shape[n+1:])
+        length = np.product(shape[n+1:])
         indices.append(index/length)
         index = index%length
     indices.append(index%length)
@@ -98,59 +100,40 @@ def open_spectra(name):
     maxval = name.split('maxval_')[1].split('_mag')[0]
     data *= float(maxval)/2**16.
     return data
-    
-def microscope_stages(sm_instance,y,x):
-    # combine pedagogically-separate but logically-continuous (in the sense of not requiring
-    # additional input) symmetry microscope stages into one command.
-    sm_instance.slice_object(y,x)
-    sm_instance.make_speckle()
-    #sm_instance.blur_speckle(site) # uncomment to simulate partial coherence; slows simulation considerably due to additional ffts
-    sm_instance.unwrap_speckle()
-    sm_instance.rotational_correlation()
-    sm_instance.decompose_spectrum()
-    
-    spectrum = sm_instance.returnables['spectrum']
-    print spectrum.shape
-    for n in range(spectrum.shape[0]):
-        print spectrum[n,0]
-    exit()
-    
-    spectrum = sm_instance.spectrum_gpu.get()
-    return spectrum
 
 def symmetry_microscope(sm_instance):
+    # sm_instance stands for "symmetry microscope instance"
+    # sm_instance must be an instance of the gpu_microscope class
     
     print "running symmetry microscope, %s sites/frame"%(nx*ny)
     
     # allocate memory to store all the spectra that will be generated
-    try: spectra = numpy.zeros((nf,nx*ny,nq,nc),float)
-    except MemoryError:
-        print "Had a malloc error in symmetry_microscope()!\nSuggest simulating fewer frames or sites"
-        exit()
-    
+    spectra = np.zeros((nf,nx*ny,nq,nc),float)
+
     for frame in range(nf):
         print "  frame %s"%frame
         
-        # open a sample frame from disk and load onto the gpu
+        # open a sample frame from disk and load into the class
         open_name = '%s/%s_mag.png'%(ball_path,frame)
         sample = open_sample(open_name)
-        sm_instance.load_object(sample)
+        sm_instance.set_object(sample)
 
         # now run the speckle generation and decomposition over the sample
-        # at the raster coordinates specified in ycoords, xcoords
+        # at the raster coordinates specified in ycoords, xcoords. after running
+        # the simulation at each site, copy the spectrum to the saving array
         site = 0
         for row in ycoords:
             for col in xcoords:
-                spectra[frame,site] = microscope_stages(sm_instance,row,col)
-                print spectra[frame,site].max()
+                print row,col
+                sm_instance.run_on_site(row,col)
+                spectra[frame,site] = sm_instance.returnables['spectrum']
                 site += 1
                 
     # save the results as integer to reduce space
     maxval = spectra.max()
-    print maxval
     spectra *= 65535/maxval
     spectra = spectra.astype('uint16')
-    save_name = '%s/spectra bd%s br%s bs%s pr%s maxval_%.4e.fits'%(analysis_path,params.density,params.ballradius,params.brownianstep,params.pinhole,maxval)
+    save_name = '%s/cpu spectra bd%s br%s bs%s pr%s maxval_%.4e.fits'%(analysis_path,params.density,params.ballradius,params.brownianstep,params.pinhole,maxval)
     speckle.io.save(save_name,spectra)
 
 def get_particulars(sm_instance,record):
@@ -164,7 +147,7 @@ def get_particulars(sm_instance,record):
         if frame != loaded:
             open_name = '%s/%s_mag.png'%(ball_path,frame)
             data = open_sample(open_name)
-            sm_instance.load_object(data)
+            sm_instance.set_object(data)
             loaded = frame
             
         # raster scan through the coordinate list just like in symmetry_microscope.
@@ -175,14 +158,18 @@ def get_particulars(sm_instance,record):
         for row in ycoords:
             for col in xcoords:
                 if record_site == raster_site:
-                    microscope_stages(sm_instance,row,col)
+                    
+                    row,col = 0,0
+                    print row,col
+                    
+                    sm_instance.run_on_site(row,col)
                     
                     # save the output showing the symmetry candidate. the necessary
                     # data has been pulled off the gpu behind the scenes.
-                    speckle.io.save('%s/%s %s illuminated.png'%(analysis_path,frame,record_site),sm_instance.returnables['illuminated'],components='real')
-                    speckle.io.save('%s/%s %s correlation.fits'%(analysis_path,frame,record_site),sm_instance.returnables['correlation'])
-                    speckle.io.save('%s/%s %s speckle.jpg'%(analysis_path,frame,record_site),sm_instance.returnables['speckle_blocker'],color_map='B')
-
+                    for key in sm_instance.returnables.keys():
+                        speckle.io.save('%s/cpu %s %s %s.png'%(analysis_path,frame,record_site,key),sm_instance.returnables[key],components='real')
+                    raster_site += 1
+    
 def find_candidates():
     
     import glob
@@ -191,11 +178,11 @@ def find_candidates():
     # the test is that the component value should be more than 60% of the spectrum
     # at that |q|, ie, it should be dominant.
     
-    file = glob.glob('%s/spectra bd%s br%s bs%s pr%s maxval*.fits'%(analysis_path,params.density,params.ballradius,params.brownianstep,params.pinhole))[0]
+    file = glob.glob('%s/cpu spectra bd%s br%s bs%s pr%s maxval*.fits'%(analysis_path,params.density,params.ballradius,params.brownianstep,params.pinhole))[0]
     data = open_spectra(file)
    
-    power = numpy.sum(data,axis=3) # sum along the component-value axis
-    ranks = numpy.zeros(data.shape,'uint8')
+    power = np.sum(data,axis=3) # sum along the component-value axis
+    ranks = np.zeros(data.shape,'uint8')
     
     for i in range(data.shape[0]):
         for j in range(data.shape[1]):
@@ -205,14 +192,14 @@ def find_candidates():
    
     # filtered marks in "space" where the candidates are
     t = (256*params.candidate_threshold).astype('uint8')
-    filtered = numpy.where(ranks > t,1,0)
+    filtered = np.where(ranks > t,1,0)
 
     # now, turn filtered into a list of (frame, site, row, col) indices
     x,y,z,t = filtered.shape
     filtered = filtered.ravel()
-    passed = numpy.sum(filtered) 
-    get = numpy.argsort(filtered)[-passed:]
-    record = numpy.zeros((passed,5),int)
+    passed = np.sum(filtered) 
+    get = np.argsort(filtered)[-passed:]
+    record = np.zeros((passed,5),int)
 
     kept = 0
     for n,index in enumerate(get):
@@ -225,12 +212,24 @@ def find_candidates():
     
     # re-order record by frame
     record = record[0:kept]
-    indices2 = numpy.argsort(record[:,0])
+    indices2 = np.argsort(record[:,0])
     record = record[indices2]
         
     save_name = '%s/candidate record bd%s br%s bs%s pr%s.fits'%(analysis_path,params.density,params.ballradius,params.brownianstep,params.pinhole)
     speckle.io.save(save_name,record)
     return record
+
+def make_raster_coords(N,xstep,ystep,size=None):
+
+    if size == None:
+        start, stop = 0,N
+    else:
+        assert size%2 == 0, "size to make_coords must be even"
+        start, stop = 0,size
+
+    x_coords = np.arange(start,stop,xstep)
+    y_coords = np.arange(start,stop,ystep)
+    return x_coords, y_coords
 
 import colloid_parameters as params
 
@@ -245,22 +244,36 @@ ball_path, analysis_path = make_paths()
 # next, make random walk images
 if params.make_samples: samples()
 
-# now initialize the gpu and instantiate the symmetry microscope gpu code.
+# now instantiate the symmetry microscope CPU code.
 if params.run_microscope or params.find_candidates:
-    gpuinfo = gpulib.gpu.init()
-    microscope = gc.angular_correlations(gpuinfo,params.N,params.unwrap_r,params.unwrap_R,params.pinhole,params.components,interrupts=('spectrum'))
-    xcoords, ycoords = gc.make_raster_coords(params.N,params.step_size,params.step_size,size=params.view_size)
+    microscope = speckle.symmetries.cpu_microscope(object=params.N,pinhole=params.pinhole,components=params.components,unwrap=(params.unwrap_r,params.unwrap_R))
+    
+    # here is an alternative way to instantiate the cpu_microscope class where
+    # the elements are loaded into memory one at a time instead of through the
+    # __init__ method of the class. the order of setting the elements is important.
+    """ microscope = speckle.symmetries.cpu_microscope()
+        microscope.set_object(params.N)
+        microscope.set_pinhole(params.pinhole)
+        microscope.set_unwrap((params.unwrap_r,params.unwrap_R))
+        microscope.set_cosines(params.components)
+        microscope.set_returnables(('spectrum',))"""
+    
+    xcoords, ycoords = make_raster_coords(params.N,params.step_size,params.step_size,size=params.view_size)
     nx = len(xcoords)
     ny = len(ycoords)
     
-# run the microscope
+# instantiate the microscope class and run the microscope. examine symmetry_microscope() for details
+# about how to handle the class properly. since the pinhole, the unwrap, and the cosine components will be constant
+# for all sites, pass them in at instantiation. passing the dummy_object is required for pinhole, components, and
+# unwrap because they all depend on the size of the object.
+
 if params.run_microscope: symmetry_microscope(microscope)
 
 # find candidate symmetries, then go to those sites with the symmetry
 # microscope again and save inspectable output by turning on "interrupts"
 if params.find_candidates:
     record = find_candidates()
-    microsope.change_interrupts(params.interrupts)
+    microscope.set_returnables(params.candidate_returnables)
     get_particulars(record)
 
     

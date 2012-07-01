@@ -36,7 +36,7 @@ class gpu_microscope():
 
         self.context, self.device, self.queue, self.platform = gpuinfo
         self.make_kernels()
-        self.returnables = returnables
+        self.returnables_list = returnables
         self.interpolation_order = 1
         
         self.can_has_object = False
@@ -250,8 +250,8 @@ class gpu_microscope():
         self.sum_rows      = gpu.build_kernel_file(self.context, self.device, kp+'correl_denoms.cl') # for getting correlation normalizations
         self.row_divide    = gpu.build_kernel_file(self.context, self.device, kp+'row_divide.cl')    # for doing correlation normalization
         self.cosine_reduce = gpu.build_kernel_file(self.context, self.device, kp+'cosine_reduce.cl') # for doing cosine spectrum reduction
-        self.slice_row = gpu.build_kernel_file(self.context, self.device, kp+'slice_row_f_f.cl') # slice row to correlate
-        self.put_row   = gpu.build_kernel_file(self.context, self.device, kp+'put_row_f_f.cl')   # put correlated row back in buffer
+        self.slice_row     = gpu.build_kernel_file(self.context, self.device, kp+'slice_row_f_f.cl') # slice row to correlate
+        self.put_row       = gpu.build_kernel_file(self.context, self.device, kp+'put_row_f_f.cl')   # put correlated row back in buffer
             
         # more kernels. due to their simplicity these are not put into external files
         self.illuminate_re = EK(self.context,
@@ -383,7 +383,6 @@ class gpu_microscope():
                      'spectrum')
         
         # check types
-        print returnables
         assert isinstance(returnables,(list,tuple)), "returnables must be list or tuple"
         assert all([isinstance(r,str) for r in returnables]), "all elements of returnables must be strings"
         
@@ -446,10 +445,10 @@ class gpu_microscope():
         self.illuminate_re(self.illumination_gpu, self.active_object, self.scratch1).wait()
         if 'illuminated' in self.returnables_list:
             Temp = self.scratch1.get()
-            try:
-                x = self.pinhole_r+15
-                Temp = Temp[self.N/2-x:self.N/2+x,self.N/2-x:self.N/2+x]
-            except: pass
+            #try:
+            #    x = self.pinhole_r+15
+            #    Temp = Temp[self.N/2-x:self.N/2+x,self.N/2-x:self.N/2+x]
+            #except: pass
             self.returnables['illuminated'] = Temp
         
         # calculate the fft of the wavefield
@@ -663,33 +662,12 @@ class gpu_microscope():
         
         self.slice_object(y,x)
         self.make_speckle()
-        if self.can_has_coherence:
-            # this is the one step that can be skipped
-            self.blur_speckle() 
+        if self.can_has_coherence: self.blur_speckle() 
     
         # in the cpu microscope, these are handled by symmetries.rot_sym
         self.unwrap_speckle()
         self.rotational_correlation()
         self.decompose_spectrum()
-
-def _unwrap_plan(N,ur,uR,x,y,MaxAngle=None):
-    
-    """ Build an unwrap plan specific to unwrapping speckle with machine-centering, ie,
-    speckle where q=0 is at (0,0) rather than (N/2,N/2)"""
-
-    if MaxAngle == None: MaxAngle = 2*np.pi
-    
-    cMax = int(MaxAngle*uR)
-    RTable, CTable = np.indices((uR-ur,cMax),float)
-    RTable += ur
-    PhiTable = np.ones_like(RTable)*np.arange(cMax)*MaxAngle/cMax
-    Rows,Cols = RTable.shape
-
-    # trigonometry
-    x0Table = x+RTable*np.cos(PhiTable)
-    y0Table = y+RTable*np.sin(PhiTable)
-
-    return np.mod(x0Table+N/2,N),np.mod(y0Table+N/2,N),Cols # fft comes back with 0-freq @ (0,0) so we need to modulo the arithmetic
 
 def ispower2(N):
     return (N&(N-1)) == 0

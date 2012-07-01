@@ -276,6 +276,8 @@ def crosscorr(imgA, imgB, axes=(0,1), already_fft=(), shift=True):
     returns:
         cc(imgA, imgB) - cross correlation of imgA with imgB
     """
+    
+    assert isinstance(imgA,np.ndarray) and isinstance(imgB,np.ndarray), "input must be arrays"
     assert imgA.shape == imgB.shape, "images not the same size"
     assert imgA.ndim == 2, "images must be two-dimensional"
     assert isinstance(already_fft,(list,tuple,int)), "already_fft must be list or tuple"
