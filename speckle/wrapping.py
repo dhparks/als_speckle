@@ -5,7 +5,7 @@ Author: Daniel Parks (dparks@uoregon.edu)
 
 import numpy as np
 
-def unwrap_plan(r,R,center,max_angle=None,modulo=None):
+def unwrap_plan(r, R, center, modulo=None):
     """ Make the array which constitutes the unwrap plan. This is then passed
     to the actual unwrap function along with the array to be unwrapped.
     Generating a separate plan results in serious speed improvements if the
@@ -15,8 +15,6 @@ def unwrap_plan(r,R,center,max_angle=None,modulo=None):
         r - the interior radius if the unwrapping annulus. float or int.
         R - the exterior radius of the unwrapping annulus. float or int.
         center - a 2-tuple of integers giving the center of the annulus.
-        max_angle - the portion of the azimuthal coordinate to be unwrapped.
-            The default is 2pi.
         modulo - if put the coordinates through a modulo operation of this
             value. This is intended for use in unwrapping machine-centered
             speckle without requiring a fftshift. Generally, this should be the
@@ -37,14 +35,10 @@ def unwrap_plan(r,R,center,max_angle=None,modulo=None):
     ur,uR = min([r,R]),max([r,R])
     assert ur > 0, "inner radius must be > 0"
 
-    if max_angle == None: max_angle = 2*np.pi
-    assert isinstance(max_angle, (float, int)), "max_angle must be float"
-    max_angle = float(max_angle)
-
     # setup up polar arrays
-    ucols = int(max_angle*uR)
+    ucols = int(2*np.pi*uR)
     r,c = np.indices((uR-ur,ucols),float)
-    phi = np.ones_like(r)*np.arange(ucols)*max_angle/ucols
+    phi = np.ones_like(r)*np.arange(ucols)*2*np.pi/ucols
     r += ur
     
     x = np.ravel(center[1]+r*np.cos(phi))
@@ -70,7 +64,7 @@ def unwrap_plan(r,R,center,max_angle=None,modulo=None):
 
     return plan
 
-def wrap_plan(r,R,max_angle=None):
+def wrap_plan(r, R):
     """ Generate a plan to rewrap an array from polar coordinates into cartesian
     coordinates. Rewrapped array will be returned with coordinate center at
     the array center.
@@ -78,16 +72,12 @@ def wrap_plan(r,R,max_angle=None):
     arguments:
         r - the inner raidus of the data to be wrapped.  int or float
         R - the outer radius of the data to be wrapped. int or float.
-        max_angle - The maximum angle that should be unwrapped.  The value here
-            is in radians and defaults to 2pi.
 
     returns:
         plan - a ndarray plan of coordinate wrapping map.  To be used in wrap().
     """
     assert isinstance(R, (int, float)), "R must be float or int"
     assert isinstance(r, (int, float)), "r must be float or int"
-    if max_angle == None: max_angle = 2*np.pi
-    assert isinstance(max_angle,float), "max_angle must be float"
     
     R1 = max([r,R])
     R2 = min([r,R])
