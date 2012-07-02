@@ -34,4 +34,3 @@ def build_kernel_file(c,d,fileName):
     program.build(devices=[d])
 
     return program
-    

@@ -39,27 +39,30 @@ class cpu_microscope():
         self.returnables = {}
         
     def set_object(self,object):
-        """ Takes a 2d array and makes it a correctly behaving object for symmetry microscope
-        calculations (basically, make it cyclic).
+        """ Put an object into the class namespace. The simulation object can
+        be reset during the simulation, provided that it is the same shape as
+        the object it replaces.
         
         arguments:
-            object: 2d numpy array
-            
-        returns: nothing, but generates class variables"""
+            object: 2d numpy array or, in the initial set, an integer. If an
+                array, must be square."""
         
         assert isinstance(object,(np.ndarray,int))
         
         if self.can_has_object:
+            # if an object has already been set, require the new object be an array
             assert isinstance(object,np.ndarray), "must update object with numpy array"
             assert object.ndim == 2, "object must be 2d"
             assert object.shape[0] == object.shape[1], "object must be square"
             self.object = object.astype(complex)
         
         if not self.can_has_object:
+            # if an object hasn't already been set, allow either a number or an object;
+            # strictly speaking the former is all that is needed to set the rest of
+            # the class variables.
             if isinstance(object,int):
                 self.N = object
                 self.object = np.zeros((self.N,self.N),complex)
-            
             if isinstance(object,np.ndarray):
                 assert object.ndim == 2, "object must be 2d"
                 assert object.shape[0] == object.shape[1], "object must be square"
@@ -68,10 +71,11 @@ class cpu_microscope():
         self.can_has_object = True
         
     def set_unwrap(self,params):
-        """ Build and name the unwrap plan.
+        """ Build and name the unwrap plan. Can't be reset after initial setting.
         
         Input:
-            params: unwrap_r and unwrap_R. center is assumed to be at array center
+            params: unwrap_r and unwrap_R.
+                center is assumed to be at array center
         
         returns: nothing, but generates class variables"""
         
@@ -95,12 +99,13 @@ class cpu_microscope():
         
     def set_pinhole(self,pinhole):
         
-        """Set the pinhole function.
+        """Set the pinhole function. Can be reset during the simulation if it is
+        the same size as the old pinhole (the array size, not the radius).
         
         arguments:
-            pinhole: Either a number, in which case a circle is generated as the pinhole, or
-            an array, in which case the array is set as the pinhole. This latter option allows
-            for complicated illumination shapes to be supplied."""
+            pinhole: Either a number, in which case a circle is generated as the
+            pinhole, or an array, in which case the array is set as the pinhole.
+            The latter option allows custom illuminations to be supplied."""
         
         assert self.can_has_object, "need to init object before pinhole"
         assert isinstance(pinhole,(int,float,np.ndarray)), "pinhole must be number or array"
@@ -108,10 +113,10 @@ class cpu_microscope():
         if isinstance(pinhole,(int,float)):
             assert pinhole < self.N/2, "pinhole radius must be smaller than pinhole array size"
             circle = shape.circle((self.N,self.N),pinhole)
-            #self.illumination = np.fft.fftshift(circle)
-            self.illumination = shift(circle)
+            self.illumination = shift(circle) # this makes coordinates (0,0) be the array corners
             
         if isinstance(pinhole,np.ndarray):
+            # if the pinhole is custom, all bets are off about the simulation's coordinates system...
             assert pinhole.shape == self.object.shape, "supplied pinhole must be same size as supplied object"
             self.illumination = pinhole
 
@@ -151,7 +156,8 @@ class cpu_microscope():
         """ Set which of the possible intermediate values are returned out of
         the simulation. Results are returned as a dictionary from which
         intermediates can be extracted through returnables['key'] where 'key' is
-        the desired intermediate. Set after object to be safe. 
+        the desired intermediate. Set after object to be safe. Fewer options are
+        available here than in the gpu class.
         
         Available returnables:
             illuminated: the current view * the illumination function
@@ -164,10 +170,7 @@ class cpu_microscope():
             spectrum: the angular ac decomposed into a cosine series.
             
         By default, the only returnable is 'spectrum', the final output.
-        
-        Advisory note: since the point of running on the GPU is !SPEED!, and
-        pulling data off the GPU is slow, use of returnables should be limited
-        except for debugging.
+
         """
         
         available = ('illuminated','speckle','speckle_blocker',

@@ -35,7 +35,7 @@ def unwrap_plan(r,R,center,max_angle=None,modulo=None):
     #center = [int(i) for i in center]
     
     ur,uR = min([r,R]),max([r,R])
-    assert ur > 0, "inner radius must be > 0"
+    assert ur >= 0, "inner radius must be >= 0"
 
     if max_angle == None: max_angle = 2*np.pi
     assert isinstance(max_angle, (float, int)), "max_angle must be float"

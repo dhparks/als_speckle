@@ -2,9 +2,7 @@ __kernel void execute(__global int* whenflipped,
 					  __global float* new_domains,
 					  __global float* old_domains,
 					  __global float* recency_val,
-					  float target, int iteration,
-					  __global float* wants,
-					  __global float* needs) 					  
+					  float target, int iteration) 					  
 {	
 
 	int i = get_global_id(0);
@@ -15,9 +13,6 @@ __kernel void execute(__global int* whenflipped,
 		int age = abs(whenflipped[i]-iteration);
 		float want = new_domains[i]-old_domains[i];
 		float need = recency_val[iteration-whenflipped[i]];
-	
-		wants[i] = want;
-		needs[i] = need;
 		
 		float sod = sign(old_domains[i]);
 		float sw  = sign(want);

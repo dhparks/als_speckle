@@ -26,7 +26,7 @@ class gpu_microscope():
     """Methods for running a symmetry-microscope simulation on a gpu using
     pyopencl and pyfft libraries"""
 
-    def __init__(self,gpuinfo,object=None,unwrap=None,pinhole=None,components=None,coherence=None,returnables=('spectrum')):
+    def __init__(self,gpuinfo,object=None,unwrap=None,pinhole=None,components=None,coherence=None,returnables=('spectrum',)):
 
         """ Get the class running. At minimum, accept gpu information and
         compile kernels. Information about the object, pinhole, unwrap region
@@ -351,7 +351,7 @@ class gpu_microscope():
         if self.uR >= self.N/2 and self.ur == 0:
             print "check output spectra for NaN. if present adjust unwrapped_r or unwrapped_R"
 
-    def set_returnables(self,returnables=('spectrum')):
+    def set_returnables(self,returnables=('spectrum',)):
         
         """ Set which of the possible intermediate values are returned out of
         the simulation. Results are returned as a dictionary from which
@@ -462,7 +462,7 @@ class gpu_microscope():
             
         self.make_time1 = time.time()
 
-    def blur_speckle(self):
+    def blur(self):
         """ Turn the fully-coherent speckle pattern in self.intensity_sum_re into a partially coherent
         speckle pattern through convolution with a mutual intensity function. This method accepts no input.
         The blurred speckle is saved in self.intensity_sum_re.
