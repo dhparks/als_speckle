@@ -327,7 +327,6 @@ def autocorr(img,axes=(0,1)):
     return crosscorr(img, img, axes=axes)
     
 def pairwise_covariances(data,save_memory=False):
-    
     """ Given 3d data, cross-correlates every frame with every other frame to generate
     all the normalized pairwise covariances (ie, "similarity" or "rho" in Pierce etc).
     This is useful for determining which frames to sum in the presence of drift or slow
@@ -344,7 +343,8 @@ def pairwise_covariances(data,save_memory=False):
         
     Returns:
         a 2d ndarray of normalized covariances values where returned[row,col] is the
-        cross-correlation max of frames data[row] and data[col]."""
+        cross-correlation max of frames data[row] and data[col].
+    """
         
     assert isinstance(data, np.ndarray) and data.ndim == 3, "data must be 3d ndarray"
 
