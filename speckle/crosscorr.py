@@ -4,8 +4,7 @@ Author: Keoki Seu (KASeu@lbl.gov)
 """
 import numpy as np
 
-from . import averaging
-from . import shape
+from . import averaging, shape, wrapping
 
 def point_memory( imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None, flatten_width=30, removeCCBkg=True, pickPeakMethod="integrate", intermediates=False):
     """Calculates the cross-correlation coefficient between two image pairs imgA
@@ -270,7 +269,7 @@ def crosscorr(imgA, imgB, axes=(0,1), already_fft=(), shift=True):
             Defaults to both (0,1).
         already_fft - (optional) tuple listing which (if any) inputs have
             already been ffted.
-        shift - Weather or not the image should be rolled to the center.
+        shift - Flag to determine if the image should be rolled to the center.
             Defaults to True.
 
     returns:
@@ -412,7 +411,343 @@ def alignment_coordinates(obj, ref, already_fft=(),conjugated=False):
     if max_col > cols/2: max_col += -cols
     
     return -max_row, -max_col
+
+def rot_crosscorr(imgA, imgB, center, RRange):
+    """ Unwinds an image an calculates the rotational cross-correlation function,
+               rotCCF = <I(R,theta), J(R,theta+dtheta)>_theta.
+        where I and J are images of the same dimension and <>_theta means summed
+        over theta.
+
+        arguments:
+            imgA - first image to correlate.
+            imgB - second image to correlate.  Must be the same size as imgA.
+            center - center coordinates in the format (yc, xc).
+            RRange - Radial range to calculate the crosscorr. The  format is
+            (Rmin, Rmax, Rstep). Typical values would be (100, 800, 15).
+        returns:
+            CCF results - a (m, n+1) array of CCF results, where n=number of
+            regions determined by RRange, and m is the number of angles
+            determined by angleRange.  There is an extra element along x for
+            the angles column.
+    """
+    assert isinstance(imgA, np.ndarray) and isinstance(imgB, np.ndarray), "imgA and imgB must be arrays"
+    assert imgA.shape == imgB.shape, "Images must be the same shape"
+
+    # function to check of is tuple or list and length 2 and all elem are integer
+    is_tl_2_int = lambda i, l: True if isinstance(i, (tuple, list, set)) and len(i) == l and all([isinstance(b, int) for b in i]) else False
+    print center
+    assert is_tl_2_int(center, 2), "center must be length 2 list/tuple of ints"
+    print RRange
+    assert is_tl_2_int(RRange, 3), "RRange must be length 3 list/tuple of ints"
+
+    (yc, xc) = center
+    Rstart, Rstop, Rstep = RRange
     
-        
-        
+    maxR = _maxRadius(imgA, center)
+    if maxR < Rstop:
+        Rstop = maxR
+
+    imgA = imgA[yc-Rstop:yc+Rstop, xc-Rstop:xc+Rstop]
+    imgB = imgB[yc-Rstop:yc+Rstop, xc-Rstop:xc+Rstop]
+    # xc and yc get moved once we crop the image.
+    xc = yc =Rstop
+    (ys, xs) = imgA.shape
+
+    plan = wrapping.unwrap_plan(Rstart, Rstop, (yc,xc))
+    unwA = wrapping.unwrap(imgA, plan)
+    unwB = wrapping.unwrap(imgB, plan)
+
+    cc = abs(crosscorr(unwA, unwB, axes=(1,)))
     
+    unwy, unwx = unwA.shape
+    Rvals = range(Rstart, Rstop, Rstep)
+    avg_cc = np.zeros( (len(Rvals), unwx))
+    for i, R in enumerate(Rvals):
+        avg_cc[i] = cc[R:R+Rstep].sum(axis=0)
+    
+    return avg_cc
+
+def rot_memory( imgA, imgB, center, darks=None, qacfs=None, qacfdarks=None, RRange=(10, 600, 25), flatten_width=30, removeCCBkg=True, pickPeakMethod="integrate", intermediates=False):
+    """Calculates the rotational cross-correlation coefficient between two image
+    pairs imgA and imgB. This calculates the value rho_q where:
+        rho_q = \frac{\sum(CC(A_q, B_q))}{\sqrt{AC(A_q) AC(B_q)}},
+    and A_q (B_q) are images that are sliced radially in q.  The 3-tuple RRange
+    determines the (Rstart, Rstop, Rstep) values that the image is sliced.
+    Darks, quasi-ACFs, and qACF darks can also be provided. If quasi-ACFs are
+    provided, then it calculates:
+        rho = \frac{\sum(CC(imgA,imgB))}{\sqrt{qACF(A) qACF(B)}}.
+
+    The images are preprocessed first by dividing by a gaussian of fwhm
+    flatten_width (if it's nonzero) before the images are unwound and ACs and
+    CCs are calculated.  Then (if the option is on), a spline is used to remove
+    the AC/CC background before the peak is summed (or the max value is used).
+
+    arguments:
+        imgA - First image to calculate.  Must be a two dimensional array.
+        imgB - First image to calculate.  Must be a two dimensional array.
+        center - the center of the image.  Must be a tuple of (row, col) center.
+        darks - A tuple of dark images (darkA, darkB). These are subtracted
+            from the image. Defaults to None.
+        qacfs - A tuple of quasi-ACF images (qacfA, qacfB). If provided, these
+            are used in the normalization. Defaults to None.
+        qacfs - A tuple of quasi-ACF dark images (qacfAdark, qacfBdark). If
+            provided, these are subtracted from the dark. Defaults to None.
+        removeCCBkg - This option will create a spline fit to remove the
+            background after the AC and CC are calculated.  Defaults to True.
+        RRange - Radial range for the calculation.  This specifies the
+            (Rmin, Rmax, Rstep) values where the correlation should be
+            calculated.
+        flatten_width - Width used for flattening the image before unwinding and
+            calculating AC/CCs. This value should be larger than the pixel size
+            and defaults to 30 px. If False, flattening does not happen. 
+        peakPickMethod - method to pick the peak.  Can be either "max" or
+            "integrate".  "integrate" sums over an area of 16 'qspace pixels'.
+            The term 'qspace pixels' is used because the amount of pixels used
+            after unwinding gets smaller as R increases, but it always tries to
+            sweep out 16 'qspace pixels'. Defaults to "integrate".
+        intermediates - Weather or not the program should return intermediate
+            arrays. If this is True, it returns a dictionary of intermediate
+            calculations, such as ACFs, qACFs, spline fits..etc.  The
+            calculations are numbered in the order that they are calculated. The
+            default is False
+
+    returns:
+        RRanges/CC coefficients - a (2xN) array of (R, correlation-coef) values.
+            Typically correlation-coef is a number between [0,1].
+        intermediates - if intermediates=True, a dictonary of intermediate
+            arrays is also returned.
+    """
+    FLATTEN_WIDTH = 30 # radius used for flattening the speckle pattern before ACs are calculated.
+    PEAK_INTEGRATE_RADIUS = 8 # radius of the circle that we integrate the speckle peak over.
+    import scipy.ndimage
+
+    # function to make sure we have a list of two numpy arrays of the same size.
+    check_pairs = lambda val: True if (val is not None and type(val) in (list, tuple) and len(val) == 2 and isinstance(val[0], np.ndarray) and isinstance(val[1], np.ndarray) and val[0].shape == val[1].shape) else False
+
+    assert check_pairs((imgA, imgB)), "imgA and imgB must be arrays with the same shape"
+    assert imgA.ndim == 2, "arrays must be two-dimensional"
+    assert type(flatten_width) in (bool, float, int), "flatten_width must be a number or bool"
+    assert type(removeCCBkg) == bool, "removeCCBkg must be a boolean"
+    assert type(intermediates) == bool, "intermediates must be a boolean"
+    assert pickPeakMethod in ("integrate", "max"), "pickPeakMethod must be 'integrate' or 'max'"
+    assert isinstance(center, (tuple, set, list)) and len(center) == 2, "center must be 2-tuple/list/set"
+    assert isinstance(RRange, (tuple, set, list)) and len(RRange) == 3, "RRange must be length-3 list/tuple/set."
+    r, R, Rstep = RRange
+    if R < r:
+        r, R = R, r
+    assert Rstep < R -r, "Rstep must be smaller than R-r"
+    RRange = r, R, Rstep
+
+    def unw_cc(A, B, RRange):
+        """ Helper function to calculate the cross correlation of two unwound
+        arrays. This is similar to rot_CCF but avoids the unwrapping part since
+        it's done already.
+        """
+        cc = abs(crosscorr(A, B, axes=(1,)))
+    
+        unwy, unwx = A.shape
+        r, R, Rstep = RRange
+        Rvals = range(0, R-r, Rstep)
+        avg_cc = np.zeros( (len(Rvals), unwx))
+        for i, R in enumerate(Rvals):
+            s = cc[R:R+Rstep].sum(axis=0)
+            avg_cc[i] = cc[R:R+Rstep].sum(axis=0)
+        return avg_cc
+
+    if intermediates:
+        intermediate_arrays = {}
+
+    # helper function for storing intermediate arrays 
+    def store(key, val):
+#        print "storing %s" % key
+        if intermediates: intermediate_arrays[key] = val
+
+    if isinstance(flatten_width, bool):
+        if flatten_width == True:
+            flatten_width = FLATTEN_WIDTH
+    else:
+        flatten_width == float(flatten_width)
+
+    haveqACFs = check_pairs(qacfs)
+    if haveqACFs:
+        if check_pairs(qacfdarks):
+            if qacfs[0].shape == qacfdarks[0].shape:
+                print "have qacfs and qacfdarks"
+                qacfA = qacfs[0] - qacfdarks[0]
+                qacfB = qacfs[1] - qacfdarks[1]
+            else:
+                haveqACFs = False
+        else:
+            print "have qacfs (no darks)"
+            qacfA = qacfs[0]
+            qacfB = qacfs[1]
+
+    if haveqACFs:
+        store('00-A_qACF_orig', qacfA)
+        store('00-B_qACF_orig', qacfB)
+    store('00-A_orig', imgA)
+    store('00-B_orig', imgB)
+
+    if check_pairs(darks):
+        if imgA.shape == darks[0].shape:
+            imgA -= darks[0]
+            imgB -= darks[1]
+
+    if flatten_width:
+        filterString = "Flattening"
+    else:
+        filterString = "Not flattening"
+
+    if removeCCBkg:
+        bkgString = ""
+    else:
+        bkgString = "not "
+
+    if pickPeakMethod == "integrate":
+        peakString = "integrating over a circle of radius %d" % PEAK_INTEGRATE_RADIUS
+    elif pickPeakMethod == "max":
+        peakString = "picking maximum value"
+
+    print("%s before unwinding/CC/AC, %sremoving backgrounds, %s for AC/CC peak." % (filterString, bkgString, peakString))
+
+    if flatten_width:
+        flatA = averaging.smooth_with_gaussian(imgA, flatten_width)
+        flatB = averaging.smooth_with_gaussian(imgB, flatten_width)
+        store('01-A_flatten_smoothed', flatA)
+        store('01-B_flatten_smoothed', flatB)
+
+        imgA = imgA/flatA
+        imgB = imgB/flatB
+        store('01-A_flatten', imgA)
+        store('01-B_flatten', imgB)
+        if haveqACFs:
+            flatqacfA = averaging.smooth_with_gaussian(qacfA, flatten_width)
+            flatqacfB = averaging.smooth_with_gaussian(qacfB, flatten_width)
+            store('01-A_qACF_flatten_smoothed', flatqacfA)
+            store('01-B_qACF_flatten_smoothed', flatqacfB)
+
+            qacfA = qacfA/flatqacfA
+            qacfB = qacfB/flatqacfB
+            store('01-A_qACF_flatten', qacfA)
+            store('01-B_qACF_flatten', qacfB)
+
+    plan = wrapping.unwrap_plan(r, R, center)
+    unwA = wrapping.unwrap(imgA.astype('float'), plan)
+    unwB = wrapping.unwrap(imgB.astype('float'), plan)
+    store('02-A-unwrapped', unwA)
+    store('02-B-unwrapped', unwB)
+
+    rad_per_pix = 2*np.pi/len(unwA[0]) # this the num of radians in 1 pixel of the unwound array. It's needed for determining the num. ctl. pts. for removeCCBkg
+
+    cc = unw_cc(unwA, unwB, RRange)
+    store("04-cc", cc)
+    if haveqACFs:
+        unwqA = wrapping.unwrap(qacfA.astype('float'), plan)
+        unwqB = wrapping.unwrap(qacfB.astype('float'), plan)
+        store('02-A_qACF_unwrapped', unwqA)
+        store('02-B_qACF_unwrapped', unwqB)
+
+        autoA = unw_cc(unwA, unwqA, RRange)
+        autoB = unw_cc(unwB, unwqB, RRange)
+        store("04-A_qACF", autoA)
+        store("04-B_qACF", autoB)
+    else:
+        autoA = unw_cc(unwA, unwA, RRange)
+        autoB = unw_cc(unwB, unwB, RRange)
+        store("04-A_ac", autoA)
+        store("04-B_ac", autoB)
+
+    def linfit(img, nx, order=3):
+        """fit an lineplot to a spline.
+
+        parameters:
+            line - 1d linescan.
+            nx - number of control points in x
+            order - order of splines. Defaults to 3.
+
+        returns:
+            spline - the linear fitted image, of the same dimension as img.
+        """
+        j = complex(0,1)
+        xs = img.shape[0]
+    
+        # reduce image down to (nx,) shape
+        x = np.mgrid[0:xs-1:nx*j]
+    
+        reduced = scipy.ndimage.map_coordinates(img, np.array([x]), order=order)
+    
+        # blow image back up to img.shape
+        rxs = reduced.shape[0]
+        outx = np.mgrid[0:rxs-1:xs*j]
+        spl = scipy.ndimage.map_coordinates(reduced, np.array([outx]), order=order)
+    
+        return spl
+
+    def spl_lines(data):
+        # make_even sets the number of control points to an even value so there is never a control point on the speckle peak.
+        make_even = lambda v: v % 2 == 1 and v - 1 or v
+        spl = np.zeros_like(data)
+        mask_npix =  calc_radial_maskpx()
+        ys, xs = data.shape
+        for i, mask_px in enumerate(mask_npix):
+            nx = make_even(int(np.floor(xs/mask_px)))
+            spl[i] = linfit(data[i], nx)
+        return spl
+
+    def calc_radial_maskpx():
+        """ Returns a (1,m) set of # px in mask
+        """
+        Ravg = np.arange(r, R, Rstep, dtype=float) + Rstep/2.0
+        return np.floor(2 * PEAK_INTEGRATE_RADIUS / (Ravg * rad_per_pix))
+
+
+    if removeCCBkg:
+        spl_cc= spl_lines(cc)
+        spl_autoA = spl_lines(autoA)
+        spl_autoB = spl_lines(autoB)
+        store("05-cc_spline", spl_cc)
+        store("05-A_ac_spline", spl_autoA)
+        store("05-B_ac_spline", spl_autoB)
+
+        cc = cc - spl_cc
+        autoA = autoA - spl_autoA
+        autoB = autoB - spl_autoB
+        store("05-cc_remCCbkg", cc)
+        store("05-A_ac_remCCbkg", autoA)
+        store("05-B_ac_remCCbkg", autoB)
+
+    if pickPeakMethod == "integrate":
+        mask = np.zeros_like(cc)
+        mask_npix = calc_radial_maskpx()
+        (ys, xs) = cc.shape
+        xmid = xs/2
+        for i in range(ys):
+            halfmask = mask_npix[i]/2
+            mask[i, xmid-halfmask:xmid+halfmask] = 1
+
+        CCval = (cc*mask).sum(axis=1)
+        ACval = np.sqrt((autoA*mask).sum(axis=1) * (autoB*mask).sum(axis=1))
+
+        store("06-cc_summed_region", cc*mask)
+        store("06-A_ac_summed_region", autoA*mask)
+        store("06-B_ac_summed_region", autoB*mask)
+    else: # pickPeakMethod == "max"
+        CCval = cc.max()
+        ACval = np.sqrt(autoA.max()*autoB.max())
+    
+    Ravg = np.arange(r, R, Rstep, dtype=float) + Rstep/2.0
+    ccval = np.real(CCval/ACval)
+
+    R_ccvals = np.vstack((Ravg, ccval)).swapaxes(0,1)    
+    if intermediates:
+        return R_ccvals, intermediate_arrays
+    else:
+        return R_ccvals
+
+def _maxRadius(img, center):
+    """ Returns the maximum radius of which the angular cross correlation
+        can be calculated.
+    """
+    ys, xs = img.shape
+    yc, xc = center
+    return min(ys, xs, ys-yc, xs-xc)
