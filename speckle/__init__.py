@@ -12,6 +12,9 @@ Author: Keoki Seu (kaseu@lbl.gov)
 Author: Daniel Parks (dhparks@lbl.gov)
 
 """
+__version_info__ = ('0', '1', '0')
+__version__ = '.'.join(__version_info__)
+
 # if you make a new file/module name, put it here
 __all__ = [
     "fit",
