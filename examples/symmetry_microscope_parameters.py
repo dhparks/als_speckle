@@ -1,4 +1,4 @@
-where = 'gpu' # options: 'gpu','cpu'
+device = 'gpu' # options: 'gpu','cpu'
 
 # first, specify the colloid/random-walk simulation parameters. note that these parameters
 # are also used elsewhere; for example, the symmetry microscope, which runs after the random-walk,

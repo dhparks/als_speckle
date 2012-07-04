@@ -1,114 +1,103 @@
 # core libraries
-import numpy
-from numpy.fft import fftshift
-from numpy.fft import fft2 as DFT
+import numpy,sys
+sys.path.append('../generators')
+fftshift = numpy.fft.fftshift
+fft2 = numpy.fft.fft2
+import time
 
 # common libraries
 import speckle
-import speckle.gpu as gpulib
-dg = gpulib.gpu_domain_generator
 
 # set the io default to overwrite files
 speckle.io.set_overwrite(True)
 
-# plotting. use 'agg' backend for remote plotting ie on magnon
-import matplotlib
-matplotlib.use('Agg')
-import pylab
+c = 1./(2*numpy.sqrt(numpy.sqrt(2)-1))
 
-def fit_speckle(data):
-    from scipy.optimize import leastsq
+def open_seed(name,size):
+    ext = name.split('.')[-1]
+    assert ext in ('png','fits'), "unrecognized file type for seed"
+    if ext == 'png': seed = speckle.io.openimage(name).astype('float')
+    if ext == 'fits': seed = speckle.io.openfits(name).astype('float')
+    seed *= 2*seed/seed.max()-1
     
-    unwrapped = speckle.wrapping.unwrap(data,(0,N/2,(N/2,N/2)))
-    yd = numpy.sum(unwrapped,axis=1)
-    yd *= 1./yd.max()
-    xd = numpy.arange(N/2).astype('float')
-    tofit = numpy.array([xd,yd])
-    fitted = speckle.fit.lorentzian_sq(tofit)
+    assert size <= len(seed), "seed is too small for specified simulation size (%s vs %s)"%(size,len(seed))
+    seed = seed[0:size,0:size]
     
-    eval_l2 = lambda p,x: p[0]/((x-p[1])**2./p[2]**2.+1)**2.+p[3]
-    
-    pylab.plot(xd,yd)
-    pylab.plot(xd,eval_l2(fitted.final_params,xd))
-    
-    c0 = center*N/2048.
-    w0 = fwhm*N/2048.
-    
-    pylab.xlim([c0-2*w0,c0+2*w0])
-    pylab.savefig('domain generator/out/envelope fit %s %s.png'%(center,fwhm))
-    
-    fitted.final_params[1] *= 2048./N
-    fitted.final_params[2] *= 2048./N*1.29 # convert from w in the fit to fwhm in the report
-    
-    return fitted.final_params
+    return seed
 
-def simulate_domains(gpuinfo,domain_N,center,fwhm,seed):
-    
-    converged = False
-    domain_iteration = 0
-    alpha = 0.3
-    
-    print ""
-    print "simulating domains with L^2 envelope:"
-    print "  size   = %s"%domain_N
-    print "  center = %.2f -> %.2f"%(center,center*domain_N/2048.)
-    print "  fwhm   = %.2f -> %.2f\n"%(fwhm,fwhm*domain_N/2048.)
-    
-    # Instantiate the simulation and make the goal envelope.
-    print "instantiating gpu domain generator class"
-    domain_simulation = dg.generator(gpuinfo,domain_N,seed,alpha,interrupts=())
-    print "  done"
-
-    # Make the goal envelope. In this case, the envelope is an isotropic squared lorentzian with no
-    # symmetries. The 'center' and 'width' keywords which come into the simulation are what would
-    # be measured on the 2048 ccd. The goal magnetization is also set in the make_envelope function;
-    # here, it is set to zero by the ['goal_m',0] list element
-    print "making envelope"
-    width = fwhm/(2*numpy.sqrt(numpy.sqrt(2)-1))
-    domain_simulation.make_envelope([['isotropic','lorentzian_sq',1,center*domain_N/2048.,width*domain_N/2048.],['goal_m',0]])
-    print "  done"
-
+def iterate(dg_instance):
     # Now run the simulation until the domain pattern has converged with a reasonable degree
     # of self-consistency. The simulation is incremented along iterations by the
-    # gpudg.generator.one_iteration() method, which takes as argument the iteration number so that
+    # one_iteration() method, which takes as argument the iteration number so that
     # the methods in the class can know what time it is. If reasonable self-consistency is not
     # reached within 200 iterations the simulation is stopped.
     print "iterating"
-    while not converged:
-        domain_simulation.one_iteration(domain_iteration)
-        converged = domain_simulation.check_convergence()
-        if domain_iteration == 200: converged = True
-        domain_iteration += 1
-    print "  convergence reached after %s iterations\n"%domain_iteration
+    iteration = 0
+    while not dg_instance.converged:
+        dg_instance.one_iteration(iteration)
+        dg_instance.check_convergence()
+        if iteration == 200: dg_instance.converged = True
+        iteration += 1
+        print "  iteration %s, power %.3e"%(iteration,dg_instance.power)
+    print "  convergence reached after %s iterations\n"%iteration
         
-    # pull the domain image off the gpu and back into host memory
-    domains = domain_simulation.domains.get()
+    # pull the domain image and the envelope off the gpu and back into host memory.
+    envelope = domain_simulation.returnables['envelope']
+    domains = domain_simulation.returnables['converged']
 
-    return domains
+    return domains,envelope
 
-# initialize the gpu
-info = gpulib.gpu.init()
+import domain_parameters as dp
 
 # open the seed file for domain generation
-seed = speckle.io.openfits('domain generator/resources/real phi0 1024 random.fits').astype('float32')
+seed = open_seed(dp.seed_name,dp.size)
+r = dp.size/2048.
 
-# specify the basic envelope parameters. these describe the lineshape as it would be
-# measured on a 2048x2048 ccd on beamline 12.0.2 at 780eV.
-center = 240
-fwhm = 80.
-N = 512
+# instantiate the generator. initialize the gpu if necessary. there are several ways
+# this can fail so this is a little bit messy. if you KNOW FOR SURE that the system
+# has an opencl runtime and pyopencl is installed and there is a supported GPU in the
+# system then this can be simplified (see further down)
+if dp.device == 'gpu':
+    try:
+        import speckle.gpu as gpulib
+    except gpulib.gpu.GPUInitError as errormsg:
+        # import crashed without pyopencl
+        print errormsg,"\nfalling back to cpu"
+        dp.device == 'cpu'
+if dp.device == 'gpu':
+    try:
+        gpuinfo = gpulib.gpu.init()
+        import gpu_domains as domainslib  # from generators folder
+    except gpulib.gpu.GPUInitError as errormsg:
+        # gpulib.gpu_init() crashed due to an opencl problem (such as lack of supported gpu)
+        print errormsg, "\nfalling back to cpu"
+        dp.device = 'cpu'
+if dp.device == 'cpu': import cpu_domains as domainslib # from generators folder
 
-domains = simulate_domains(info,N,center,fwhm,seed)
-speckles = dg.make_speckle(domains)
+if dp.device == 'gpu': domain_simulation = domainslib.generator(gpuinfo,domains=dp.size,returnables=dp.domain_returnables,converged_at=dp.converged_at)
+if dp.device == 'cpu': domain_simulation = domainslib.generator(        domains=dp.size,returnables=dp.domain_returnables,converged_at=dp.converged_at)
 
-# fit the envelope paramters. these should be reasonably close to the input parameters.
-# the fit width of the speckle will probably be a little less than the input goal
-# due to the envelope rescaling algorithm convolving with a gaussian in r.
-fit_params = fit_speckle(speckles)
-print "fit speckle to L^2:"
-print "  center: %.2f"%fit_params[1]
-print "  width:  %.2f (will be slightly less than goal)"%fit_params[2]
+# simplified gpu instantiation, for use when the GPU and runtimes are known to be present:
+# import speckle.gpu
+# gpuinfo = speckle.gpu.gpu.init()
+# import gpu_domains as domainslib
+# domain_simulation = domainslib.generator(gpuinfo,domains=seed,returnables=dp.domain_returnables,converged_at=dp.converged_at)
+    
+# put the seed into the simulation
+time0 = time.time()
+domain_simulation.set_domains(seed)
 
-speckle.io.save('domain generator/out/melted domains %s %s.png'%(center,fwhm),domains,components=('real'))
-speckle.io.save('domain generator/out/melted speckle %s %s.png'%(center,fwhm),numpy.sqrt(speckles),color_map='B')
+# run each stage of the trajectory, saving output from each
+for n,stage in enumerate(dp.trajectory):
+    domain_simulation.set_envelope(stage)          # set the goal despeckle envelope 
+    domains,envelope = iterate(domain_simulation)  # iterate to a self-consistent solution
+    
+    # save output
+    print "elapsed time: %s"%(time.time()-time0)
+    speckles = domainslib.make_speckle(domains)
+    speckle.io.save('%s/%s melted domains %s %s stage %s.png'%(dp.save_to,dp.device,dp.center,dp.fwhm,n+1),domains,components=('real'))
+    speckle.io.save('%s/%s goal envelope %s %s stage %s.fits'%(dp.save_to,dp.device,dp.center,dp.fwhm,n+1),envelope,components=('real'))
+    speckle.io.save('%s/%s melted speckle %s %s stage %s.png'%(dp.save_to,dp.device,dp.center,dp.fwhm,n+1),numpy.sqrt(speckles),color_map='B')
+    
+
 

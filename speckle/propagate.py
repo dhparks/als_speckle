@@ -5,7 +5,7 @@ Author: Daniel Parks (dhparks@lbl.gov)"""
 import numpy
 DFT = numpy.fft.fft2
 IDFT = numpy.fft.ifft2
-from numpy.fft import fftshift
+shift = numpy.fft.fftshift
 
 from . import shape
 #import shape
@@ -54,7 +54,7 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
         else: wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
     
         N = len(data)
-        r = fftshift((shape.radial((N,N)))**2)
+        r = shift((shape.radial((N,N)))**2)
         phase = numpy.exp(-I*numpy.pi*wavelength*z*r/(pixel_pitch*N)**2)
         
     else:
@@ -115,7 +115,7 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=N
     # precompute the fourier signal. define the phase as a lambda function. loop through the distances
     # calling phase and propagate_one_distance. save the region of interest (subarray) to the buffer.
     fourier = DFT(data)
-    r = fftshift((shape.radial((N,N)))**2)
+    r = shift((shape.radial((N,N)))**2)
     cpu_phase = lambda z: numpy.exp(-I*numpy.pi*wavelength*z*r/(pixel_pitch*N)**2)
     for n,z in enumerate(distances):
         if z > upperlimit: print "propagation distance (%s) exceeds accuracy upperlimit (%s)"%(z,upperlimit)
@@ -125,7 +125,7 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=N
 
     return buffer
             
-def apodize(data,kt=8,threshold=0.01,sigma=5,return_type='data'):
+def apodize(data,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     """ Apodizes a 2d array so that upon back propagation ringing from the aperture is at least somewhat suppressed.
     The steps this function follows are as follows:
         # 1. unwrap the data
@@ -137,7 +137,7 @@ def apodize(data,kt=8,threshold=0.01,sigma=5,return_type='data'):
         data: 2d ndarray containing the data to be apodized. This data should be been sliced so that the only object is the target data.
     
     Optional arguments:
-        kt: strength of apodizer. float or int.
+        kt: strength of apodizer. float or int. Default is kt=0.1. kt=1.0 is VERY strong.
         threshold: float or int value defines the boundary of the data.
         sigma: boundary locations are smoothed to avoid with jagged edges; this sets  the smoothing. float or int.
         return_type: can return the filtered data, just the filter, or intermediates for debugging/inspection. Basically, for debugging.
@@ -172,7 +172,7 @@ def apodize(data,kt=8,threshold=0.01,sigma=5,return_type='data'):
     unwrap_plan = wrapping.unwrap_plan(0,R,(av_col,av_row)) # very important to set r = 0!
     unwrapped   = wrapping.unwrap(data,unwrap_plan)
     ux          = unwrapped.shape[1]
-    uder        = unwrapped-numpy.roll(unwrapped,-1,axis=0)
+    u_der       = unwrapped-numpy.roll(unwrapped,-1,axis=0)
     
     # at each column, find the edge of the data by stepping along rows until the object
     # is found. ways to make this faster?
@@ -180,18 +180,17 @@ def apodize(data,kt=8,threshold=0.01,sigma=5,return_type='data'):
     boundary = numpy.zeros(ux,float)
     indices = numpy.arange(R-1)
     for col in range(ux):
-        udercol = uder[:,col]
-        ave = numpy.sum(udercol[:-1]*indices)/numpy.sum(udercol[:-1])
+        u_der_col = u_der[:,col]
+        ave = numpy.sum(u_der_col[:-1]*indices)/numpy.sum(u_der_col[:-1])
         boundary[col] = ave
         
     # smooth the edge values by convolution with a gaussian
-    kernel = fftshift(shape.gaussian((ux,),(sigma,),normalization=1.0))
+    kernel = shift(shape.gaussian((ux,),(sigma,),normalization=1.0))
     boundary = abs(convolve(boundary,kernel))
     
     # now that the coordinates have been smoothed, build the filter as a series of 1d filters along the column (angle) axis
-    x = numpy.arange(R).astype(float)
-    filter = numpy.zeros((R,ux),float)
-    for col in range(ux): filter[:,col] = _apodization_f(x,boundary[col],kt)
+    x = numpy.outer(numpy.arange(R),numpy.ones(ux)).astype(float)/boundary
+    filter = _apodization_f(x,kt)
     
     # rewrap the filter and the data to ensure cocentering and equal sizing
     rplan  = wrapping.wrap_plan(0,R)
@@ -258,11 +257,12 @@ def _acutance_calc(data,method,normalized,mask,exponent):
     a = numpy.sum(gradient*mask)
     if normalized: a *= 1./numpy.sum(frame*mask)
     return a
-    
-def _apodization_f(x,n,kt):
-    F = 1./(numpy.exp((x-n)/kt)+1) # why n-1.5 instead of just n???
+
+def _apodization_f(x,kt):
+    F = 1./(numpy.exp((x-1)/kt)+1)
     F += -.5
     F[F < 0] = 0
-    F *= 1./F.max()
+    m = numpy.max(F,axis=0)
+    F *= 1./m
     return F
     

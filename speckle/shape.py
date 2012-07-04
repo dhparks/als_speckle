@@ -64,9 +64,9 @@ def square(size,length,center=None):
     returns:
         A 2-dimensional numpy array with a square of length (length) centered at (center).
     """
-    return rect(size, length, length, center)
+    return rect(size, (length, length), center)
     
-def rect(size,row_length,col_length,center=None):
+def rect(size,lengths,center=None):
     """ Generate a rectangle in a numpy array.
     
     arguments:
@@ -80,7 +80,9 @@ def rect(size,row_length,col_length,center=None):
     if center == None: center = (size[0]/2,size[1]/2)
 
     assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
-    assert isinstance(row_length,(float, int)) and isinstance(col_length,(float, int)), "lengths must be float or integer"
+    assert isinstance(lengths,tuple) and len(lengths) == 2, "lengths must be tuple"
+    row_length,col_length = lengths
+    assert isinstance(row_length,(float, int)) and isinstance(col_length,(float, int)), "lengths must be float or integer, but will be cast to int"
     
     row_length = int(row_length)
     col_length = int(col_length)
