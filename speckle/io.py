@@ -90,21 +90,6 @@ def read_text_array(filename, convert_to='float', delimiter='\t'):
 ############### FITS ########################
 #
 
-def open_dust_mask(path):
-    
-    assert isinstance(path,str)
-    pathsplit = path.split('.')
-    assert len(pathsplit) >= 2, "dust mask path has no file extension"
-    ext = pathsplit[-1]
-    assert ext in ['fits','png','gif','bmp'], "dust mask file extension %s not recognized"%ext
-        
-    if ext == 'fits': mask = openfits(path).astype('float')
-    else:
-        mask = numpy.flipud(openimage(path)).astype('float') # pyfits and PIL have a y-axis disagreement
-        mask = numpy.where(mask > .1,1,0)
-    assert mask.ndim == 2, "mask must be 2d"
-    return mask
-
 def openfits(filename, quiet=True, orientImageHDU=True):
     """ Open a FITS file. Uses pyfits. Tries to intelligently figure out where the data is located.  The LabView programs put it in the ImageHDU, and the Andor Solis program puts it in PrimaryHDU.
 
