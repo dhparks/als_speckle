@@ -294,9 +294,12 @@ def crosscorr(imgA, imgB, axes=(0,1), already_fft=(), shift=True):
         imgB = imgB.astype(imgB.dtype.name)
         
     if np.array_equal(imgA,imgB): # AC condition
-        fftA = fftB = np.fft.fft2(imgA, axes=axes)
+        if already_fft != ():
+            fftA = fftB = imgA
+        else:
+            fftA = fftB = np.fft.fft2(imgA, axes=axes)
     else:
-        # compute forward ffts accounting for pre-computed ffts and complex-conjugates
+        # compute forward ffts accounting for pre-computed ffts
         if 0 in already_fft:
             fftA = imgA
         else:
@@ -353,10 +356,10 @@ def pairwise_covariances(data,save_memory=False):
     ACs = np.zeros(frames,float)
     
     covar = lambda c,a,b: c/np.sqrt(a*b)
-        
+
     # precompute the dfts and autocorrelation-maxes for speed
     for n in range(frames):
-        dft = DFT(data[n].astype('float'))
+        dft = np.fft.fft2(data[n].astype('float'))
         if not save_memory: dfts[n] = dft
         ACs[n] = abs(crosscorr(dft,dft,already_fft=(0,1))).max()
           
@@ -367,16 +370,17 @@ def pairwise_covariances(data,save_memory=False):
         ac = ACs[j]
         for k in range(frames-j):
             k += j
-            bc = ACs[j],ACs[k]
+            bc = ACs[k]
             if save_memory: corr = crosscorr(data[j],data[k])
-            else: corr = crosscorr(dfts[j],dfts[k],already_fft=(0,1))
-            fill = covar(abs(corr).max(),ac,bc)
+            else:
+                corr = crosscorr(dfts[j],dfts[k],already_fft=(0,1))
+                fill = covar(abs(corr).max(),ac,bc)
             covars[j,k] = fill
             covars[k,j] = fill
             
     return covars
 
-def alignment_coordinates(obj, ref, already_fft=(),conjugated=False):
+def alignment_coordinates(obj, ref, already_fft=()):
     """ Computes the roll coordinates to align imgA and imgB. The returned values r0
     and r1 are such the following numpy command will align obj to ref.
     
@@ -399,7 +403,7 @@ def alignment_coordinates(obj, ref, already_fft=(),conjugated=False):
     rows,cols = ref.shape
     
     # compute the cross correlation and find the location of the max
-    corr = crosscorr(obj,ref,already_fft=already_fft,conjugated=conjugated)
+    corr = crosscorr(obj,ref,already_fft=already_fft)
     cc_max = abs(corr).argmax()
     max_row,max_col = cc_max/cols,cc_max%cols
     

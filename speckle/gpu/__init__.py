@@ -24,7 +24,6 @@ __all__ = [
     "gpu",
     "gpu_propagate",
     "gpu_phasing",
-    "gpu_domain_generator",
     "gpu_correlations"
 ]
 
