@@ -783,11 +783,11 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
             if len(shapedesc) == 7:
                 xc, yc, in_xw, in_yw, out_xw, out_yw, angle = shapedesc
                 angle = -angle # ds9 angles are measured in the opposite direction.
-                data += shape.rect( (ys,xs), out_yw, out_xw, (yc, xc) ) - shape.rect( (ys,xs), in_yw, in_xw, (yc, xc))
+                data += shape.rect( (ys,xs), (out_yw, out_xw), (yc, xc) ) - shape.rect( (ys,xs), (in_yw, in_xw), (yc, xc))
             else:
                 xc, yc, xw, yw, angle = shapedesc
                 angle = -angle # ds9 angles are measured in the opposite direction.
-                data += shape.rect( (ys,xs), yw, xw, (yc, xc))
+                data += shape.rect( (ys,xs), (yw, xw), (yc, xc))
 
         elif shapetype == "polygon":
              # fix discrepancy between ds9 index and python idex (1 vs 0)

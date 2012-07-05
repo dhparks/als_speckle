@@ -28,10 +28,10 @@ def smooth_with_rectangle(img, boxsize):
 
     if type(boxsize) in (tuple, list):
         assert len(boxsize) == 2, "boxsize must be a tuple of length 2."
-        mask = shape.rect(imgshape, boxsize[0], boxsize[1])
+        mask = shape.rect(imgshape, boxsize)
     else:
         assert type(boxsize) in (float, int), "boxsize must be float or int"
-        mask = shape.rect(imgshape, boxsize, boxsize)
+        mask = shape.rect(imgshape, (boxsize, boxsize))
 
     return _apply_smooth(img, mask)
 

@@ -71,11 +71,10 @@ def rect(size,lengths,center=None):
     
     arguments:
         size: the size of the array as a tuple (rows,columns).
-        row_length: row length of the rectangle.
-        col_length: col length of the rectangle.
+        lengths: a 2-tuple formatted as (rows_length,col_length).
         center: the center of the coordinate system as a tuple (center_row,center_column)
     returns:
-        A 2-dimensional numpy array with a rectangle of (row_length, col_length) centered at (center).
+        A 2-dimensional numpy array with a rectangle of (lengths) centered at (center).
     """
     if center == None: center = (size[0]/2,size[1]/2)
 
