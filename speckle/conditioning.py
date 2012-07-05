@@ -240,14 +240,16 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
     def prep(x):
         if use_mag_only: x = abs(x)
-        if region != None: x *= region
+        if region != None: x = region*x
         return x
 
     # cast 2d to 3d so the loops below are simpler
-    was2d = False
+    was_2d = False
     if data.ndim == 2:
-        was2d = True
+        was_2d = True
         data.shape = (1,data.shape[0],data.shape[1])
+    else:
+        was_2d = False
     frames, rows, cols = data.shape
     
     # check some more assumptions
