@@ -9,11 +9,11 @@ IDFT = np.fft.ifft2
 shift = np.fft.fftshift
 
 class cpu_microscope():
-    
-    """ A class containing methods helpful in running a symmetry microscope analysis
-    on an image. For now, this class is limited to simulations where the object being
-    analyzed is square. Furthermore, speckle patterns are simulated at the same size
-    as the object."""
+    """ A class containing methods helpful in running a symmetry microscope
+        analysis on an image. For now, this class is limited to simulations
+        where the object being analyzed is square. Furthermore, speckle patterns
+        are simulated at the same size as the object.
+    """
     
     def __init__(self,device=None,object=None,unwrap=None,pinhole=None,coherence=None,components=None,returnables=('spectrum')):
         
@@ -259,8 +259,8 @@ def make_cosines(components,N):
         N: length of unwrapped autocorrelation
         
     returns:
-        ndarray of shape (len(components),N) containing cosine values"""
-        
+        ndarray of shape (len(components),N) containing cosine values
+    """
     assert isinstance(components,(tuple,list,np.ndarray)), "components must be iterable"
     assert isinstance(N,int), "N must be int"
 
@@ -278,8 +278,8 @@ def decompose(ac,cosines):
         cosines: array of evaluated cosine values
         
     returns:
-        cosine spectrum, shape (len(ac),len(cosines))"""
-        
+        cosine spectrum, shape (len(ac),len(cosines))
+    """
     assert isinstance(ac,np.ndarray), "ac must be array"
     assert isinstance(cosines,np.ndarray), "cosines must be array"
     assert len(cosines[0]) == len(ac[0]), "cosines are wrong shape (c %s ac %s)"%(len(cosines[0]),len(ac[0]))
@@ -293,30 +293,34 @@ def decompose(ac,cosines):
     return decomposition/float(N)
 
 def rot_sym(speckles,plan=None,components=None,cosines=None,get_back=()):
-    """ Given a speckle pattern, decompose its angular autocorrelation into a cosine series.
-    
+    """ Given a speckle pattern, decompose its angular autocorrelation into a
+        cosine series.
+
     arguments:
         speckle: the speckle pattern to be analyzed. Should be human-centered
-            (ie, center of speckle is at center of array) rather than machine-centered
-            (ie, center of speckle is at corner of array).
+            (ie, center of speckle is at center of array) rather than
+            machine-centered (ie, center of speckle is at corner of array).
+
+        plan: either an unwrap plan from wrapping.unwrap_plan or a tuple of form
+            (r,R) or (r,R,(center)) describing the range of radii to be
+            analyzed. If nothing is supplied, the unwrapping will by default be
+            as extensive as possible: (r,R) = (0,N/2).
             
-        plan: either an unwrap plan from wrapping.unwrap_plan or a tuple of form (r,R) or (r,R,(center))
-            describing the range of radii to be analyzed. If nothing is supplied, the unwrapping
-            will by default be as extensive as possible: (r,R) = (0,N/2).
-            
-        components: (optional) an iterable set of integers describing which cosine components to analyze.
-            If nothing is supplied, this will be all even numbers between 2 and 20.
-            
-        cosines: (optional) an ndarray containing precomputed cosines. for speed. if cosines is supplied,
-            components is ignored.
-            
-        get_back: a tuple of keywords allowing a dictionary of intermediates to be returned. mainly for
-            use with cpu_microscope in order to unify output syntax with gpu_microscope
-            
-        returns:
-            an ndarray of shape (R-r,len(components)) giving the cosine component values of the
-            decomposition."""
-            
+        components: (optional) an iterable set of integers describing which
+            cosine components to analyze. If nothing is supplied, this will be
+            all even numbers between 2 and 20.
+
+        cosines: (optional) an ndarray containing precomputed cosines. for
+            speed. if cosines is supplied, components is ignored.
+
+        get_back: a tuple of keywords allowing a dictionary of intermediates to
+            be returned. mainly for use with cpu_microscope in order to unify
+            output syntax with gpu_microscope
+
+    returns:
+        an ndarray of shape (R-r,len(components)) giving the cosine component
+            values of the decomposition.
+    """
     # check types
     assert isinstance(speckles,np.ndarray) and speckles.ndim == 2, "input data must be 2d array"
     assert isinstance(plan,(np.ndarray,tuple,list,type(None))), "plan type is unrecognized"
@@ -353,7 +357,3 @@ def rot_sym(speckles,plan=None,components=None,cosines=None,get_back=()):
         if 'unwrapped'  in get_back: to_return['unwrapped']  = unwrapped
         if 'correlated' in get_back: to_return['correlated'] = autocorrelation
         return to_return
-    
-    
-    
-    
