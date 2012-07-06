@@ -9,6 +9,12 @@ from scipy.optimize import leastsq
 from . import shape
 
 class OneDimFit():
+    """Framework for calculating the fit for a one-dimensional (x,y) set of
+        data. This implements the data checking, fitting, and formatting of
+        final fit parameters.  This class is expected to be used as a basis for
+        a one-dimensional fit.  The functions fit_function() and
+        guess_parameters() need to be filled up by the child class.
+    """
     def __init__(self, data, mask=None):
         # These parameters should be filled out by the child class.
         self.functional = "f(x) = a*x + b"
@@ -59,11 +65,13 @@ class OneDimFit():
         pass
 
     def residuals(self, params=None):
-        """ Calculate the residuals: data - fit_function(x).  params is an optional parameter array. If params is not specified, it looks for the array in the class.
+        """ Calculate the residuals: data - fit_function(x).  params is an
+        optional parameter array. If params is not specified, it looks for the
+        array in the class.
         """
         if params is not None:
             self.params = params
-        return np.ravel((self.data - self.fit_function())*self.mask)
+        return np.nan_to_num(np.ravel((self.data - self.fit_function())*self.mask))
 
     def fit(self):
         """ Fit data using fit_function().  This calls scipy.optimize.leastsq().
@@ -148,14 +156,21 @@ class OneDimFit():
         return out
 
 class OneDimPeak(OneDimFit):
-    """ Child of the OneDimFit class that has a FWHM estimation fitting routine.
-    Depending on the function, the FWHM estimated needs to be multipled by a factor to get to the correct parameter.
+    """Framework for calculating the fit for a one-dimensional (x,y) set of data
+        that has a peak.  This class is the child of the OneDimFit class that
+        has a FWHM estimation fitting routine. Depending on the function, the
+        FWHM estimated needs to be multipled by a factor to get to the correct
+        parameter. This class is expected to be used as a basis for a
+        one-dimensional fit of a peak.  The functions fit_function() and
+        guess_parameters() need to be filled up by the child class.
     """
     def __init__(self, *args, **kwargs):
         OneDimFit.__init__(self, *args, **kwargs)
 
     def estimate_fwhm(self):
-        # a more accurate estimate can be obtained by doing some sort of linear interpolation in the neighborhood of the left and right solution but this seems like overkill.
+        """ Estimate a FWHM peak. This returns a reasonably good estimate of the
+            FWHM of a 1d peak.
+        """
         hm = (self.data.max() - self.data.min())/2
         argmax = self.data.argmax()
         if argmax == len(self.xvals):
@@ -170,8 +185,13 @@ class OneDimPeak(OneDimFit):
         return abs(left-right)
 
 class TwoDimPeak(OneDimFit):
-    """ Child of the OneDimFit class that has a FWHM estimation fitting routine created for two dimensional
-    Depending on the function, the FWHM estimated needs to be multipled by a factor to get to the correct parameter.
+    """Framework for calculating the fit for a two-dimensional (x,y,z) set of
+        data that has a peak.  This class is the child of the OneDimFit class
+        that has a FWHM estimation fitting routine for 2d. Depending on the
+        function, the FWHM estimated needs to be multipled by a factor to get to
+        the correct parameter. This class is expected to be used as a basis for
+        a two-dimensional fit of a peak.  The functions fit_function() and
+        guess_parameters() need to be filled up by the child class.
     """
     def __init__(self, *args, **kwargs):
         OneDimFit.__init__(self, *args, **kwargs)
@@ -191,8 +211,8 @@ class Linear(OneDimFit):
     """ fit a function to a decay exponent.  This fits the function:
         f(x) = a * x + b
     """
-    def __init__(self, data):
-        OneDimFit.__init__(self, data)
+    def __init__(self, data, mask=None):
+        OneDimFit.__init__(self, data, mask)
         self.functional = "a*x + b"
         self.params_map ={ 0:"a", 1:"b"}
 
@@ -209,8 +229,8 @@ class DecayExpBetaSq(OneDimFit):
     """ fit a function to a (decay exponent with a beta parameter)^2.  This fits the function:
         f(x) = a + b exp(-(x/tf)^beta)^2
     """
-    def __init__(self, data):
-        OneDimFit.__init__(self, data)
+    def __init__(self, data, mask=None):
+        OneDimFit.__init__(self, data, mask)
         self.functional = "a + b exp(-(t/tf)^beta)^2"
         self.params_map ={ 0:"a", 1:"b", 2:"tf", 3:"beta" }
 
@@ -232,8 +252,8 @@ class DecayExpBeta(OneDimFit):
     """ fit a function to a decay exponent with a beta parameter.  This fits the function:
         f(x) = a + b exp(-(x/tf)^beta)
     """
-    def __init__(self, data):
-        OneDimFit.__init__(self, data)
+    def __init__(self, data, mask=None):
+        OneDimFit.__init__(self, data, mask)
         self.functional = "a + b exp(-1*(x/tf)**beta)"
         self.params_map ={ 0:"a", 1:"b", 2:"tf", 3:"beta" }
 
@@ -255,8 +275,8 @@ class DecayExp(OneDimFit):
     """ fit a function to a decay exponent.  This fits the function:
         f(x) = a + b exp(-(x/tf))
     """
-    def __init__(self, data):
-        OneDimFit.__init__(self, data)
+    def __init__(self, data, mask=None):
+        OneDimFit.__init__(self, data, mask)
         self.functional = "a + b exp(-1*(x/tf))"
         self.params_map ={ 0:"a", 1:"b", 2:"tf" }
 
@@ -277,8 +297,8 @@ class Gaussian(OneDimPeak):
     """ fit a function to a 1d Gaussian.  This fits the function:
         f(x) = a exp(-(x-x0)^2/(2w^2)) + shift
     """
-    def __init__(self, data):
-        OneDimPeak.__init__(self, data)
+    def __init__(self, data, mask=None):
+        OneDimPeak.__init__(self, data, mask)
         self.functional = "a exp(-(x-x0)^2/(2*w^2)) + shift"
         self.params_map ={ 0:"a", 1:"x0", 2:"w" , 3:"shift"}
 
@@ -302,8 +322,8 @@ class Lorentzian(OneDimPeak):
         f(x) = a/( ((x-x0)/w)^2 + 1) + bg
     """
     # from http://mathworld.wolfram.com/LorentzianFunction.html
-    def __init__(self, data):
-        OneDimPeak.__init__(self, data)
+    def __init__(self, data, mask=None):
+        OneDimPeak.__init__(self, data, mask)
         self.functional = "a/( ((x-x0)/w)^2 + 1) + shift"
         self.params_map ={ 0:"a", 1:"x0", 2:"w", 3:"shift"}
 
@@ -327,8 +347,8 @@ class LorentzianSq(OneDimPeak):
     """ fit a function to a 1d squared lorentzian.  This fits the function:
         f(x) = a/( ((x-x0)/w)^2 + 1)^2 + bg
     """
-    def __init__(self, data):
-        OneDimPeak.__init__(self, data)
+    def __init__(self, data, mask=None):
+        OneDimPeak.__init__(self, data, mask)
         self.functional = "a/((x-x0)^2 + w^2)^2 + bg"
         self.params_map ={ 0:"a", 1:"x0", 2:"w", 3:"bg"}
 
@@ -353,8 +373,8 @@ class Gaussian2D(TwoDimPeak):
     """ fit a function to a two-dimensional Gaussian.  This fits the function:
         f(x) = a exp(-(x-x0)^2/(2*sigma_x^2) - (y-y0)^2/(2*sigma_y^2)) + shift
     """
-    def __init__(self, data):
-        TwoDimPeak.__init__(self, data)
+    def __init__(self, data, mask=None):
+        TwoDimPeak.__init__(self, data, mask)
         self.functional = "a exp(-(x-x0)^2/(2*sigmay^2) - (y-y0)^2/(2*sigmay^2)) + shift"
         self.params_map ={ 0:"a", 1:"x0", 2:"sigmax", 3:"y0", 4:"sigmay", 5:"shift"}
 
@@ -379,8 +399,8 @@ class Lorentzian2D(TwoDimPeak):
     """ fit a function to a 2d-lorentzian.  This fits the function:
         f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1) + bg
     """
-    def __init__(self, data):
-        TwoDimPeak.__init__(self, data)
+    def __init__(self, data, mask=None):
+        TwoDimPeak.__init__(self, data, mask)
         self.functional = "a / ( ((x-x0)/xw)**2 + ((y-y0)/yw)**2 + 1) + shift "
         self.params_map ={ 0:"a", 1:"x0", 2:"xw", 3:"y0", 4:"yw", 5:"shift"}
 
@@ -405,8 +425,8 @@ class Lorentzian2DSq(TwoDimPeak):
     """ fit a function to a 2d-lorentzian squared.  This fits the function:
         f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1)^2 + bg
     """
-    def __init__(self, data):
-        TwoDimPeak.__init__(self, data)
+    def __init__(self, data, mask=None):
+        TwoDimPeak.__init__(self, data, mask)
         self.functional = "a / ( ((x-x0)/xw)**2 + ((y-y0)/yw)**2 + 1)**2 + shift "
         self.params_map ={ 0:"a", 1:"x0", 2:"xw", 3:"y0", 4:"yw", 5:"shift"}
 
@@ -427,29 +447,33 @@ class Lorentzian2DSq(TwoDimPeak):
         sp[2] = sp[2]/2
         sp[4] = sp[4]/2
 
-def linear(data):
+def linear(data, mask=None):
     """ fit a function to a line.  This fits the function:
         f(x) = a * x + b
         
     arguments:
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
-        
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
+
     returns:
         result - a fit class that contains the final fit.  This object has
             various self descriptive parameters, the most useful is
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Linear(data)
+    fit = Linear(data, mask)
     fit.fit()
     return fit
 
-def decay_exp_beta_sq(data):
+def decay_exp_beta_sq(data, mask=None):
     """ fit a function to a (decay exponent with a beta parameter)^2.  This fits the function:
         f(x) = a + b exp(-(x/tf)^beta)^2
 
     arguments:
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
 
     returns:
         result - a fit class that contains the final fit.  This object has
@@ -457,16 +481,18 @@ def decay_exp_beta_sq(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = DecayExpBetaSq(data)
+    fit = DecayExpBetaSq(data, mask)
     fit.fit()
     return fit
 
-def decay_exp_beta(data):
+def decay_exp_beta(data, mask=None):
     """ fit a function to a decay exponent with a beta parameter.  This fits the function:
         f(x) = a + b exp(-(x/tf)^beta)
 
     arguments:
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
 
     returns:
         result - a fit class that contains the final fit.  This object has
@@ -474,16 +500,18 @@ def decay_exp_beta(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = DecayExpBeta(data)
+    fit = DecayExpBeta(data, mask)
     fit.fit()
     return fit
 
-def decay_exp(data):
+def decay_exp(data, mask=None):
     """ fit a function to a decay exponent.  This fits the function:
         f(x) = a + b exp(-(x/tf))
 
     arguments:
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
 
     returns:
         result - a fit class that contains the final fit.  This object has
@@ -491,16 +519,18 @@ def decay_exp(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = DecayExp(data)
+    fit = DecayExp(data, mask)
     fit.fit()
     return fit
 
-def gaussian(data):
+def gaussian(data, mask=None):
     """ fit a function to a Gaussian.  This fits the function:
         f(x) = a exp(-(x-x0)^2/(2w^2)) + shift
 
     arguments:
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
 
     returns:
         result - a fit class that contains the final fit.  This object has
@@ -508,16 +538,18 @@ def gaussian(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Gaussian(data)
+    fit = Gaussian(data, mask)
     fit.fit()
     return fit
 
-def lorentzian(data):
+def lorentzian(data, mask=None):
     """ fit a function to a Lorentzian.  This fits the function:
         f(x) = a/( ((x-x0)/w)^2 + 1) + bg
 
     arguments:
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
 
     returns:
         result - a fit class that contains the final fit.  This object has
@@ -525,16 +557,18 @@ def lorentzian(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Lorentzian(data)
+    fit = Lorentzian(data, mask)
     fit.fit()
     return fit
 
-def lorentzian_sq(data):
+def lorentzian_sq(data, mask=None):
     """ fit a function to a squared lorentzian.  This fits the function:
         f(x) = a/( ((x-x0)/w)^2 + 1)^2 + bg
 
     arguments:
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
 
     returns:
         result - a fit class that contains the final fit.  This object has
@@ -542,16 +576,18 @@ def lorentzian_sq(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = LorentzianSq(data)
+    fit = LorentzianSq(data, mask)
     fit.fit()
     return fit
 
-def gaussian_2d(data):
+def gaussian_2d(data, mask=None):
     """ fit a function to a two-dimensional Gaussian.  This fits the function:
         f(x) = a exp(-(x-x0)^2/(2*sigma_x^2) - (y-y0)^2/(2*sigma_y^2)) + shift
 
     arguments:
         data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
 
     returns:
         result - a fit class that contains the final fit.  This object has
@@ -559,16 +595,18 @@ def gaussian_2d(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Gaussian2D(data)
+    fit = Gaussian2D(data, mask)
     fit.fit()
     return fit
 
-def lorentzian_2d(data):
+def lorentzian_2d(data, mask=None):
     """ fit a function to a 2d-lorentzian.  This fits the function:
         f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1) + bg
 
     arguments:
         data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
 
     returns:
         result - a fit class that contains the final fit.  This object has
@@ -576,16 +614,18 @@ def lorentzian_2d(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Lorentzian2D(data)
+    fit = Lorentzian2D(data, mask)
     fit.fit()
     return fit
 
-def lorentzian_2d_sq(data):
+def lorentzian_2d_sq(data, mask=None):
     """ fit a function to a 2d-lorentzian squared.  This fits the function:
         f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1)^2 + bg
 
     arguments:
         data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
 
     returns:
         result - a fit class that contains the final fit.  This object has
@@ -593,8 +633,71 @@ def lorentzian_2d_sq(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Lorentzian2DSq(data)
+    fit = Lorentzian2DSq(data, mask)
     fit.fit()
     return fit
 
+def gaussian_3d(data, mask=None):
+    """ fit a function to a three-dimensional Gaussian.  This fits the function:
+        f(x) = a exp(-(x-x0)^2/(2*sigma_x^2) - (y-y0)^2/(2*sigma_y^2)) + shift
+
+    arguments:
+        data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as one frame of the data.  The default is
+            None.
+
+    returns:
+        A dictionary of fitted results.  The dictionary is indexed by the frame
+            number.
+    """
+    return _3d_fit(data, Gaussian2D, mask)
+
+def lorentzian_3d(data, mask=None):
+    """ fit a function to 3d-lorentzian.  This fits the function:
+        f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1) + bg
+
+    For 3d data, a 2D Lorentzian is fitted for each frame.
+
+    arguments:
+        data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as one frame of the data.  The default is
+            None.
+
+    returns:
+        A dictionary of fitted results.  The dictionary is indexed by the frame
+            number.
+    """
+    return _3d_fit(data, Lorentzian2D, mask)
+
+def lorentzian_3d_sq(data, mask=None):
+    """ fit a function to a 2d-lorentzian squared.  This fits the function:
+        f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1)^2 + bg
+
+    arguments:
+        data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as one frame of the data.  The default is
+            None.
+
+    returns:
+        A dictionary of fitted results.  The dictionary is indexed by the frame
+            number.
+    """
+    return _3d_fit(data, Lorentzian2DSq, mask)
+
+def _3d_fit(data, FitClass, mask=None):
+    """ function that will fit a 3d array along the 0-axis.  You provide the
+        data (must be 3d) and the FitClass, which is a 2D fit class.
+    """
+    assert isinstance(data, np.ndarray) and data.ndim == 3, "data must be a three-dimensional numpy array."
+    (fr, ys, xs) = data.shape
+
+    result = {}
+    for f in range(fr):
+        fit = FitClass(data[f], mask)
+        fit.fit()
+        result[f] = fit
+    return result
 
