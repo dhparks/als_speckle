@@ -21,6 +21,9 @@ class cpu_microscope():
         # or later on in the main script. the example will show both.
         
         # device is a dummy input to equate the invocation of cpu_microscope and gpu_microscope
+        if device != None:
+            print "unncessary device input %s"%device
+            print "ignoring that input"
         
         self.can_has_object = False
         self.can_has_unwrap = False

@@ -6,6 +6,7 @@ import time
 
 # common libraries
 import speckle
+import speckle.simulation
 
 # set the io default to overwrite files
 speckle.io.set_overwrite(True)
@@ -32,7 +33,8 @@ def check_gpu():
             print errormsg, "\nfalling back to cpu"
             dp.device = 'cpu'
             
-    return dp.device == 'gpu'
+    if dp.device == 'gpu': return True, gpuinfo
+    if dp.device == 'cpu': return False, None
 
 def iterate(dg_instance):
     # Now run the simulation until the domain pattern has converged with a
@@ -71,14 +73,13 @@ r = dp.size/2048.
 # want gpu; gpu available: get back gpuinfo
 # want gpu; not available: fall back to cpu
 # want cpu               : use cpu
-use_gpu = check_gpu()
+use_gpu, device_info = check_gpu()
 
-if use_gpu:
-    import speckle.simulation.gpu_domains as domainslib
-    domain_simulation = domainslib.generator(gpuinfo,domains=dp.size,returnables=dp.domain_returnables,converged_at=dp.converged_at)
-if not use_gpu:
-    import speckle.simulation.cpu_domains as domains_lib
-    domain_simulation = domainslib.generator(        domains=dp.size,returnables=dp.domain_returnables,converged_at=dp.converged_at)
+# instantiate the simulation on whichever device. at this point the simulation has
+# been abstracted away from the hardware from the user POV
+if use_gpu: import speckle.simulation.gpu_domains as domainslib
+if not use_gpu: import speckle.simulation.cpu_domains as domainslib
+domain_simulation = domainslib.generator(device=device_info,domains=dp.size,returnables=dp.domain_returnables,converged_at=dp.converged_at)
 
 # simplified gpu instantiation, for use when the GPU and runtimes are known to be present:
 # import speckle.gpu

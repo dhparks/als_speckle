@@ -20,10 +20,14 @@ class generator():
     
     """ GPU-accelerated copd-type domain generation. """
     
-    def __init__(self,gpuinfo,domains=None,alpha=0.5,converged_at=0.002,ggr=None,returnables=('converged',)):
+    def __init__(self,device=None,domains=None,alpha=0.5,converged_at=0.002,ggr=None,returnables=('converged',)):
         
-        self.context, self.device, self.queue, self.platform = gpuinfo
-        self._make_kernels()
+        if device != None:
+            self.context, self.device, self.queue, self.platform = device
+            self._make_kernels()
+        else:
+            print "no gpu information provided"
+            exit()
         
         self.can_has_domains = False
         self.can_has_envelope = False

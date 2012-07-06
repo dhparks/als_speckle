@@ -1,5 +1,6 @@
 # core
 import numpy as np
+import time
 DFT = np.fft.fft2
 IDFT = np.fft.ifft2
 fftshift = np.fft.fftshift
@@ -8,7 +9,6 @@ fftshift = np.fft.fftshift
 import speckle
 import speckle.simulation
 speckle.io.set_overwrite(True)
-import time
 
 def check_parameters():
     
@@ -65,7 +65,9 @@ def check_gpu():
             
     if sp.device == 'gpu':
         try:
+            print "trying to get gpuinfo"
             gpuinfo = gpulib.gpu.init() # this can throw various errors
+            print "got it"
         except gpulib.gpu.GPUInitError as error:
             print error, "\nfalling back to cpu"
             sp.device = 'cpu'
@@ -208,8 +210,7 @@ def get_particulars(sm_instance,record):
     for entry in record:
         print "getting particulars from frame/raster/row/col:"
         frame, record_site = int(entry[0]), int(entry[1])
-        
-        
+
         # if frame isnt the current sample on the gpu, load it
         if frame != loaded:
             open_name = '%s/%s_mag.png'%(ball_path,frame)
@@ -321,7 +322,7 @@ def make_raster_coords(N,xstep,ystep,size=None):
     y_coords = np.arange(start,stop,ystep)
     return x_coords, y_coords
 
-### throat clearing
+
 import symmetry_microscope_parameters as sp
 check_parameters()
 
@@ -333,7 +334,8 @@ nq = sp.unwrap_R-sp.unwrap_r
 ball_path, analysis_path = make_paths()
 
 # next, make random walk images. these get saved in ball_path
-if sp.make_samples: make_samples()
+if sp.make_samples:
+    make_samples()
 
 # instantiate a symmetry microscope. if user wants a gpu, first check runtimes
 # and gpu support using check_gpu().
@@ -343,6 +345,7 @@ if sp.run_microscope or sp.find_candidates:
     xcoords, ycoords = make_raster_coords(sp.N,sp.step_size,sp.step_size,size=sp.view_size)
     nx = len(xcoords)
     ny = len(ycoords)
+    print "done with coords"
     
     # figure out which device to run on, gpu or cpu
     use_gpu, device_info = check_gpu()
@@ -362,10 +365,10 @@ if sp.run_microscope or sp.find_candidates:
                 components  = sp.components,
                 returnables = ('spectrum',))
     
-    
 # run the microscope by rastering around the sample. examine raster_spectra() for details
 # about how to handle the class properly.
-if sp.run_microscope: raster_spectra(symmetry_microscope)
+if sp.run_microscope:
+    raster_spectra(symmetry_microscope)
 
 # find candidate symmetries, then go to those sites with the symmetry
 # microscope again and save inspectable output by turning on more returnables.
