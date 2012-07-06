@@ -45,10 +45,10 @@ def init():
             if len(GPUs) > 0: device = GPUs[0]
             if len(GPUs) == 0 and len(CPUs) > 0:
                 if 'Apple' in str(platform) and 'Intel(R)' in str(CPUs[0]):
-                    raise GPUInitError(msg='no gpu and apple+intel crashes fft')
+                    raise GPUInitError('no gpu and apple+intel crashes fft')
                 else:
                     device = CPUs[0]
-            if len(GPUs) == 0 and len(CPUs) == 0: raise GPUInitError(msg='platform exists but no devices?!')
+            if len(GPUs) == 0 and len(CPUs) == 0: raise GPUInitError('platform exists but no devices?!')
             d_success = True
             
         except pyopencl.LogicError:
