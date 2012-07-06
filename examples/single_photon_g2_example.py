@@ -31,9 +31,10 @@ speckle.io.write_text_array("4000V_Xray4-cc.txt", corr_combined)
 ################################################################################
 ############################# XPCS Simulations #################################
 ################################################################################
+import speckle.simulation
 
 # simulate 10k events with decay time of 4.3e-6 s and scatter rate of 5e5 hz.
-events = speckle.xpcs.sp_sim_xpcs_events(10000, 4.3e-6, 5e5)
+events = speckle.simulation.sp_sim_xpcs_events(10000, 4.3e-6, 5e5)
 
 # events is an 1d array of photon incidence times.  We can pass this directly to sp_autocorrelation().
 
@@ -47,4 +48,6 @@ speckle.io.write_text_array("AC-4.3e-6s_decay.txt", corr_combined)
 fit = speckle.fit.decay_exp(corr_combined)
 
 # final_params_errors is a dictionary of fit parameters. Each parameter is a tuple of (fitted_param, fitted_param_error).
-print fit.final_params_errors
+print "fitted %s" % fit.functional
+for p, v in fit.final_params_errors.iteritems():
+    print "%s = %1.4e +- %1.4e" % (p, v[0], v[1])
