@@ -579,3 +579,22 @@ def lorentzian_2d(data):
     fit = Lorentzian2D(data)
     fit.fit()
     return fit
+
+def lorentzian_2d_sq(data):
+    """ fit a function to a 2d-lorentzian squared.  This fits the function:
+        f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1)^2 + bg
+
+    arguments:
+        data - Data to fit.  This should be a 2-dimensional array.
+
+    returns:
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
+    """
+    fit = Lorentzian2DSq(data)
+    fit.fit()
+    return fit
+
+
