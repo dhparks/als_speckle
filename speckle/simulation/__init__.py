@@ -8,6 +8,9 @@ Author: Daniel Parks (dhparks@lbl.gov)
 
 __all__ = [
     "singlephoton",
+    "random_walk",
+    "gpu_domains",
+    "cpu_domains"
 ]
 
 for mod in __all__:

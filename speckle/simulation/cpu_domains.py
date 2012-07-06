@@ -1,29 +1,22 @@
 # core
 import numpy as np
-import pyopencl as cl
-import pyopencl.array as cla
-from pyopencl.elementwise import ElementwiseKernel as EK
 from scipy.optimize import fminbound
-import string,time
+import string
 
 # common libs. do some ugly stuff to get the path set to the kernels directory
+from .. import shape, wrapping
 import speckle
-import speckle.gpu as gpulib
-kp = gpulib.__path__[0]+'/kernels/'
-build = gpulib.gpu.build_kernel_file
 
-# cpu fft   
+# cpu fft
 DFT = np.fft.fft2
+IDFT = np.fft.ifft2
 shift = np.fft.fftshift
 
 class generator():
     
-    """ GPU-accelerated copd-type domain generation. """
+    """ CPU-executing copd-type domain generation. """
     
-    def __init__(self,gpuinfo,domains=None,alpha=0.5,converged_at=0.002,ggr=None,returnables=('converged',)):
-        
-        self.context, self.device, self.queue, self.platform = gpuinfo
-        self._make_kernels()
+    def __init__(self,domains=None,alpha=0.5,converged_at=0.002,ggr=None,returnables=('converged',)):
         
         self.can_has_domains = False
         self.can_has_envelope = False
@@ -41,15 +34,30 @@ class generator():
         self.converged_at = converged_at
         self.spa_max   = 0.4
         self.powerlist = [] # for convergence tracking
-         
+    
     def set_domains(self,domains):
+        
+        """ Load an object into the self.domains memory space or tell the
+        simulation what size object to expect in the future so that the rest of
+        the simulation can be properly initialized.
+        
+        This method allows the domain image to be changed suddenly during the
+        simulation.
+        
+        Accepts one or the other:
+            1. A numpy array. Must be square. If an array has been loaded in the
+                past (or the array size has been set earlier), this new array
+                must be the same size.
+            2. An integer which sets the simulation grid size. A domain image
+                must still be supplied in the future for the simulation to
+                function properly. """
         
         assert isinstance(domains,(int,np.ndarray)), "domains must be int or array"
         
         def helper_load(d):
             x = len(d)
             self.m0 = np.sum(domains)/self.N2
-            self.domains  = cla.to_device(self.queue,domains.astype(np.float32))
+            self.domains  = d
         
         if self.can_has_domains:
             # this means an domains has already been set and now we're just updating it
@@ -67,66 +75,57 @@ class generator():
 
             if isinstance(domains,int):
                 self.N = domains
-                self.N2 = self.N**2
-                self.domains = cla.empty(self.queue,(self.N,self.N),np.float32)
-                self.set_zero(self.domains)
+                self.domains = np.zeros((self.N,self.N),np.float32)
                 
             # now that self.N has been established, initialize all the buffers for intermediates
             # that require self.N. many of these are more appropriately associated with the envelope
             # than the domains per se be the location of the initialization is not particularly important
-            self.goal_envelope = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.r_array       = speckle.shape.radial((self.N,self.N))
-            self.phi_array     = np.mod(speckle.shape.angular((self.N,self.N))+2*np.pi,2*np.pi)
+            self.r_array       = shape.radial((self.N,self.N))
+            self.phi_array     = np.mod(shape.angular((self.N,self.N))+2*np.pi,2*np.pi)
             
-            # initialize buffers and kernels for speckle rescaling (ie, the function F)
-            self.domains_dft_re = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.domains_dft_im = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.speckle        = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.dummy_zeros    = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.rescaler       = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.domain_diff    = cla.empty(self.queue,(self.N,self.N),np.float32)
-            
-            # initialize buffers and kernels for real-space and magnetization constraints (ie, the function M)
-            self.incoming  = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.allwalls  = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.poswalls  = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.negwalls  = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.negpins   = cla.empty(self.queue,(self.N,self.N),np.float32) # 1 means ok to change, 0 means retain value
-            self.pospins   = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.available = cla.empty(self.queue,(self.N,self.N),np.float32)
-            
-            self.set_ones(self.negpins)
-            self.set_ones(self.pospins)
-            
-            from pyfft.cl import Plan as fft_plan
-            self.fftplan_split = fft_plan((self.N,self.N), dtype=np.float32, queue=self.queue) # fft plan which accepts 2 float32 inputs as re and im
+            self.negpins = np.ones((self.N,self.N),np.float32)
+            self.pospins = np.ones((self.N,self.N),np.float32)
 
         self.can_has_domains = True
     
     def set_envelope(self,parameters_list):
+        
+        """ Build or set a goal envelope to function as the fourier constraint
+        in the simulation. The object must be set before setting the envelope.
+        The syntax of this method is, unfortunately, relatively complicated.
+        
+        Accepts: a list of parameters describing the goal envelope.
 
-        # Parameters come in as a list.
-        # Each entry in the list is a list
-        # Each entry has as element 0 either 'isotropic' or 'modulation'
-        # 'isotropic' entries have a shape and some numerical parameters
-        #       for example: ['isotropic', 'lorentzian', number1, number2, etc]
-        # 'modulation' entries have two additional parameters which specifies the order and phase offset
-        #  of the modulation, after which is a shape which describes where the modulation is located in r
-        #       for example: ['modulation', 4, 0, 'lorentzian', number1, number2, etc]
-        #       so that is a 4th order symmetry with no phase offset, confined to some range of r by a lorentzian envelope.
-        # 'supplied' opens the listed file with syntax ['supplied', path_to_fits_file]. file must be supplied in FITS format. modulations and isotropic additions can still occur.
-        # 'goal_m' is used to change the targeted net magnetization. It is between 0 and 1.
-        #  Note that order of elements is important since they are applied going down the line without any type of sorting.
+         Each entry in the list is a list
+         Each entry has as element 0 either 'isotropic', 'modulation', 'goal_m',
+            or 'supplied'.
+         'isotropic' entries have a shape and some numerical parameters
+               for example: ['isotropic', 'lorentzian', number1, number2, etc]
+         'modulation' entries have two additional parameters which specifies the
+            order and phase offset of the modulation, after which is a shape
+            which describes where the modulation is located in the r coordinate.
+               for example: ['modulation', 4, 0, 'lorentzian', x, y, z] gives a
+               4th order symmetry with no phase offset, confined to some range
+               of r by a lorentzian envelope with parameters x, y, z.
+         'supplied' opens the listed file with syntax ['supplied', path_to_file]
+            file must be supplied in FITS format. modulations and isotropic
+            additions can still occur after loading the supplied file.
+         'goal_m' is used to change the targeted net magnetization. It is
+            between 0 and 1.
+          Note that order of elements is important since they are applied going
+            down the line without any type of sorting.
+        
+        """
         
         assert self.can_has_domains, "must set domains before setting envelope"
         
         if not self.can_has_envelope:
             # these are gpu memory objects associated with making envelopes or with rescaling
             # envelopes
-            self.m0_1      = cla.empty(self.queue,(1,), np.complex64)
-            self.m0_2      = cla.empty(self.queue,(1,), np.complex64)
-            self.power     = cla.empty(self.queue,(2,), np.float32)
-            self.transitions   = 0
+            self.m0_1 = 0
+            self.m0_2 = 0
+            self.power = 0
+            self.transitions = 0
         
         temp_envelope = np.zeros((self.N,self.N),float)
 
@@ -153,8 +152,9 @@ class generator():
                 temp_envelope = temp_envelope*(1-radial)+temp_envelope*radial*angular
                 
             if element[0] == 'supplied':
+                from .. import io
                 path = element[1]
-                supplied = speckle.io.openfits(path).astype('float')
+                supplied = io.openfits(path).astype('float')
                 assert supplied.shape == temp_envelope.shape, "supplied envelope and simulation size aren't the same"
                 temp_envelope += supplied
 
@@ -167,7 +167,7 @@ class generator():
         # find the intensity center of the envelope. based on how far it is from the center,
         # make the blur kernel. sigma is a function of intensity center to avoid too much
         # blurring for scattering centered near q=0.
-        unwrapped = np.sum(speckle.wrapping.unwrap(temp_envelope,(0,self.N/2,(self.N/2,self.N/2))),axis=1)
+        unwrapped = np.sum(wrapping.unwrap(temp_envelope,(0,self.N/2,(self.N/2,self.N/2))),axis=1)
         center    = unwrapped.argmax()
         
         # find the fwhm. the amount of blurring depends on the width of the speckle ring in order
@@ -183,7 +183,7 @@ class generator():
         temp_envelope += -temp_envelope.min()
         temp_envelope *= 1./temp_envelope.max()
                 
-        self.goal_envelope.set(shift(temp_envelope.astype(np.float32)))
+        self.goal_envelope = shift(temp_envelope.astype(np.float32))
         self.can_has_envelope = True
         self.converged = False
         self.transitions += 1
@@ -233,9 +233,8 @@ class generator():
         
         assert isinstance(clx,(int,float)), "coherence parameter clx must be float or int"
         assert isinstance(cly,(int,float)), "coherence parameter cly must be float or int"
-        
-        gaussian = abs(DFT(shift(speckle.shape.gaussian((self.N,self.N),(cly,clx)))))
-        self.blur_kernel = cl.array.to_device(self.queue,gaussian.astype(np.float32))
+
+        self.blur_kernel = DFT(shift(shape.gaussian((self.N,self.N),(cly,clx)))).real
         self.can_has_coherence = True
         
     def set_returnables(self,returnables=('converged',)):
@@ -267,7 +266,7 @@ class generator():
         
         available = ('converged','domains','rescaled','rescaler','blurred',
                      'walls1','walls2','pos_walls1','pos_walls2','neg_walls1',
-                     'neg_walls2','bounded','promoted')
+                     'neg_walls2','bounded','promoted','available','incoming_dft')
         
         # check types
         assert isinstance(returnables,(list,tuple)), "returnables must be list or tuple"
@@ -279,152 +278,41 @@ class generator():
                 print "requested returnable %s is unrecognized and will be ignored"%r
             else:
                 self.returnables_list.append(r)
-     
-    def _make_kernels(self):
-        self.get_m0                = build(self.context, self.device, kp+'get_m0.cl')
-        self.replace_dc_component1 = build(self.context, self.device, kp+'replace_dc_1.cl')
-        self.replace_dc_component2 = build(self.context, self.device, kp+'replace_dc_2.cl')
-        self.envelope_rescale      = build(self.context, self.device, kp+'envelope_rescale.cl')
-        self.findwalls             = build(self.context, self.device, kp+'find_walls.cl')
-        self.recency               = build(self.context, self.device, kp+'recency.cl')
-        self.update_whenflipped    = build(self.context, self.device, kp+'update_whenflipped.cl')
-    
-        # simple kernels written as pyopencl objects
-        self.copy = EK(self.context,
-            "float *in,"
-            "float *out",
-            "out[i] = in[i]",
-            "copy")
-    
-        self.bound = EK(self.context,
-            "float *in,"
-            "float *out",
-            "out[i] = clamp(in[i],-1.0f,1.0f)",
-            "bound")
-        
-        self.ising = EK(self.context,
-            "float *domains,"
-            "float a",
-            "domains[i] = (1+a)*domains[i]-a*domains[i]*domains[i]*domains[i]",
-            "ising")
-        
-        self.scalar_multiply = EK(self.context,
-            "float c,"
-            "float *array",
-            "array[i] = array[i]*c",
-            "ising")
-    
-        self.set_zero = EK(self.context,
-            "float *array",
-            "array[i] = 0.0f",
-            "setzero")
-        
-        self.set_ones = EK(self.context,
-            "float *array",
-            "array[i] = 1.0f",
-            "setones")
-        
-        self.set_zerof2 = EK(self.context,
-            "float2 *array",
-            "array[i] = (float2)(0.0f,0.0f)",
-            "setzerof2")
-    
-        self.make_speckle = EK(self.context,
-            "float *in_re,"
-            "float *in_im,"
-            "float *out", 
-            "out[i] = pown(in_re[i],2)+pown(in_im[i],2)",
-            "getmag")
-        
-        self.array_multiply_f_f = EK(self.context,
-            "float *a,"       # convolvee, float
-            "float *b,"       # convolver, float (kernel)
-            "float *c",       # convolved, float
-            "c[i] = a[i]*b[i]",
-            "array_multiply_f_f")
-        
-        self.update_domains = EK(self.context,
-            "float *domains,"
-            "float *incoming,"
-            "float *walls",
-            "domains[i] = walls[i]*domains[i]+(1-walls[i])*incoming[i]", # update only the walls
-            "update_domains")
-        
-        self.make_available1 = EK(self.context,
-            "float *available,"
-            "float *walls,"
-            "float *pospins,"
-            "float *negpins",
-            "available[i] = walls[i]*pospins[i]*negpins[i]",
-            "make_available1")
-        
-        self.make_available2 = EK(self.context,
-            "float *available,"
-            "float *walls,"
-            "float *domains,"
-            "float target",
-            "available[i] = clamp(clamp(sign(domains[i])*target,0.0f,1.0f)+walls[i],0.0f,1.0f)",
-            "make_available2")
-        
-        self.promote_spins = EK(self.context, # promote spins within the location given by *sites
-            "float *domains,"
-            "float *sites,"
-            "float x",
-            "domains[i] = domains[i]+sites[i]*x",
-            "promote_spins")
-        
-        self.ggr_promote_spins = EK(self.context, # differs from above in that a different output is used: unify later?
-            "float *domains,"
-            "float *sites,"
-            "float *out,"
-            "float spa",
-            "out[i] = domains[i]+sites[i]*spa",
-            "ggr_promote_spins")
-        
-        self.array_diff = EK(self.context,
-            "float *a1,"
-            "float *a2,"
-            "float *a3",
-            "a3[i] = fabs(a1[i]-a2[i])",
-            "domain_diff")
-        
-        self.enforce_boundary = EK(self.context,
-            "float *domains,"
-            "float *boundary,"
-            "float *bv",
-            "domains[i] = domains[i]*(1-boundary[i])+boundary[i]*bv[i]",
-            "enforce_boundary")
-        
-        self.only_in_walls = EK(self.context,
-            "float *new,"
-            "float *old,"
-            "float *walls",
-            "new[i] = new[i]*walls[i]+old[i]*(1-walls[i])",
-            "only_in_walls")
             
     def one_iteration(self,iteration):
+        
+        """ Iterate through one cycle of the domain simulation. The sequence of
+        operations closely follows that of diffractive imaging."""
+        
         # iterate through one cycle of the simulation.
         assert self.can_has_domains, "no domains set!"
         assert self.can_has_envelope, "no goal envelope set!"
+        assert self.can_has_coherence, "no blurring function set!"
+        
+        ising = lambda x: (1+self.alpha)*x-self.alpha*(x**3)
         
         # first, copy the current state of the domain pattern to a holding buffer ("incoming")
-        self.copy(self.domains,self.incoming)
+        #self.copy(self.domains,self.incoming)
+        self.incoming = np.copy(self.domains)
         
         # now find the domain walls. modifications to the domain pattern due to rescaling only take place in the walls
-        self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,np.int32(self.N))
+        #self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,np.int32(self.N))
+        self._find_walls(neighbors=8)
         
-        if 'walls1' in self.returnables_list: self.returnables['walls1'] = self.allwalls.get()
-        if 'pos_walls1' in self.returnables_list: self.returnables['pos_walls1'] = self.poswalls.get()
-        if 'neg_walls1' in self.returnables_list: self.returnables['neg_walls1'] = self.negwalls.get()
+        if 'walls1' in self.returnables_list: self.returnables['walls1'] = self.allwalls
+        if 'pos_walls1' in self.returnables_list: self.returnables['pos_walls1'] = self.poswalls
+        if 'neg_walls1' in self.returnables_list: self.returnables['neg_walls1'] = self.negwalls
         
         # run the ising bias
-        self.ising(self.domains,self.alpha)
+        #self.ising(self.domains,self.alpha)s
+        self.domains = ising(self.domains)
         
         # rescale the domains. this operates on the class variables so no arguments are passed. self.domains stores the rescaled real-valued domains. the rescaled
         # domains are bounded to the range +1 -1.
         self._rescale_speckle()
-        self.bound(self.domains,self.domains)
-        if 'bounded' in self.returnables_list: self.returnables['bounded'] = self.domains.get()
+        self.domains = self.domains.real
+        np.clip(self.domains,-1,1,out=self.domains)
+        if 'bounded' in self.returnables_list: self.returnables['bounded'] = self.domains
         
         # if making an ordering island, this is the command that enforces the border condition
         #if use_boundary and n > boundary_turn_on: self.enforce_boundary(self.domains,self.boundary,self.boundary_values)
@@ -434,33 +322,34 @@ class generator():
         #self.update_domains(self.domains,self.incoming,self.allwalls)
         
         if iteration > self.m_turnon:
-            self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,np.int32(self.N))
+            self._find_walls(neighbors=8)
             
-            if 'walls2' in self.returnables_list: self.returnables['walls2'] = self.allwalls.get()
-            if 'pos_walls2' in self.returnables_list: self.returnables['pos_walls2'] = self.poswalls.get()
-            if 'neg_walls2' in self.returnables_list: self.returnables['neg_walls2'] = self.negwalls.get()
+            if 'walls2' in self.returnables_list: self.returnables['walls2'] = self.allwalls
+            if 'pos_walls2' in self.returnables_list: self.returnables['pos_walls2'] = self.poswalls
+            if 'neg_walls2' in self.returnables_list: self.returnables['neg_walls2'] = self.negwalls
             
             # now attempt to adjust the net magnetization in real space to achieve the target magnetization.
-            net_m = cla.sum(self.domains).get()
+            net_m = np.sum(self.domains.real)
             needed_m = self.goal_m-net_m
     
             if needed_m > 0:
-                self.make_available1(self.available,self.negwalls,self.negpins,self.pospins)
-                sites = cla.sum(self.available).get()
+                self.available = self.negwalls*self.negpins*self.pospins
+                sites = np.sum(self.available)
                 spa = min([self.spa_max,needed_m/sites])
                 
             if needed_m < 0:
-                self.make_available1(self.available,self.poswalls,self.negpins,self.pospins)
-                sites = cla.sum(self.available).get()
+                self.available = self.poswalls*self.negpins*self.pospins
+                sites = np.sum(self.available)
                 spa = max([-1*self.spa_max,needed_m/sites])
+            
+            self.domains += self.available*spa
+            
+            if 'available' in self.returnables_list: self.returnables['available'] = self.domains
+            if 'promoted' in self.returnables_list: self.returnables['promoted'] = self.domains
+            
+            np.clip(self.domains,-1,1,out=self.domains)
 
-            self.promote_spins(self.domains,self.available,spa)
-            
-            if 'promoted' in self.returnables_list: self.returnables['promoted'] = self.domains.get()
-            
-            self.bound(self.domains,self.domains)
-            
-        if 'domains' in self.returnables_list: self.returnables['domains'] = self.domains.get()
+        if 'domains' in self.returnables_list: self.returnables['domains'] = self.domains
 
     def ggr_iteration(self,iteration):
         
@@ -469,7 +358,7 @@ class generator():
         assert self.can_has_ggr, "must set ggr before running ggr_iteration"
 
         # get the target net magnetization
-        net_m       = cla.sum(self.domains).get()
+        net_m       = cla.sum(self.domains)
         self.goal_m = self.plan[iteration+1]
         needed_m    = self.goal_m*self.N2-net_m
         self.target = np.sign(needed_m).astype(np.float32)
@@ -501,7 +390,7 @@ class generator():
         self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,np.int32(self.N))
 
         # now adjust the magnetization so that it reaches the target
-        net_m       = cla.sum(self.domains).get()
+        net_m       = cla.sum(self.domains)
         needed_m    = self.goal_m*self.N2-net_m
         self.target = np.sign(needed_m).astype(np.float32)
         spa         = self.optimized_spa
@@ -517,7 +406,7 @@ class generator():
         # use the optimized spa value to actually promote the spins in self.domains
         self.ggr_promote_spins(self.domains,self.available,self.domains,self.target*self.optimized_spa)
         self.bound(self.domains,self.domains)
-        m_out   = (cla.sum(self.domains).get())/self.N2
+        m_out   = (cla.sum(self.domains))/self.N2
         m_error = abs(m_out-self.goal_m)
         
         # update the whenflipped data, which records the iteration when each pixel changed sign
@@ -539,6 +428,23 @@ class generator():
                 self.next_crossing = 0.01
         else: self.checkpoint = False
 
+    def _find_walls(self,neighbors=4):
+        # find the walls
+        
+        rolls = lambda d, r0, r1: np.roll(np.roll(d,r0,axis=0),r1,axis=1)
+        
+        if neighbors == 4: p = ((1,0),(-1,0),(0,1),(0,-1))
+        if neighbors == 8: p = ((1,-1),(1,0),(1,1),(0,-1),(0,1),(-1,-1),(-1,0),(-1,1))
+        
+        allwalls = np.zeros_like(self.domains)
+        for o in p:
+            rolled = rolls(self.domains,o[0],o[1])
+            allwalls += 1-(np.sign(self.domains*rolled)+1)/2
+    
+        self.allwalls = allwalls.astype(bool).astype(int)
+        self.negwalls = self.allwalls*np.where(self.domains < 0,1,0)
+        self.poswalls = self.allwalls*np.where(self.domains > 0,1,0)
+
     def _rescale_speckle(self):
         
         # this function implements the fourier operation: rescaling the envelope
@@ -551,59 +457,39 @@ class generator():
         # 6. ifft the domains
 
         # just to be safe, reset the temporary buffer which holds imaginary components
-        self.set_zero(self.dummy_zeros)
 
-        self.fftplan_split.execute(data_in_re  = self.domains.data,        data_in_im  = self.dummy_zeros.data,
-                                   data_out_re = self.domains_dft_re.data, data_out_im = self.domains_dft_im.data,
-                                   wait_for_finish = True)
-
-        self._preserve_power(self.domains_dft_re, self.domains_dft_im, self.speckle, 'in')
-
-        self._blur(self.fftplan_split,self.blur_kernel,self.speckle,self.dummy_zeros)
-        if 'blurred' in self.returnables_list: self.returnables['blurred'] = shift(abs(self.speckle.get()))
-
-        self.envelope_rescale.execute(self.queue,(self.N2,),
-                                      self.domains_dft_re.data, self.domains_dft_im.data,
-                                      self.goal_envelope.data,  self.speckle.data, self.rescaler.data)
+        dft_domains = DFT(self.domains)
+        mag, phase = abs(dft_domains),np.angle(dft_domains)
+        dft_speckle = abs(dft_domains)**2
+        m0_1 = dft_domains[0,0]
         
-
-        self._preserve_power(self.domains_dft_re, self.domains_dft_im, self.speckle, 'out')
-
-        if 'rescaler' in self.returnables_list:
-            self.returnables['rescaler'] = shift(abs(self.rescaler.get()))
-        if 'rescaled' in self.returnables_list:
-            self.make_speckle(self.domains_dft_re,self.domains_dft_im, self.speckle)
-            self.returnables['rescaled'] = shift(abs(self.speckle.get()))
-
-        self.fftplan_split.execute(data_in_re  = self.domains_dft_re.data, data_in_im  = self.domains_dft_im.data,
-                                   data_out_re = self.domains.data,        data_out_im = self.dummy_zeros.data,
-                                   wait_for_finish = True, inverse=True)
+        if 'incoming_dft' in self.returnables_list: self.returnables['incoming_dft'] = shift(abs(mag))
         
-    def _preserve_power(self, real, imag, speckles, stage):
+        # calculate the incoming power
+        power_in = np.sum(dft_speckle)-abs(m0_1)**2
+        new_00 = 0.
+        for coords in ((1,-1),(1,0),(1,1),(0,-1),(0,1),(-1,-1),(-1,0),(-1,1)):
+            new_00 += dft_speckle[coords[0],coords[1]]/8.
+        dft_speckle[0,0] = new_00
         
-        assert stage in ('in','out'), "unrecognized _preserve_power stage %s"%stage
+        # blur the speckle to form the rescaler, then rescale the dft_domains
+        blurred = IDFT(DFT(dft_speckle)*self.blur_kernel)
+        rescaler = np.sqrt(self.goal_envelope/blurred)
+        np.nan_to_num(rescaler)
+        dft_domains *= rescaler
+        
+        # record the outgoing power. multiple everything but the (0,0) by a ratio
+        # of the powers. put the original (0,0) back in place
+        dft_speckle2 = abs(dft_domains)**2
+        power_out = np.sum(dft_speckle2)-dft_speckle2[0,0]
+        ratio = np.sqrt(power_in.real/power_out.real)
+        dft_domains *= ratio
+        dft_domains[0,0] = m0_1
+        
+        self.domains = IDFT(dft_domains)
 
-        if stage == 'in':
-            # make the components into speckle. get m0 and the speckle power.
-            # m0 is a float2 which stores the (0,0) of re and im
-            # replace the (0,0) component with the average of the surrounding neighbors to prevent envelope distortion due to non-zero average magnetization
-            
-            self.get_m0.execute(self.queue,(1,), real.data, imag.data, self.m0_1.data)
-            self.make_speckle(real,imag, speckles)
-            self.power_in = cla.sum(speckles).get()-(self.m0_1.get()[0])**2
-            self.replace_dc_component1.execute(self.queue,(1,), speckles.data, speckles.data, np.int32(self.N))
-            
-        if stage == 'out':
-            # preserve the total amount of speckle power outside the (0,0) component
-            # put m0_1 back as the (0,0) component so that the average magnetization is not effected by the rescaling
-            
-            self.get_m0.execute(self.queue,(1,), real.data, imag.data, self.m0_2.data)
-            self.make_speckle(real, imag, speckles)
-            self.power_out = cla.sum(speckles).get()-(self.m0_2.get()[0])**2
-            ratio = (np.sqrt(self.power_in/self.power_out)).astype(np.float32)
-            self.scalar_multiply(ratio,real)
-            self.scalar_multiply(ratio,imag)
-            self.replace_dc_component2.execute(self.queue,(1,), real.data, imag.data, self.m0_1.data)
+        if 'rescaler' in self.returnables_list: self.returnables['rescaler'] = shift(abs(rescaler))
+        if 'rescaled' in self.returnables_list: self.returnables['rescaled'] = shift(abs(dft_speckle2))
 
     def _ggr_make_plan(self,m0,rate,transition,finishing):
         # make the plan of magnetizations for the ggr algorithm to target 
@@ -639,54 +525,22 @@ class generator():
         
         self.ggr_promote_spins(self.domains,self.available,self.spa_buffer,self.target*spa)
         self.bound(self.spa_buffer,self.spa_buffer)
-        buffer_average = (cla.sum(self.spa_buffer).get())/self.N2
+        buffer_average = (cla.sum(self.spa_buffer))/self.N2
         e = abs(buffer_average-self.goal_m)
         #print "    %.6e, %.3e"%(spa,e)
         return e
 
-    def _blur(self,fftplan,kernel,real,imag):
-        """ Blur an array through fft convolutions. If the array to be blurred
-        is real, the imag argument should be an array of zeros. Results are
-        returned in place.
-
-        Arguments:
-            fftplan: pyfft.Plan object describing a complex-interleaved fft
-            kernel: the blur kernel
-            real: the real component of the data
-            imag: the imaginary component of the data; if the data is entirely
-                real, this should be an array of zeros.
-        """
-
-        self.blur_time0 = time.time()
-
-        # fft, multiply by blurring kernel, ifft
-        fftplan.execute(real.data, imag.data, wait_for_finish=True)
-        self.array_multiply_f_f(real, kernel, real)
-        self.array_multiply_f_f(imag, kernel, imag)
-        fftplan.execute(real.data, imag.data, wait_for_finish=True, inverse=True)
-        
-        #self.fftplan_split.execute(self.speckle.data, self.dummy_zeros.data, wait_for_finish=True)                # NxN fft with re in self.speckle_magnitude and im in dummy_zeros
-        #self.array_multiply_f_f(self.speckle,self.blur_kernel,self.speckle)                                       # magnitude currently holds the re part of the fft
-        #self.array_multiply_f_f(self.dummy_zeros,self.blur_kernel,self.dummy_zeros)                               # dummy_zeros currently holds the im part of the fft
-        #self.fftplan_split.execute(self.speckle.data, self.dummy_zeros.data, wait_for_finish=True, inverse=True)  # fft back. re part in speckle, im part (= 0) in dummy_zeros. in-place replacement.          
-        
-        self.blur_time1 = time.time()
-
     def check_convergence(self):
         
         # calculate the difference of the previous domains (self.incoming) and the current domains (self.domains).
-        self.array_diff(self.incoming,self.domains,self.domain_diff)
-        
-        # sum the difference array and divide by the area of the simulation as a metric of how much the two domains
-        # configurations differ. 
-        self.power = (cla.sum(self.domain_diff).get())/self.N2
+        self.power = np.sum(abs(self.domains-self.incoming))/self.N2
         self.powerlist.append(self.power)
         
         # set the convergence condition
         if self.power >  self.converged_at: self.converged = False
         if self.power <= self.converged_at: self.converged = True
         
-        if 'converged' in self.returnables_list and self.converged: self.returnables['converged'] = self.domains.get()
+        if 'converged' in self.returnables_list and self.converged: self.returnables['converged'] = self.domains
         
 def function_eval(x,Parameters):
     # for making the envelope
