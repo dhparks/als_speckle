@@ -187,6 +187,246 @@ class TwoDimPeak(OneDimFit):
         ry = abs(self.data[yargmax+1:,xargmax] - hm).argmin()
         return abs(lx - rx), abs(ly-ry)
 
+class Linear(OneDimFit):
+    """ fit a function to a decay exponent.  This fits the function:
+        f(x) = a * x + b
+    """
+    def __init__(self, data):
+        OneDimFit.__init__(self, data)
+        self.functional = "a*x + b"
+        self.params_map ={ 0:"a", 1:"b"}
+
+    def fit_function(self):
+        a, b = self.params
+        return a * self.xvals + b
+
+    def guess_parameters(self):
+        self.params = np.zeros(2)
+        self.params[0] = ( self.data[0] - self.data[-1] ) * 2 / (self.data[0] + self.data[-1])
+        self.params[1] = self.data.mean()
+
+class DecayExpBetaSq(OneDimFit):
+    """ fit a function to a (decay exponent with a beta parameter)^2.  This fits the function:
+        f(x) = a + b exp(-(x/tf)^beta)^2
+    """
+    def __init__(self, data):
+        OneDimFit.__init__(self, data)
+        self.functional = "a + b exp(-(t/tf)^beta)^2"
+        self.params_map ={ 0:"a", 1:"b", 2:"tf", 3:"beta" }
+
+    def fit_function(self):
+        a, b, tf, beta = self.params
+        # checks to return high numbers if parameters are getting out of hand.
+        if (tf<0 or beta<0): return self.try_again
+
+        return a + b * (np.exp(-1*(self.xvals/tf)**beta)**2)
+
+    def guess_parameters(self):
+        self.params = np.zeros(4)
+        self.params[0] = self.data[-1]
+        self.params[1] = self.data[0] - self.params[0]
+        self.params[2] = self.xvals[int(self.npoints/2)]
+        self.params[3] = 1.5
+
+class DecayExpBeta(OneDimFit):
+    """ fit a function to a decay exponent with a beta parameter.  This fits the function:
+        f(x) = a + b exp(-(x/tf)^beta)
+    """
+    def __init__(self, data):
+        OneDimFit.__init__(self, data)
+        self.functional = "a + b exp(-1*(x/tf)**beta)"
+        self.params_map ={ 0:"a", 1:"b", 2:"tf", 3:"beta" }
+
+    def fit_function(self):
+        a, b, tf, beta = self.params
+        # checks to return high numbers if parameters are getting out of hand.
+        if (tf<0 or beta<0): return self.try_again
+
+        return a + b * (np.exp(-1*(self.xvals/tf)**beta))
+
+    def guess_parameters(self):
+        self.params = np.zeros(4)
+        self.params[0] = self.data[-1]
+        self.params[1] = self.data[0] - self.params[0]
+        self.params[2] = self.xvals[int(self.npoints/2)]
+        self.params[3] = 1.5
+
+class DecayExp(OneDimFit):
+    """ fit a function to a decay exponent.  This fits the function:
+        f(x) = a + b exp(-(x/tf))
+    """
+    def __init__(self, data):
+        OneDimFit.__init__(self, data)
+        self.functional = "a + b exp(-1*(x/tf))"
+        self.params_map ={ 0:"a", 1:"b", 2:"tf" }
+
+    def fit_function(self):
+        a, b, tf = self.params
+        # checks to return high numbers if parameters are getting out of hand.
+        if ( tf<0 ): return self.try_again
+
+        return a + b * np.exp(-1*(self.xvals/tf))
+
+    def guess_parameters(self):
+        self.params = np.zeros(3)
+        self.params[0] = self.data[-1]
+        self.params[1] = self.data[0] - self.params[0]
+        self.params[2] = self.xvals[int(self.npoints/2)]
+
+class Gaussian(OneDimPeak):
+    """ fit a function to a 1d Gaussian.  This fits the function:
+        f(x) = a exp(-(x-x0)^2/(2w^2)) + shift
+    """
+    def __init__(self, data):
+        OneDimPeak.__init__(self, data)
+        self.functional = "a exp(-(x-x0)^2/(2*w^2)) + shift"
+        self.params_map ={ 0:"a", 1:"x0", 2:"w" , 3:"shift"}
+
+    def fit_function(self):
+        a, x0, w, shift = self.params
+        if ( w < 0 ): return self.try_again
+        return a*shape.gaussian(self.data.shape, (w,), center=(x0,)) + shift
+
+    def guess_parameters(self):
+        self.params = np.zeros(4)
+        # average the first and last points to try to guess the background
+        self.params[3] = (self.data[0] + self.data[-1]) / 2.0
+        self.params[0] = self.data.max() - self.params[3]
+        self.params[1] = self.xvals[self.data.argmax()]
+        
+        # width is always some function-dependent multiple of fwhm
+        self.params[2] = self.estimate_fwhm()/2.35 #2.35 = 1/(2*sqrt(2*ln(2)))
+
+class Lorentzian(OneDimPeak):
+    """ fit a function to a 1d Lorentzian.  This fits the function:
+        f(x) = a/( ((x-x0)/w)^2 + 1) + bg
+    """
+    # from http://mathworld.wolfram.com/LorentzianFunction.html
+    def __init__(self, data):
+        OneDimPeak.__init__(self, data)
+        self.functional = "a/( ((x-x0)/w)^2 + 1) + shift"
+        self.params_map ={ 0:"a", 1:"x0", 2:"w", 3:"shift"}
+
+    def fit_function(self):
+        a, x0, w, shift = self.params
+        # checks to return high numbers if parameters are getting out of hand.
+        if ( w < 0 ): return self.try_again
+        return a*shape.lorentzian(self.data.shape, (w,), center=(x0,)) + shift
+
+    def guess_parameters(self):
+        self.params = np.zeros(4)
+        # average the first and last points to try to guess the background
+        self.params[3] = (self.data[0] + self.data[-1]) / 2.0
+        self.params[1] = self.xvals[self.data.argmax()]
+        
+        # width is always some function-dependent multiple of fwhm
+        self.params[2] = self.estimate_fwhm()/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
+        self.params[0] = (self.data.max() - self.params[3])*(np.pi*self.params[2])
+
+class LorentzianSq(OneDimPeak):
+    """ fit a function to a 1d squared lorentzian.  This fits the function:
+        f(x) = a/( ((x-x0)/w)^2 + 1)^2 + bg
+    """
+    def __init__(self, data):
+        OneDimPeak.__init__(self, data)
+        self.functional = "a/((x-x0)^2 + w^2)^2 + bg"
+        self.params_map ={ 0:"a", 1:"x0", 2:"w", 3:"bg"}
+
+    def fit_function(self):
+        a, x0, w, bg = self.params
+        # checks to return high numbers if parameters are getting out of hand.
+        #if ( gam > 0 ): return np.ones_like(self.xvals) * self.try_again
+        if w < 0: return self.try_again
+        return a*shape.lorentzian(self.data.shape, (w,), center=(x0,))**2 + shift
+
+    def guess_parameters(self):
+        self.params = np.zeros(4)
+        
+        self.params[3] = abs(self.data).min()              # bg
+        self.params[0] = self.data.max() - self.params[3]  # scale
+        self.params[1] = self.xvals[self.data.argmax()]    # center x0
+        
+        # width is always some function-dependent multiple of fwhm
+        self.params[2] = self.estimate_fwhm()/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
+
+class Gaussian2D(TwoDimPeak):
+    """ fit a function to a two-dimensional Gaussian.  This fits the function:
+        f(x) = a exp(-(x-x0)^2/(2*sigma_x^2) - (y-y0)^2/(2*sigma_y^2)) + shift
+    """
+    def __init__(self, data):
+        TwoDimPeak.__init__(self, data)
+        self.functional = "a exp(-(x-x0)^2/(2*sigmay^2) - (y-y0)^2/(2*sigmay^2)) + shift"
+        self.params_map ={ 0:"a", 1:"x0", 2:"sigmax", 3:"y0", 4:"sigmay", 5:"shift"}
+
+    def fit_function(self):
+        a, x0, sigmax, y0, sigmay, shift = self.params
+        if ( sigmax < 0 or sigmay < 0): return self.try_again
+        return shape.gaussian(self.data.shape, (sigmay, sigmax), center=(y0, x0))*a + shift
+
+    def guess_parameters(self):
+        self.params = np.zeros(6)
+        sd = self.data
+        sp = self.params
+        # average the outside corner values
+        sp[5] = np.average(np.concatenate((sd[:,0], sd[:,-1], sd[-1,:], sd[0,:])))
+        sp[0] = sd.max() - sp[5]
+        sp[3], sp[1] = np.unravel_index(sd.argmax(), sd.shape)
+        sp[2], sp[4] = self.estimate_fwhm()
+        sp[2] = sp[2]/(2*np.sqrt(2*np.log(2)))
+        sp[4] = sp[4]/(2*np.sqrt(2*np.log(2)))
+
+class Lorentzian2D(TwoDimPeak):
+    """ fit a function to a 2d-lorentzian.  This fits the function:
+        f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1) + bg
+    """
+    def __init__(self, data):
+        TwoDimPeak.__init__(self, data)
+        self.functional = "a / ( ((x-x0)/xw)**2 + ((y-y0)/yw)**2 + 1) + shift "
+        self.params_map ={ 0:"a", 1:"x0", 2:"xw", 3:"y0", 4:"yw", 5:"shift"}
+
+    def fit_function(self):
+        a, x0, xw, y0, yw, shift = self.params
+        if ( xw < 0 or yw < 0): return self.try_again
+        return a*shape.lorentzian(self.data.shape, (yw, xw), center=(y0, x0)) + shift
+
+    def guess_parameters(self):
+        self.params = np.zeros(6)
+        sd = self.data
+        sp = self.params
+        # average the outside corner values
+        sp[5] = np.average(np.concatenate((sd[:,0], sd[:,-1], sd[-1,:], sd[0,:])))
+        sp[0] = sd.max() - sp[5]
+        sp[3], sp[1] = np.unravel_index(sd.argmax(), sd.shape)
+        sp[2], sp[4] = self.estimate_fwhm()
+        sp[2] = sp[2]/2
+        sp[4] = sp[4]/2
+
+class Lorentzian2DSq(TwoDimPeak):
+    """ fit a function to a 2d-lorentzian squared.  This fits the function:
+        f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1)^2 + bg
+    """
+    def __init__(self, data):
+        TwoDimPeak.__init__(self, data)
+        self.functional = "a / ( ((x-x0)/xw)**2 + ((y-y0)/yw)**2 + 1)**2 + shift "
+        self.params_map ={ 0:"a", 1:"x0", 2:"xw", 3:"y0", 4:"yw", 5:"shift"}
+
+    def fit_function(self):
+        a, x0, xw, y0, yw, shift = self.params
+        if ( xw < 0 or yw < 0): return self.try_again
+        return a*(shape.lorentzian(self.data.shape, (yw, xw), center=(y0, x0)))**2 + shift
+
+    def guess_parameters(self):
+        self.params = np.zeros(6)
+        sd = self.data
+        sp = self.params
+        # average the outside corner values
+        sp[5] = np.average(np.concatenate((sd[:,0], sd[:,-1], sd[-1,:], sd[0,:])))
+        sp[0] = sd.max() - sp[5]
+        sp[3], sp[1] = np.unravel_index(sd.argmax(), sd.shape)
+        sp[2], sp[4] = self.estimate_fwhm()
+        sp[2] = sp[2]/2
+        sp[4] = sp[4]/2
+
 def linear(data):
     """ fit a function to a line.  This fits the function:
         f(x) = a * x + b
@@ -200,21 +440,6 @@ def linear(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    class Linear(OneDimFit):
-        def __init__(self, data):
-            OneDimFit.__init__(self, data)
-            self.functional = "a*x + b"
-            self.params_map ={ 0:"a", 1:"b"}
-
-        def fit_function(self):
-            a, b = self.params
-            return a * self.xvals + b
-
-        def guess_parameters(self):
-            self.params = np.zeros(2)
-            self.params[0] = ( self.data[0] - self.data[-1] ) * 2 / (self.data[0] + self.data[-1])
-            self.params[1] = self.data.mean()
-
     fit = Linear(data)
     fit.fit()
     return fit
@@ -232,27 +457,6 @@ def decay_exp_beta_sq(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    class DecayExpBetaSq(OneDimFit):
-        def __init__(self, data):
-            OneDimFit.__init__(self, data)
-            self.functional = "a + b exp(-(t/tf)^beta)^2"
-            self.params_map ={ 0:"a", 1:"b", 2:"tf", 3:"beta" }
-
-        def fit_function(self):
-            a, b, tf, beta = self.params
-            # checks to return high numbers if parameters are getting out of hand.
-            if (tf<0 or beta<0): return self.try_again
-
-            return a + b * (np.exp(-1*(self.xvals/tf)**beta)**2)
-
-        def guess_parameters(self):
-            self.params = np.zeros(4)
-            self.params[0] = self.data[-1]
-            self.params[1] = self.data[0] - self.params[0]
-            self.params[2] = self.xvals[int(self.npoints/2)]
-            self.params[3] = 1.5
-
-
     fit = DecayExpBetaSq(data)
     fit.fit()
     return fit
@@ -270,26 +474,6 @@ def decay_exp_beta(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    class DecayExpBeta(OneDimFit):
-        def __init__(self, data):
-            OneDimFit.__init__(self, data)
-            self.functional = "a + b exp(-1*(x/tf)**beta)"
-            self.params_map ={ 0:"a", 1:"b", 2:"tf", 3:"beta" }
-
-        def fit_function(self):
-            a, b, tf, beta = self.params
-            # checks to return high numbers if parameters are getting out of hand.
-            if (tf<0 or beta<0): return self.try_again
-
-            return a + b * (np.exp(-1*(self.xvals/tf)**beta))
-
-        def guess_parameters(self):
-            self.params = np.zeros(4)
-            self.params[0] = self.data[-1]
-            self.params[1] = self.data[0] - self.params[0]
-            self.params[2] = self.xvals[int(self.npoints/2)]
-            self.params[3] = 1.5
-
     fit = DecayExpBeta(data)
     fit.fit()
     return fit
@@ -307,26 +491,6 @@ def decay_exp(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    class DecayExp(OneDimFit):
-
-        def __init__(self, data):
-            OneDimFit.__init__(self, data)
-            self.functional = "a + b exp(-1*(x/tf))"
-            self.params_map ={ 0:"a", 1:"b", 2:"tf" }
-
-        def fit_function(self):
-            a, b, tf = self.params
-            # checks to return high numbers if parameters are getting out of hand.
-            if ( tf<0 ): return self.try_again
-
-            return a + b * np.exp(-1*(self.xvals/tf))
-
-        def guess_parameters(self):
-            self.params = np.zeros(3)
-            self.params[0] = self.data[-1]
-            self.params[1] = self.data[0] - self.params[0]
-            self.params[2] = self.xvals[int(self.npoints/2)]
-
     fit = DecayExp(data)
     fit.fit()
     return fit
@@ -344,28 +508,6 @@ def gaussian(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    class Gaussian(OneDimPeak):
-
-        def __init__(self, data):
-            OneDimPeak.__init__(self, data)
-            self.functional = "a exp(-(x-x0)^2/(2*w^2)) + shift"
-            self.params_map ={ 0:"a", 1:"x0", 2:"w" , 3:"shift"}
-
-        def fit_function(self):
-            a, x0, w, shift = self.params
-            if ( w < 0 ): return self.try_again
-            return a*shape.gaussian(self.data.shape, (w,), center=(x0,)) + shift
-
-        def guess_parameters(self):
-            self.params = np.zeros(4)
-            # average the first and last points to try to guess the background
-            self.params[3] = (self.data[0] + self.data[-1]) / 2.0
-            self.params[0] = self.data.max() - self.params[3]
-            self.params[1] = self.xvals[self.data.argmax()]
-            
-            # width is always some function-dependent multiple of fwhm
-            self.params[2] = self.estimate_fwhm()/2.35 #2.35 = 1/(2*sqrt(2*ln(2)))
-
     fit = Gaussian(data)
     fit.fit()
     return fit
@@ -383,29 +525,6 @@ def lorentzian(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    class Lorentzian(OneDimPeak):
-        # from http://mathworld.wolfram.com/LorentzianFunction.html
-        def __init__(self, data):
-            OneDimPeak.__init__(self, data)
-            self.functional = "a/( ((x-x0)/w)^2 + 1) + shift"
-            self.params_map ={ 0:"a", 1:"x0", 2:"w", 3:"shift"}
-
-        def fit_function(self):
-            a, x0, w, shift = self.params
-            # checks to return high numbers if parameters are getting out of hand.
-            if ( w < 0 ): return self.try_again
-            return a*shape.lorentzian(self.data.shape, (w,), center=(x0,)) + shift
-
-        def guess_parameters(self):
-            self.params = np.zeros(4)
-            # average the first and last points to try to guess the background
-            self.params[3] = (self.data[0] + self.data[-1]) / 2.0
-            self.params[1] = self.xvals[self.data.argmax()]
-            
-            # width is always some function-dependent multiple of fwhm
-            self.params[2] = self.estimate_fwhm()/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
-            self.params[0] = (self.data.max() - self.params[3])*(np.pi*self.params[2])
-
     fit = Lorentzian(data)
     fit.fit()
     return fit
@@ -423,30 +542,6 @@ def lorentzian_sq(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    class LorentzianSq(OneDimPeak):
-
-        def __init__(self, data):
-            OneDimPeak.__init__(self, data)
-            self.functional = "a/((x-x0)^2 + w^2)^2 + bg"
-            self.params_map ={ 0:"a", 1:"x0", 2:"w", 3:"bg"}
-
-        def fit_function(self):
-            a, x0, w, bg = self.params
-            # checks to return high numbers if parameters are getting out of hand.
-            #if ( gam > 0 ): return np.ones_like(self.xvals) * self.try_again
-            if w < 0: return self.try_again
-            return a*shape.lorentzian(self.data.shape, (w,), center=(x0,))**2 + shift
-
-        def guess_parameters(self):
-            self.params = np.zeros(4)
-            
-            self.params[3] = abs(self.data).min()              # bg
-            self.params[0] = self.data.max() - self.params[3]  # scale
-            self.params[1] = self.xvals[self.data.argmax()]    # center x0
-            
-            # width is always some function-dependent multiple of fwhm
-            self.params[2] = self.estimate_fwhm()/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
-
     fit = LorentzianSq(data)
     fit.fit()
     return fit
@@ -464,29 +559,6 @@ def gaussian_2d(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    class Gaussian2D(TwoDimPeak):
-        def __init__(self, data):
-            TwoDimPeak.__init__(self, data)
-            self.functional = "a exp(-(x-x0)^2/(2*sigmay^2) - (y-y0)^2/(2*sigmay^2)) + shift"
-            self.params_map ={ 0:"a", 1:"x0", 2:"sigmax", 3:"y0", 4:"sigmay", 5:"shift"}
-
-        def fit_function(self):
-            a, x0, sigmax, y0, sigmay, shift = self.params
-            if ( sigmax < 0 or sigmay < 0): return self.try_again
-            return shape.gaussian(self.data.shape, (sigmay, sigmax), center=(y0, x0))*a + shift
-
-        def guess_parameters(self):
-            self.params = np.zeros(6)
-            sd = self.data
-            sp = self.params
-            # average the outside corner values
-            sp[5] = np.average(np.concatenate((sd[:,0], sd[:,-1], sd[-1,:], sd[0,:])))
-            sp[0] = sd.max() - sp[5]
-            sp[3], sp[1] = np.unravel_index(sd.argmax(), sd.shape)
-            sp[2], sp[4] = self.estimate_fwhm()
-            sp[2] = sp[2]/(2*np.sqrt(2*np.log(2)))
-            sp[4] = sp[4]/(2*np.sqrt(2*np.log(2)))
-
     fit = Gaussian2D(data)
     fit.fit()
     return fit
@@ -504,69 +576,6 @@ def lorentzian_2d(data):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    class Lorentzian2D(TwoDimPeak):
-        def __init__(self, data):
-            TwoDimPeak.__init__(self, data)
-            self.functional = "a / ( ((x-x0)/xw)**2 + ((y-y0)/yw)**2 + 1) + shift "
-            self.params_map ={ 0:"a", 1:"x0", 2:"xw", 3:"y0", 4:"yw", 5:"shift"}
-
-        def fit_function(self):
-            a, x0, xw, y0, yw, shift = self.params
-            if ( xw < 0 or yw < 0): return self.try_again
-            return a*shape.lorentzian(self.data.shape, (yw, xw), center=(y0, x0)) + shift
-
-        def guess_parameters(self):
-            self.params = np.zeros(6)
-            sd = self.data
-            sp = self.params
-            # average the outside corner values
-            sp[5] = np.average(np.concatenate((sd[:,0], sd[:,-1], sd[-1,:], sd[0,:])))
-            sp[0] = sd.max() - sp[5]
-            sp[3], sp[1] = np.unravel_index(sd.argmax(), sd.shape)
-            sp[2], sp[4] = self.estimate_fwhm()
-            sp[2] = sp[2]/2
-            sp[4] = sp[4]/2
-
-    fit = Lorentzian2D(data)
-    fit.fit()
-    return fit
-
-def lorentzian_sq_2d(data):
-    """ fit a function to a 2d-lorentzian squared.  This fits the function:
-        f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1)^2 + bg
-
-    arguments:
-        data - Data to fit.  This should be a 2-dimensional array.
-
-    returns:
-        result - a fit class that contains the final fit.  This object has
-            various self descriptive parameters, the most useful is
-            result.final_params_errors, which contains a parameter+fit map of
-            the final fitted values.
-    """
-    class Lorentzian2D(TwoDimPeak):
-        def __init__(self, data):
-            TwoDimPeak.__init__(self, data)
-            self.functional = "a / ( ((x-x0)/xw)**2 + ((y-y0)/yw)**2 + 1)**2 + shift "
-            self.params_map ={ 0:"a", 1:"x0", 2:"xw", 3:"y0", 4:"yw", 5:"shift"}
-
-        def fit_function(self):
-            a, x0, xw, y0, yw, shift = self.params
-            if ( xw < 0 or yw < 0): return self.try_again
-            return a*(shape.lorentzian(self.data.shape, (yw, xw), center=(y0, x0)))**2 + shift
-
-        def guess_parameters(self):
-            self.params = np.zeros(6)
-            sd = self.data
-            sp = self.params
-            # average the outside corner values
-            sp[5] = np.average(np.concatenate((sd[:,0], sd[:,-1], sd[-1,:], sd[0,:])))
-            sp[0] = sd.max() - sp[5]
-            sp[3], sp[1] = np.unravel_index(sd.argmax(), sd.shape)
-            sp[2], sp[4] = self.estimate_fwhm()
-            sp[2] = sp[2]/2
-            sp[4] = sp[4]/2
-
     fit = Lorentzian2D(data)
     fit.fit()
     return fit
