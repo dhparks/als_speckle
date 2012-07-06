@@ -4,8 +4,11 @@ DFT = np.fft.fft2
 IDFT = np.fft.ifft2
 fftshift = np.fft.fftshift
 
+# shared
 import speckle
+import speckle.simulation
 speckle.io.set_overwrite(True)
+import time
 
 def check_parameters():
     
@@ -18,7 +21,7 @@ def check_parameters():
     if sp.make_samples:
         assert sp.device in ('cpu','gpu'), "unrecognized device %s"%sp.device
         assert isinstance(sp.N,int), "array size must be integer"
-        assert isp2(sp.N), "array size must be power of 2"
+        assert sp.N in (32,64,128,256,512,1024,2048,4096), "array size must be power of 2"
         assert isinstance(sp.density,float), "density must be float"
         assert sp.density < 1, "density must be < 1"
         assert isinstance(sp.frames, int) and sp.frames >= 1, "number of frames must be int >= 1"
@@ -95,11 +98,11 @@ def make_samples():
     
     parameters: N, density, frames, ballradius, brownianstep"""
     
-    import speckle.simulation.random_walk as rw
+    rw = speckle.simulation.random_walk
     
     print "making %s sample images"%nf
     objs = int(sp.N**2*sp.density)
-    balls = rw.random_walk(objs,sp.ballradius)
+    balls = rw(sp.N,objs,sp.ballradius)
     for frame in range(nf):
         print "  "+str(frame)
         balls.displace(sp.brownianstep)
@@ -162,6 +165,7 @@ def raster_spectra(sm_instance):
     spectra = np.zeros((nf,nx*ny,nq,nc),float)
 
     for frame in range(nf):
+        time0 = time.time()
         print "  frame %s"%frame
         
         # open a sample frame from disk and load into the class
@@ -178,7 +182,7 @@ def raster_spectra(sm_instance):
                 sm_instance.run_on_site(row,col)
                 spectra[frame,site] = sm_instance.returnables['spectrum']
                 site += 1
-                
+        
     # save; cast the results to integer to reduce space.
     maxval = spectra.max()
     spectra *= 65535/maxval
