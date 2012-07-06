@@ -16,7 +16,11 @@ class generator():
     
     """ CPU-executing copd-type domain generation. """
     
-    def __init__(self,domains=None,alpha=0.5,converged_at=0.002,ggr=None,returnables=('converged',)):
+    def __init__(self,device=None,domains=None,alpha=0.5,converged_at=0.002,ggr=None,returnables=('converged',)):
+        
+        if device != None:
+            "device %s provided to cpu_domains, which requires no device."
+            "that information is being ignored"
         
         self.can_has_domains = False
         self.can_has_envelope = False
@@ -75,6 +79,7 @@ class generator():
 
             if isinstance(domains,int):
                 self.N = domains
+                self.N2 = domains**2
                 self.domains = np.zeros((self.N,self.N),np.float32)
                 
             # now that self.N has been established, initialize all the buffers for intermediates
