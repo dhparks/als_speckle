@@ -1,0 +1,10 @@
+recursive-include docs *
+prune docs/_build/doctrees
+
+recursive-include examples *.py
+
+include setup.py
+include README
+include MANIFEST.in
+
+global-exclude .DS_Store

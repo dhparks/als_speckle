@@ -21,6 +21,7 @@ Features of the library:
     * Unwrapping and wrapping centrosymmetric data
     * Rotational symmetry analysis
     * Q-dependent (rotational) and spatial memory analysis
+    * Registering and merging of data for imaging
     * Simulations of single-photon XPCS data, domain generation, and random walks
     * Endstation-specific items such as Q-calculations and conversion from detected events to photons
 
