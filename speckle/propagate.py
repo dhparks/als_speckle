@@ -98,7 +98,6 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=N
     """
     
     from . import scattering
-    #import scattering
    
     # check types and defaults
     assert isinstance(data,numpy.ndarray),                              "data must be an array"
@@ -157,11 +156,14 @@ def apodize(data,kt=.1,threshold=0.01,sigma=5,return_type='data'):
         threshold: float or int value defines the boundary of the data.
         sigma: boundary locations are smoothed to avoid with jagged edges;
             this sets  the smoothing. float or int.
-        return_type: can return the filtered data, just the filter, or
-            intermediates for debugging/inspection. Basically, for debugging.
-    
-    Returns: apodized array
-    
+        return_type: Determines what can be returned.  This can be 'data'
+            (default), 'filter', which returns the filter or 'all', which
+            returns three items: (data, filter, boundary)
+        
+    Returns:
+        The return value depends on return_type, but the default is 'data'
+            which returns the apodized array. Other options are 'filter' or
+            'all'.
     """
     
     # check types
@@ -179,10 +181,8 @@ def apodize(data,kt=.1,threshold=0.01,sigma=5,return_type='data'):
         was_complex = True
         
     # import necessary libraries
-    import wrapping
-    from numpy.fft import fft
-    from numpy.fft import ifft
-    convolve = lambda x,y: ifft(fft(x)*fft(y))
+    from . import wrapping
+    convolve = lambda x,y: numpy.fft.ifft(numpy.fft.fft(x)*numpy.fft.fft(y))
 
     # find the center of mass
     N,M       = data.shape
