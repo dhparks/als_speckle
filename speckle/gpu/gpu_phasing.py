@@ -21,9 +21,10 @@ class GPUPR:
     
     def __init__(self,gpuinfo,N,shrinkwrap=False):
         self.N = N
-        self.context,self.device,self.queue = gpuinfo
+        self.context,self.device,self.queue,self.platform = gpuinfo
 
-        # 1. make fft plan for a 2d array with length N
+        # 1. make fft plan for a 2d array with length N. this assumes complex data array
+        # dtype (in c parlance: interleaved complex)
         from pyfft.cl import Plan
         self.fftplan = Plan((self.N, self.N), queue=self.queue)
         

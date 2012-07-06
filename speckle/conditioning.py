@@ -87,38 +87,49 @@ def remove_dust(data,dust_mask,dust_plan=None):
     return data, dust_plan
 
 def plan_remove_dust(Mask):
-    # find which pixels need to be interpolated based on Mask. based on knowledge of the pixels
-    # determine where to interpolate various rows and cols to avoid redundant interpolation.
-
-    Mask = Mask.astype('int')
+    """ Dust removal has requires two pieces of information: a mask describing
+    the dust and a plan of operations for doing the spline interpolation within
+    the mask. Only the mask is specified by the user. This function generates
+    the second piece of information from the mask.
     
-    # mark the pixels in Mask with unique identifiers
-    L = len(Mask)
-    Marked = numpy.zeros(L**2)
-    Marked[:] = numpy.ravel(Mask)[:]
-    Marked *= (numpy.arange(L**2)+1)
-    Marked = Marked[numpy.nonzero(Marked)]-1 # this is the location of all the non-zero pixels
+    arguments:
+        mask -- a binary mask marking the dust as ones, not-dust as zeros
+        
+    returns
+        plan -- a tuple which is given to remove_dust along with the mask to
+            remove the dust from the ccd image"""
+
+    mask = mask.astype('int')
+    
+    # mark the pixels in mask with unique identifiers
+    L = len(mask)
+    marked = numpy.zeros(L**2)
+    marked[:] = numpy.ravel(mask)[:]
+    marked *= (numpy.arange(L**2)+1)
+    marked = marked[numpy.nonzero(marked)]-1 # locations of all non-zero pixels
     
     PixelIDStrings = []
     
-    for Value in Marked:
+    for value in marked:
 
-        # record only some information about each pixel pertaining to the eventual spline fits. for
-        # example we dont actually need to know both the exact row and column of each pixel, only the
-        # range over which the spline will be evaluated. this eliminates duplicate work by avoiding
-        # re-interpolation of the same range of pixels.
-        # this information is recorded in idstring
+        # record only some information about each pixel pertaining to the
+        # eventual spline fits. for example, we dont actually need to know both
+        # the exact row and column of each pixel, only the range over which the
+        # spline will be evaluated. this eliminates duplicate work by avoiding
+        # re-interpolation of the same range of pixels. this information is
+        # recorded in idstring
+        
         idstring = ''
         
-        r,c = Value/L,Value%L # coordinate of an active pixel in Mask
-        Row,Col = Mask[r],Mask[:,c]
+        r,c = value/L,value%L # coordinate of an active pixel in mask
+        row,col = mask[r],mask[:,c]
         
-        # now slook in both directions to find out how wide the object is in row in col
+        # find out how wide the object is in row and col
         r1,r2,c1,c2 = 0,0,0,0
-        while Row[c+c1] > 0: c1 += 1
-        while Row[c+c2] > 0: c2 += -1
-        while Col[r+r1] > 0: r1 += 1
-        while Col[r+r2] > 0: r2 += -1
+        while row[c+c1] > 0: c1 += 1
+        while row[c+c2] > 0: c2 += -1
+        while col[r+r1] > 0: r1 += 1
+        while col[r+r2] > 0: r2 += -1
         
         rmax = r+r1
         rmin = r+r2
@@ -132,8 +143,9 @@ def plan_remove_dust(Mask):
         # record the essentials about the pixel
         PixelIDStrings.append(idstring)
     
-    # return only the unique ID strings to eliminate redundant interpolations. set() returns unique
-    # elements of a list without order preservation which doesn't matter for this purpose
+    # return only the unique ID strings to eliminate redundant interpolations.
+    # set() returns unique elements of a list without order preservation which
+    # doesn't matter for this purpose
     return tuple(set(PixelIDStrings))
 
 def subtract_background(data, dark=None, x=20, scale=1, abs_val=True):

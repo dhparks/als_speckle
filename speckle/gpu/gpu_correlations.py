@@ -26,7 +26,7 @@ class gpu_microscope():
     """Methods for running a symmetry-microscope simulation on a gpu using
     pyopencl and pyfft libraries"""
 
-    def __init__(self,gpuinfo,object=None,unwrap=None,pinhole=None,components=None,coherence=None,returnables=('spectrum',)):
+    def __init__(self,device=None,object=None,unwrap=None,pinhole=None,components=None,coherence=None,returnables=('spectrum',)):
 
         """ Get the class running. At minimum, accept gpu information and
         compile kernels. Information about the object, pinhole, unwrap region
@@ -34,7 +34,9 @@ class gpu_microscope():
         decomposition may also be supplied to __init__ or later on to the
         methods called within __init__."""
 
-        self.context, self.device, self.queue, self.platform = gpuinfo
+        assert isinstance(device,tuple) and len(device) == 4, "device information improperly formed"
+
+        self.context, self.device, self.queue, self.platform = device
         self.make_kernels()
         self.returnables_list = returnables
         self.interpolation_order = 1
@@ -188,11 +190,12 @@ class gpu_microscope():
         if isinstance(pinhole, (int,float)):
             assert pinhole < self.N/2, "pinhole radius must be smaller than pinhole array size"
             illumination = fftshift(shape.circle((self.N,self.N),pinhole))
-            self.pinhole_r = pinhole
+            self.pr = pinhole
 
         if isinstance(pinhole,np.ndarray):
             assert pinhole.shape == self.object.shape, "supplied pinhole must be same size as supplied object"
             illumination = pinhole
+            self.pr = None
         
         if self.can_has_pinhole:
             self.illumination_gpu.set(illumination.astype(self.illumination_gpu.dtype))
@@ -359,9 +362,11 @@ class gpu_microscope():
         the desired intermediate. Set after object to be safe. 
         
         Available returnables:
-            object: the master object from which views are sliced
-            sliced: the current sliced view
-            illuminated: the current view * the illumination function
+            object: the master object from which views are sliced. this is the
+                object set by set_object()
+            sliced: the current sliced view. when the master object is the same
+                size as the simulation size, slicing is just rolling
+            illuminated: the current slice * the illumination function
             speckle: human-centered speckle of the current illumination
             speckle_blocker: speckle with a blocker of radius ur in the center
             blurred: blurred speckle
@@ -444,12 +449,9 @@ class gpu_microscope():
         return_something = False
         self.illuminate_re(self.illumination_gpu, self.active_object, self.scratch1).wait()
         if 'illuminated' in self.returnables_list:
-            Temp = self.scratch1.get()
-            #try:
-            #    x = self.pinhole_r+15
-            #    Temp = Temp[self.N/2-x:self.N/2+x,self.N/2-x:self.N/2+x]
-            #except: pass
-            self.returnables['illuminated'] = Temp
+            temp = fftshift(self.scratch1.get())
+            if isinstance(self.pr, (int,float)): temp = temp[self.N/2-self.pr:self.N/2+self.pr,self.N/2-self.pr:self.N/2+self.pr]
+            self.returnables['illuminated'] = temp
         
         # calculate the fft of the wavefield
         self.fftplan_speckle.execute(self.scratch1.data, data_out=self.scratch2.data,wait_for_finish=True)

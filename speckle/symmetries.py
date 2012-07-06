@@ -15,10 +15,12 @@ class cpu_microscope():
     analyzed is square. Furthermore, speckle patterns are simulated at the same size
     as the object."""
     
-    def __init__(self,object=None,unwrap=None,pinhole=None,coherence=None,components=None,returnables=('spectrum')):
+    def __init__(self,device=None,object=None,unwrap=None,pinhole=None,coherence=None,components=None,returnables=('spectrum')):
         
         # the class is structured in such a way that its parts can all be inited right now
         # or later on in the main script. the example will show both.
+        
+        # device is a dummy input to equate the invocation of cpu_microscope and gpu_microscope
         
         self.can_has_object = False
         self.can_has_unwrap = False
@@ -113,12 +115,14 @@ class cpu_microscope():
         if isinstance(pinhole,(int,float)):
             assert pinhole < self.N/2, "pinhole radius must be smaller than pinhole array size"
             circle = shape.circle((self.N,self.N),pinhole)
+            self.pr = pinhole
             self.illumination = shift(circle) # this makes coordinates (0,0) be the array corners
             
         if isinstance(pinhole,np.ndarray):
             # if the pinhole is custom, all bets are off about the simulation's coordinates system...
             assert pinhole.shape == self.object.shape, "supplied pinhole must be same size as supplied object"
             self.illumination = pinhole
+            self.pr = None
 
         self.can_has_pinhole = True
         
@@ -235,7 +239,10 @@ class cpu_microscope():
             returned_rs = rot_sym(self.blurred,self.unwrap_plan,cosines=cosines,get_back=self.returnables_list)
             
         # build the output dictionary
-        if 'illuminated' in self.returnables_list: self.returnables['illuminated'] = self.illuminated
+        if 'illuminated' in self.returnables_list:
+            temp = shift(self.illuminated)
+            if isinstance(self.pr, (int,float)): temp = temp[self.N/2-self.pr:self.N/2+self.pr,self.N/2-self.pr:self.N/2+self.pr]
+            self.returnables['illuminated'] = temp
         if 'speckle' in self.returnables_list: self.returnables['speckle'] = self.speckles
         if 'speckle_blocker' in self.returnables_list: self.returnables['speckle_blocker'] = self.speckles*self.blocker
         if 'blurred' in self.returnables_list and self.can_has_coherence: self.returnables['blurred'] = self.blurred

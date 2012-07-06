@@ -1,3 +1,6 @@
+from .. import scattering,shape
+import numpy,gpu,string
+
 def gpu_propagate_distance(gpuinfo,data,distances,energy_or_wavelength,pixel_pitch,subarraysize=None):
     
     """ Propagates a complex-valued wavefield through a range of distances using the GPU.
@@ -23,6 +26,8 @@ def gpu_propagate_distance(gpuinfo,data,distances,energy_or_wavelength,pixel_pit
     except ImportError:
         print "necessary gpu libraries not installed"
         exit()
+    
+    kp = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/' # kernel path
         
     # check types and defaults
     assert isinstance(data,numpy.ndarray),                                   "data must be an array"
@@ -36,15 +41,17 @@ def gpu_propagate_distance(gpuinfo,data,distances,energy_or_wavelength,pixel_pit
     assert isinstance(subarraysize, int) and subarraysize <= len(data),      "subarray must be int smaller than supplied length of data"
     assert subarraysize%2 == 0, "subarraylength on gpu should be even number"
     
+    context,device,queue,platform = gpuinfo
+    
     # convert energy_or_wavelength to wavelength.  If < 1 assume it's a wavelength.
     if energy_or_wavelength < 1: wavelength = energy_or_wavelength
     else: wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
     
     # check distances against upperlimit
+    N = len(data)
     upperlimit = (pixel_pitch*N)**2/(wavelength*N)
     if numpy.sum(numpy.where(distances > upperlimit,1,0)) > 0:
         print "some distances are greater than the phase-accurate upper limit (%s)"%upperlimit
-    
     
     # make the fft plan for NxN interleaved (ie, complex64) data
     fftplan = Plan((N,N),queue=queue)
@@ -67,11 +74,11 @@ def gpu_propagate_distance(gpuinfo,data,distances,energy_or_wavelength,pixel_pit
         "mult_buffs")
     
     # build the copy kernel from the kernels file
-    copy_to_buffer = gpu.build_kernel_file(context, device, 'kernels/copy_to_save_buffer.cl')
+    copy_to_buffer = gpu.build_kernel_file(context, device, kp+'copy_to_save_buffer.cl')
     
     # precompute the fourier signals
-    r = fftshift((shape.radial((N,N)))**2)
-    f = DFT(data)
+    r = numpy.fft.fftshift((shape.radial((N,N)))**2)
+    f = numpy.fft.fft2(data)
     
     # put the signals onto the gpu along with buffers for the various operations
     L = subarraysize
@@ -79,11 +86,11 @@ def gpu_propagate_distance(gpuinfo,data,distances,energy_or_wavelength,pixel_pit
     gpu_fourier = cl_array.to_device(queue,f.astype(numpy.complex64)) # fourier data
     gpu_phase   = cl_array.empty(queue,(N,N),numpy.complex64)         # buffer for phase factor and phase-fourier product
     gpu_back    = cl_array.empty(queue,(N,N),numpy.complex64)         # buffer for propagated wavefield, +z direction
+
     try:
         gpu_buffer  = cl_array.empty(queue,(len(distances),L,L),numpy.complex64) # allocate propagation buffer
-    except:
-        print "probably ran out of memory. make subarraysize smaller or have fewer points in the distances"
-        exit()
+    except pyopencl.LogicError:
+        print "logic error usually a malloc error, try fewer distances"
 
     # now compute the propagations
     for n,z in enumerate(distances):

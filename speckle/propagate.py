@@ -7,29 +7,36 @@ DFT = numpy.fft.fft2
 IDFT = numpy.fft.ifft2
 shift = numpy.fft.fftshift
 
-from . import shape
+from . import shape, conditioning
 #import shape
 I = complex(0,1)
 
 def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=None,phase=None,data_is_fourier=False):
-    """ Propagate a wavefield a single distance, by supplying either the energy (or wavelength) and the distance
-    or by supplying a pre-calculated quadratic phase factor.
+    """ Propagate a wavefield a single distance, by supplying either the energy
+    (or wavelength) and the distance or by supplying a pre-calculated quadratic
+    phase factor.
     
     Required input:
-        data: 2d array (nominally complex, but real valued is ok) describing the wavefield.
+        data: 2d array (nominally complex, but real valued is ok) describing
+            the wavefield.
         
     Optional input:
-        energy_or_wavelength: the energy or wavelength of the wavefield. If > 1, assumed to be energy in eV.
-            If < 1, assumed to be wavelength in meters. Ignored if a quadratic phase factor is supplied.
+        energy_or_wavelength: the energy or wavelength of the wavefield.
+            If > 1, assumed to be energy in eV. If < 1, assumed to be wavelength
+            in meters. Ignored if a quadratic phase factor is supplied.
         
-        z: the distance to propagate the wavefield, in meters. Ignored if a quadratic phase factor is supplied.
+        z: the distance to propagate the wavefield, in meters. Ignored if a
+            quadratic phase factor is supplied.
         
-        pixel_pitch: the size of the pixels in real space, in meters. Ignored if a quadratic phase factor is supplied.
+        pixel_pitch: the size of the pixels in real space, in meters.
+            Ignored if a quadratic phase factor is supplied.
         
-        phase: a precalculated quadratic phase factor containing the wavelength, distance, etc information already.
-            If supplied, any optional arguments to energy_or_wavelength, z, or pixel_pitch are ignored.
+        phase: a precalculated quadratic phase factor containing the wavelength,
+            distance, etc information already. If supplied, any optional
+            arguments to energy_or_wavelength, z, or pixel_pitch are ignored.
             
-        data_is_fourier: set to True if the wavefield data has already been fourier transformed.
+        data_is_fourier: set to True if the wavefield data has already been
+            fourier transformed.
         
     returns: a complex array representing the propagated wavefield.
     """
@@ -67,35 +74,42 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
     return IDFT(data*phase)
 
 def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=None,subarraysize=None):
-    """ Propagates a complex-valued wavefield through a range of distances using the CPU. A GPU-accelerated version
-    is available: gpu/gpu_propagate_distance().
+    """ Propagates a complex-valued wavefield through a range of distances
+    using the CPU. A GPU-accelerated version is available elsewhere.
     
     Required input:
-        data: a square numpy.ndarray, either float32 or complex64, to be propagated
-        distances: an iterable set of distances (in meters!) over which the propagated field is calculated
-        energy_or_wavelength: the energy (in eV) or wavelength (in meters) of the wavefield. It's assumed that if the number is < 1 it is a wavelength.
+        data: a square numpy array, either float32 or complex64, to propagate
+        distances: an iterable set of distances (in meters!) to propagate
+        energy_or_wavelength: the energy (in eV) or wavelength (in meters) of
+            the wavefield. If < 1, assume wavelength is specified.
         pixel_pitch: the size (in meters) of each pixel in data.
     
     Optional input:
-        subarraysize: because the number of files can be large a subarray cocentered with data can be specified.
+        subarraysize: because the number of files can be large a subarray
+            cocentered with data can be specified.
     
-    Returns: a complex-valued 3d ndarray of shape (len(distances),subarraysize,subarraysize). If the subarraysize argument wasn't used the
-    size of the output array is (len(distances),len(data),len(data)). returned[n] is the wavefield propagated to distances[n].
+    Returns: a complex-valued 3d ndarray with shape:
+        (len(distances),subarraysize,subarraysize)
+    
+        If the subarraysize argument wasn't used the output shape is:
+        (len(distances),len(data),len(data))
+    
+    returned[n] is the wavefield propagated to distances[n].
     """
     
     from . import scattering
     #import scattering
    
     # check types and defaults
-    assert isinstance(data,numpy.ndarray),                                   "data must be an array"
-    assert data.dtype in (float, complex),                                   "data must be float or complex"
-    assert data.ndim == 2,                                                   "supplied wavefront data must be 2-dimensional"
-    assert data.shape[0] == data.shape[1],                                   "data must be square"
-    assert isinstance(energy_or_wavelength, (float, int)),                   "must supply either wavelength in meters or energy in eV"
-    assert isinstance(distances, (list, tuple, numpy.ndarray)),              "distances must be an iterable set (list or ndarray) of distances given in meters"
-    assert isinstance(pixel_pitch, (int,float)),                             "pixel_pitch must be a float saying how big each pixel is in meters"
+    assert isinstance(data,numpy.ndarray),                              "data must be an array"
+    assert data.dtype in (float, complex),                              "data must be float or complex"
+    assert data.ndim == 2,                                              "supplied wavefront data must be 2-dimensional"
+    assert data.shape[0] == data.shape[1],                              "data must be square"
+    assert isinstance(energy_or_wavelength, (float, int)),              "must supply either wavelength in meters or energy in eV"
+    assert isinstance(distances, (list, tuple, numpy.ndarray)),         "distances must be an iterable set (list or ndarray) of distances given in meters"
+    assert isinstance(pixel_pitch, (int,float)),                        "pixel_pitch must be a float saying how big each pixel is in meters"
     if subarraysize == None: subarraysize = len(data)
-    assert isinstance(subarraysize, int) and subarraysize <= len(data),      "subarray must be int smaller than supplied length of data"
+    assert isinstance(subarraysize, int) and subarraysize <= len(data), "subarray must be int smaller than supplied length of data"
 
     # convert energy_or_wavelength to wavelength.  If < 1 assume it's a wavelength.
     if energy_or_wavelength < 1: wavelength = energy_or_wavelength
@@ -126,25 +140,28 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=N
     return buffer
             
 def apodize(data,kt=.1,threshold=0.01,sigma=5,return_type='data'):
-    """ Apodizes a 2d array so that upon back propagation ringing from the aperture is at least somewhat suppressed.
-    The steps this function follows are as follows:
+    """ Apodizes a 2d array so that upon back propagation ringing from the
+    aperture is at least somewhat suppressed. The steps this function follows
+    are as follows:
         # 1. unwrap the data
         # 2. find the boundary at each angle
         # 3. do a 1d filter along each angle
         # 4. rewrap
 
     Required arguments:
-        data: 2d ndarray containing the data to be apodized. This data should be been sliced so that the only object is the target data.
+        data: 2d ndarray containing the data to be apodized. This data should
+        be been sliced so that the only object is the target data.
     
     Optional arguments:
-        kt: strength of apodizer. float or int. Default is kt=0.1. kt=1.0 is VERY strong.
+        kt: strength of apodizer. Default is kt=0.1. kt=1.0 is VERY strong.
         threshold: float or int value defines the boundary of the data.
-        sigma: boundary locations are smoothed to avoid with jagged edges; this sets  the smoothing. float or int.
-        return_type: can return the filtered data, just the filter, or intermediates for debugging/inspection. Basically, for debugging.
+        sigma: boundary locations are smoothed to avoid with jagged edges;
+            this sets  the smoothing. float or int.
+        return_type: can return the filtered data, just the filter, or
+            intermediates for debugging/inspection. Basically, for debugging.
     
     Returns: apodized array
     
-    To-do: make kt radius-invariant
     """
     
     # check types
@@ -154,6 +171,13 @@ def apodize(data,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     assert isinstance(sigma,(int,float)),     "sigma must be float or int"
     assert isinstance(threshold,(int,float)), "threshold must be float or int"
     
+    # if the data is complex, operate only on the magnitude component
+    was_complex = False
+    if numpy.iscomplexobj(data):
+        phase = numpy.angle(data)
+        data = abs(data)
+        was_complex = True
+        
     # import necessary libraries
     import wrapping
     from numpy.fft import fft
@@ -161,7 +185,8 @@ def apodize(data,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     convolve = lambda x,y: ifft(fft(x)*fft(y))
 
     # find the center of mass
-    rows,cols = numpy.indices(data.shape,float)
+    N,M       = data.shape
+    rows,cols = numpy.indices((N,M),float)
     av_row    = numpy.sum(data*rows)/numpy.sum(data)
     av_col    = numpy.sum(data*cols)/numpy.sum(data)
     
@@ -186,16 +211,27 @@ def apodize(data,kt=.1,threshold=0.01,sigma=5,return_type='data'):
         
     # smooth the edge values by convolution with a gaussian
     kernel = shift(shape.gaussian((ux,),(sigma,),normalization=1.0))
-    boundary = abs(convolve(boundary,kernel))
+    boundary = abs(convolve(boundary,kernel))-1
     
     # now that the coordinates have been smoothed, build the filter as a series of 1d filters along the column (angle) axis
     x = numpy.outer(numpy.arange(R),numpy.ones(ux)).astype(float)/boundary
     filter = _apodization_f(x,kt)
     
-    # rewrap the filter and the data to ensure cocentering and equal sizing
+    # rewrap the filter. align the filter to the data
     rplan  = wrapping.wrap_plan(0,R)
     filter = wrapping.wrap(filter,rplan)
-    data   = wrapping.wrap(unwrapped,rplan)
+    
+    e_filter = numpy.zeros_like(data)
+    e_filter[0:filter.shape[0],0:filter.shape[1]] = filter
+    
+    data_mask   = numpy.where(data > 1e-6,1,0)
+    filter_mask = numpy.where(e_filter > 1e-6,1,0)
+    
+    rolls  = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
+    coords = conditioning.align_frames(filter_mask,align_to=data_mask,return_type='coordinates')[0]
+    filter = rolls(e_filter,coords[0],coords[1])
+
+    if was_complex: data *= numpy.exp(complex(0,1)*phase)
     
     # return a filtered version of the data.
     if return_type == 'filter': return filter
@@ -203,23 +239,26 @@ def apodize(data,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     if return_type == 'all':    return filter*data,filter,boundary
 
 def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
-    """ Calculates the acutance of a back propagated wave field. Right now it just
-    does the acutance of the magnitude component.
+    """ Calculates the acutance of a back propagated wave field. Right now it
+    just does the acutance of the magnitude component.
     
     Required input:
-        data -- 2d or 3d ndarray object. if 3d, the acutance of each frame will be calculated
+        data -- 2d or 3d ndarray object. if 3d, the acutance of each frame will
+            be calculated.
     
     Optional input:
-        method -- keyword indicating how to compute the discrete derivative. options are 'sobel' and 'roll'.
-            Default is 'sobel'
-        exponent -- raise the modulus of the gradient to this value. 2 by default.
-        normalized -- normalize all the back propagated signals so they have the same amount of power. Default is True.
-        mask -- you can supply a binary ndarray as mask so that the calculation happens only in a certain
-            region of space. If no mask is supplied the calculation is over all space.
-            Default is None
+        method -- keyword indicating how to compute the discrete derivative.
+            options are 'sobel' and 'roll'. Default is 'sobel'. 'roll' estimates
+            the derivative by a shift-subtract in each axis.
+        exponent -- raise the modulus of the gradient to this value. Default 2.
+        normalized -- normalize all the back propagated signals so they have the
+            same amount of power. Default is True.
+        mask -- you can supply a binary ndarray as mask so that the calculation
+            happens only in a certain  region of space. If no mask is supplied
+            the calculation is over all space. Default is None.
      
     Returns:
-    a list of acutance values, one for each frame of the supplied data.
+        a list of acutance values, one for each frame of the supplied data.
     """
    
     # check types
@@ -236,7 +275,7 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
     # calculate the acutance
     acutance_list = []
     for frame in data:
-        acutance_list.append(_acutance_calc(abs(frame),method,normalized,mask,exponent))
+        acutance_list.append(_acutance_calc(abs(frame).real,method,normalized,mask,exponent))
         
     # return the calculation
     return acutance_list
@@ -255,7 +294,7 @@ def _acutance_calc(data,method,normalized,mask,exponent):
     gradient  = numpy.sqrt(dx**2+dy**2)**exponent
             
     a = numpy.sum(gradient*mask)
-    if normalized: a *= 1./numpy.sum(frame*mask)
+    if normalized: a *= 1./numpy.sum(data*mask)
     return a
 
 def _apodization_f(x,kt):
