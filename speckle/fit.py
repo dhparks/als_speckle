@@ -637,4 +637,67 @@ def lorentzian_2d_sq(data, mask=None):
     fit.fit()
     return fit
 
+def gaussian_3d(data, mask=None):
+    """ fit a function to a three-dimensional Gaussian.  This fits the function:
+        f(x) = a exp(-(x-x0)^2/(2*sigma_x^2) - (y-y0)^2/(2*sigma_y^2)) + shift
+
+    arguments:
+        data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as one frame of the data.  The default is
+            None.
+
+    returns:
+        A dictionary of fitted results.  The dictionary is indexed by the frame
+            number.
+    """
+    return _3d_fit(data, Gaussian2D, mask)
+
+def lorentzian_3d(data, mask=None):
+    """ fit a function to 3d-lorentzian.  This fits the function:
+        f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1) + bg
+
+    For 3d data, a 2D Lorentzian is fitted for each frame.
+
+    arguments:
+        data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as one frame of the data.  The default is
+            None.
+
+    returns:
+        A dictionary of fitted results.  The dictionary is indexed by the frame
+            number.
+    """
+    return _3d_fit(data, Lorentzian2D, mask)
+
+def lorentzian_3d_sq(data, mask=None):
+    """ fit a function to a 2d-lorentzian squared.  This fits the function:
+        f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1)^2 + bg
+
+    arguments:
+        data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as one frame of the data.  The default is
+            None.
+
+    returns:
+        A dictionary of fitted results.  The dictionary is indexed by the frame
+            number.
+    """
+    return _3d_fit(data, Lorentzian2DSq, mask)
+
+def _3d_fit(data, FitClass, mask=None):
+    """ function that will fit a 3d array along the 0-axis.  You provide the
+        data (must be 3d) and the FitClass, which is a 2D fit class.
+    """
+    assert isinstance(data, np.ndarray) and data.ndim == 3, "data must be a three-dimensional numpy array."
+    (fr, ys, xs) = data.shape
+
+    result = {}
+    for f in range(fr):
+        fit = FitClass(data[f], mask)
+        fit.fit()
+        result[f] = fit
+    return result
 
