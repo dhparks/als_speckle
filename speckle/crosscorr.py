@@ -73,20 +73,30 @@ def point_memory( imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None,
     else:
         flatten_width == float(flatten_width)
 
+    havemask = False
     if mask is not None and isinstance(mask, np.ndarray):
         if mask.shape == imgA.shape:
             havemask = True
-        else:
-            havemask = False
+
+    haveDarks = False
+    if check_pairs(darks):
+        if imgA.shape == darks[0].shape:
+            imgA -= darks[0]
+            imgB -= darks[1]
+            haveDarks = True
 
     haveqACFs = check_pairs(qacfs)
+    haveqACFdarks = check_pairs(qacfdarks)
+
     if haveqACFs:
-        if check_pairs(qacfdarks):
+        if haveqACFdarks:
             if qacfs[0].shape == qacfdarks[0].shape:
                 qacfA = qacfs[0] - qacfdarks[0]
                 qacfB = qacfs[1] - qacfdarks[1]
             else:
-                haveqACFs = False
+                haveqACFdarks = False
+                qacfA = qacfs[0]
+                qacfB = qacfs[1]
         else:
             qacfA = qacfs[0]
             qacfB = qacfs[1]
@@ -98,27 +108,35 @@ def point_memory( imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None,
     store('00-B_orig', imgB)
     store('00-mask', mask)
 
-    if check_pairs(darks):
-        if imgA.shape == darks[0].shape:
-            imgA -= darks[0]
-            imgB -= darks[1]
+
+    file_string = "reading (img, "
+    if haveDarks:
+        file_string += "dark, "
+    if haveqACFs:
+        file_string += "qACF, "
+    if haveqACFdarks:
+        file_string += "qACFdarks, "
+    if havemask:
+        file_string += "mask, "
+    file_string = file_string[0:-2] + ") -> "
 
     if flatten_width:
-        filterString = "Flattening"
+        flat_string = "flattening (fwhm %d px) -> " % flatten_width
     else:
-        filterString = "Not flattening"
+        flat_string = ""
 
     if removeCCBkg:
-        bkgString = ""
+        removeCC_string = "removing backgrounds -> "
     else:
-        bkgString = "not "
+        removeCC_string = ""
 
     if pickPeakMethod == "integrate":
-        peakString = "integrating over a circle of radius %d" % PEAK_INTEGRATE_RADIUS
-    elif pickPeakMethod == "max":
-        peakString = "picking maximum value"
+        peakString = "integrating speckle peak over circle of R=%d px-> " % PEAK_INTEGRATE_RADIUS
+    else:
+        peakString = "picking maximum value of peak ->"
 
-    print("%s before CC/AC, %sremoving backgrounds, %s for AC/CC peak." % (filterString, bkgString, peakString))
+
+    print(file_string + flat_string + "CC/AC -> " + removeCC_string + peakString + "returning result")
 
     if flatten_width:
         flatA = averaging.smooth_with_gaussian(imgA, flatten_width)
@@ -439,9 +457,7 @@ def rot_crosscorr(imgA, imgB, center, RRange):
 
     # function to check of is tuple or list and length 2 and all elem are integer
     is_tl_2_int = lambda i, l: True if isinstance(i, (tuple, list, set)) and len(i) == l and all([isinstance(b, int) for b in i]) else False
-    print center
     assert is_tl_2_int(center, 2), "center must be length 2 list/tuple of ints"
-    print RRange
     assert is_tl_2_int(RRange, 3), "RRange must be length 3 list/tuple of ints"
 
     (yc, xc) = center
@@ -471,7 +487,7 @@ def rot_crosscorr(imgA, imgB, center, RRange):
     
     return avg_cc
 
-def rot_memory( imgA, imgB, center, darks=None, qacfs=None, qacfdarks=None, RRange=(10, 600, 25), flatten_width=30, removeCCBkg=True, pickPeakMethod="integrate", intermediates=False):
+def rot_memory( imgA, imgB, center, darks=None, qacfs=None, qacfdarks=None, Rvals=25, flatten_width=30, removeCCBkg=True, pickPeakMethod="integrate", intermediates=False):
     """Calculates the rotational cross-correlation coefficient between two image
     pairs imgA and imgB. This calculates the value rho_q where:
         rho_q = \frac{\sum(CC(A_q, B_q))}{\sqrt{AC(A_q) AC(B_q)}},
@@ -498,9 +514,11 @@ def rot_memory( imgA, imgB, center, darks=None, qacfs=None, qacfdarks=None, RRan
             provided, these are subtracted from the dark. Defaults to None.
         removeCCBkg - This option will create a spline fit to remove the
             background after the AC and CC are calculated.  Defaults to True.
-        RRange - Radial range for the calculation.  This specifies the
-            (Rmin, Rmax, Rstep) values where the correlation should be
-            calculated.
+        Rvals - Radial steps for the calculation.  If this is a single value,
+            then it is taken to be the step size, in pixels.  If this is a
+            tuple then it specifies the (Rmin, Rmax, Rstep) pixel values where
+            the correlation should be calculated. The default is 25 (steps of
+            25 px each).
         flatten_width - Width used for flattening the image before unwinding and
             calculating AC/CCs. This value should be larger than the pixel size
             and defaults to 30 px. If False, flattening does not happen. 
@@ -535,11 +553,21 @@ def rot_memory( imgA, imgB, center, darks=None, qacfs=None, qacfdarks=None, RRan
     assert type(intermediates) == bool, "intermediates must be a boolean"
     assert pickPeakMethod in ("integrate", "max"), "pickPeakMethod must be 'integrate' or 'max'"
     assert isinstance(center, (tuple, set, list)) and len(center) == 2, "center must be 2-tuple/list/set"
-    assert isinstance(RRange, (tuple, set, list)) and len(RRange) == 3, "RRange must be length-3 list/tuple/set."
-    r, R, Rstep = RRange
-    if R < r:
-        r, R = R, r
-    assert Rstep < R -r, "Rstep must be smaller than R-r"
+
+    # Set up the radial ranges. If we see one element, then we go from [0:as_large_as_possible]. If we set a size(3) tuple, then we set those as the ranges.
+    (ys, xs) = imgA.shape
+    (yc, xc) = center
+    if type(Rvals) == int:
+        R = min( (xc, yc, xs-xc, ys-yc) )
+        r = 0
+        Rstep = Rvals
+    else:
+        assert isinstance(Rvals, (tuple, set, list)) and len(Rvals) == 3, "Rvals must be length-3 tuple or a single integer."
+        r, R, Rstep = Rvals
+        if R < r:
+            r, R = R, r
+
+    assert Rstep < R-r, "Rstep (%d) must be less than R-r (%d-%d=%d)" % (Rstep, R, r, R-r)
     RRange = r, R, Rstep
 
     def unw_cc(A, B, RRange):
@@ -563,7 +591,6 @@ def rot_memory( imgA, imgB, center, darks=None, qacfs=None, qacfdarks=None, RRan
 
     # helper function for storing intermediate arrays 
     def store(key, val):
-#        print "storing %s" % key
         if intermediates: intermediate_arrays[key] = val
 
     if isinstance(flatten_width, bool):
@@ -572,47 +599,56 @@ def rot_memory( imgA, imgB, center, darks=None, qacfs=None, qacfdarks=None, RRan
     else:
         flatten_width == float(flatten_width)
 
-    haveqACFs = check_pairs(qacfs)
-    if haveqACFs:
-        if check_pairs(qacfdarks):
-            if qacfs[0].shape == qacfdarks[0].shape:
-                print "have qacfs and qacfdarks"
-                qacfA = qacfs[0] - qacfdarks[0]
-                qacfB = qacfs[1] - qacfdarks[1]
-            else:
-                haveqACFs = False
-        else:
-            print "have qacfs (no darks)"
-            qacfA = qacfs[0]
-            qacfB = qacfs[1]
-
-    if haveqACFs:
-        store('00-A_qACF_orig', qacfA)
-        store('00-B_qACF_orig', qacfB)
-    store('00-A_orig', imgA)
-    store('00-B_orig', imgB)
-
+    haveDarks = False
     if check_pairs(darks):
         if imgA.shape == darks[0].shape:
             imgA -= darks[0]
             imgB -= darks[1]
+            haveDarks = True
+
+    haveqACFs = check_pairs(qacfs)
+    haveqACFdarks = check_pairs(qacfdarks)
+
+    if haveqACFs:
+        if haveqACFdarks:
+            if qacfs[0].shape == qacfdarks[0].shape:
+                qacfA = qacfs[0] - qacfdarks[0]
+                qacfB = qacfs[1] - qacfdarks[1]
+            else:
+                haveqACFdarks = False
+                qacfA = qacfs[0]
+                qacfB = qacfs[1]
+        else:
+            qacfA = qacfs[0]
+            qacfB = qacfs[1]
+
+    file_string = "reading (img, "
+    if haveDarks:
+        file_string += "dark, "
+    if haveqACFs:
+        file_string += "qACF, "
+    if haveqACFdarks:
+        file_string += "qACFdarks, "
+    file_string = file_string[0:-2] + ") -> "
 
     if flatten_width:
-        filterString = "Flattening"
+        flat_string = "flattening (fwhm %d px) -> " % flatten_width
     else:
-        filterString = "Not flattening"
+        flat_string = ""
+
+    unw_string = "unwinding with center (%d, %d) from (%d, %d) px -> " % (xc, yc, r, R)
 
     if removeCCBkg:
-        bkgString = ""
+        removeCC_string = "removing backgrounds -> "
     else:
-        bkgString = "not "
+        removeCC_string = ""
 
     if pickPeakMethod == "integrate":
-        peakString = "integrating over a circle of radius %d" % PEAK_INTEGRATE_RADIUS
-    elif pickPeakMethod == "max":
-        peakString = "picking maximum value"
+        peakString = "integrating speckle peak over %d px -> " % (PEAK_INTEGRATE_RADIUS*2)
+    else:
+        peakString = "picking maximum value of peak ->"
 
-    print("%s before unwinding/CC/AC, %sremoving backgrounds, %s for AC/CC peak." % (filterString, bkgString, peakString))
+    print(file_string + flat_string + unw_string + "CC/AC and binning in steps of %d px -> "  % Rstep + removeCC_string + peakString + "returning result")
 
     if flatten_width:
         flatA = averaging.smooth_with_gaussian(imgA, flatten_width)
