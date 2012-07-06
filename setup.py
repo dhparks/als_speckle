@@ -13,7 +13,7 @@ kernel_files = glob.glob('./speckle/gpu/kernels/*.cl')
 setup(
     name='speckle',
     version='0.1',
-    packages=['speckle','speckle.gpu'],
+    packages=['speckle','speckle.gpu','speckle.simulation'],
     requires = dependencies,
     data_files = [('speckle/gpu/kernels',kernel_files)],
     author = "Daniel Parks, Keoki Seu",

@@ -18,6 +18,7 @@ center = 250
 fwhm = 100
 symmetry = 4
 
+# 
 # the seed file is a set of random numbers which will be melted into domains.
 # this seed file is 1024x1024 but the size of the simulation is set by the
 # parameter "size". see open_seed() for coding details.
@@ -33,7 +34,7 @@ domain_returnables = ('converged','envelope')
 # then into a series of ordered patterns. each of these stages requires a new
 # goal envelope. the descriptions of these envelopes are aggregated below into
 # the "trajectory" list. unfortunately the syntax for the envelopes can be complicated.
-
+import numpy
 c = 1./(2*numpy.sqrt(numpy.sqrt(2)-1)) # converts fwhm to correct lorentzian_sq width value
 r = size/2048. # converts center and fwhm to correct values for the simulation size
 trajectory = [[['isotropic','lorentzian_sq',1,center*r,fwhm*r*c],['goal_m',0]],

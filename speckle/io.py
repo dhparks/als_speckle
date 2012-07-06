@@ -25,7 +25,75 @@ def set_overwrite(val):
     # don't need to thrown an assert error if the value is not boolean, just default to original value
     if isinstance(val, bool):
         overwrite_default = val
+        
+# primary wrappers
+def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimiter='\t'):
+    """Open a data file listed in filename. This function looks at the filename
+    extension and passes the necessary arguments to the correct function:
+    openfits, openimage, read_text_array, load_pickle.
+    Future: support open_ds9_mask?
+    
+    Recognized file extensions (more can be added):
+        images: jpg, jpeg, gif, png, bmp
+        fits: fits
+        text: txt, csv
+        pickle: pck
+        
+    Returns:
+        data from filename; see individual opener functions for details
+    """
+    
+    # define extension types to control switching
+    img_exts  = ('jpg','jpeg','gif','png','bmp')
+    fits_exts = ('fits',)
+    txt_exts  = ('txt','csv')
+    pck_exts  = ('pck',)
+    
+    # get extension from filename
+    assert len(filename.split('.')) >= 2, "filename appears to have no extension"
+    ext = filename.split('.')[-1]
+    assert ext in img_exts or ext in fits_exts or ext in txt_exts or ext in pck_exts, "ext \"%s\" not recognized"%ext
 
+    # pass arguments to correct opener
+    if ext in img_exts:  return openimage(filename)
+    if ext in fits_exts: return openfits(filename,quiet=quiet,orientImageHDU=True)
+    if ext in txt_exts:  return read_text_array(filename,convert_to=convert_to,delimiter=delimiter)
+    if ext in pck_exts:  return load_pickle(filename)
+    
+def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None):
+    """ Save components of an array as desired filetype specified by file extension.
+    Basically, a wrapper to save_fits, save_image, write_text_array.
+    
+    arguments:
+        filename - path where data will be saved
+        data - ndarray to save at filename
+        header - pyfits.Header object. Default is empty
+        components - components of img to be saved. Must be supplied as a list.
+            available components are: 'mag', 'phase', 'real', 'imag', 'polar', 'cartesian'.
+            Default is ['mag']
+        color_map - If saving data as an image, the color map to use.  Options are 'L','A', 'B', 'SLS', 'HSV' and 'Rainbow'.
+            Default is 'L'.
+        delimiter - If saving data as a text file, the delimiter between data entries.
+            Default is '\t' (tab)
+        overwrite - Whether to overwrite a file already existing at filename.
+            Default is False.
+    returns:
+        nothing. Will throw an exception if something wrong happens.
+    """
+    
+    # define extension types to control switching
+    img_exts  = ('jpg','jpeg','gif','png','bmp')
+    fits_exts = ('fits',)
+    txt_exts  = ('txt','csv')
+    
+    # get extension from filename
+    assert len(filename.split('.')) >= 2, "filename appears to have no extension"
+    ext = filename.split('.')[-1]
+    assert ext in img_exts or ext in fits_exts or ext in txt_exts, "ext \"%s\" not recognized"%ext
+    if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map)
+    if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite)
+    if ext in txt_exts:  write_text_array(filename,data,header=header)
+        
 #
 ############### Text ########################
 #
@@ -52,7 +120,10 @@ def read_text_array(filename, convert_to='float', delimiter='\t'):
 
     arguments:
         filename - filename to read
-        convert_to - optional argument for what to convert the elements to.  Can be 'float', 'int' or None.  If None, it will leave them as strings and return a list.  If 'float' or 'int', it will convert it to an array
+        convert_to - optional argument for what to convert the elements to.
+            Can be 'float', 'int' or None.  If None, it will leave them as
+            strings and return a list.  If 'float' or 'int', it will
+            convert it to an array
         delimiter - delimiter to use. defaults to tab ('\t').
     returns:
         The parsed file as a list or array depending on convert_to
@@ -91,12 +162,17 @@ def read_text_array(filename, convert_to='float', delimiter='\t'):
 #
 
 def openfits(filename, quiet=True, orientImageHDU=True):
-    """ Open a FITS file. Uses pyfits. Tries to intelligently figure out where the data is located.  The LabView programs put it in the ImageHDU, and the Andor Solis program puts it in PrimaryHDU.
+    """ Open a FITS file. Uses pyfits. Tries to intelligently figure out where
+    the data is located.  The LabView programs put it in the ImageHDU, and the
+    Andor Solis program puts it in PrimaryHDU.
 
     arguments:
         filename - file to open.
-        quiet - if we should try to be be informative when opening file. defaults to false
-        orientImageHDU - If the data is in ImageHDU, there is a good chance it was written by LabView, which rotates and flips the image. If True, reorient the image back to the Andor coordinates.  Defaults to True.
+        quiet - if we should try to be be informative when opening file.
+            defaults to false
+        orientImageHDU - If the data is in ImageHDU, there is a good chance it
+            was written by LabView, which rotates and flips the image. If True,
+            reorient the image back to the Andor coordinates.  Defaults to True.
     returns:
         img - the opened image data.
     """
@@ -133,7 +209,8 @@ def openframe(filename, frame=0, quiet=True):
 
     arguments:
         filename - name of file to open
-        frame - optional argument of the frame to open.  Defaults to 0 (first frame).
+        frame - optional argument of the frame to open.
+            Defaults to 0 (first frame).
     returns:
         img - the opened image.
     """
@@ -172,12 +249,13 @@ def openimage(filename):
     return smp.fromimage(Image.open(filename).convert("L"))
 
 def writefits(filename, img, headerItems={}, overwrite=None):
-    """ Write a FITS file.  Optionally writes to a previously constructed header.
+    """ Write a FITS file,  optionally with a previously constructed header.
 
     arguments:
         filename - output filename to write.
         img - numpy array to write.
-        headerItems - A dictionary of items to be added to the header. This will overwrite items if they are already in the header.
+        headerItems - A dictionary of items to be added to the header.
+            This will overwrite items if they are already in the header.
         overwrite - Overwrite the curernt file, if it exists.
     returns:
         returns nothing.  Will raise an error if it fails.
@@ -217,7 +295,8 @@ def write_complex_fits(base, fits, headerItems={}, overwrite=None):
         base - base filename; the function appends "_imag" and "_real".
         fits - Array to write.
         header - a pyfits.Header object. Defaults to empty.
-        headerItems - A dictionary of items to be added to the header. This will overwrite items if they are already in the header.
+        headerItems - A dictionary of items to be added to the header.
+            This will overwrite items if they are already in the header.
         overwrite - Whether to overwrite file. Defaults to false.
     """
 
@@ -225,14 +304,16 @@ def write_complex_fits(base, fits, headerItems={}, overwrite=None):
     writefits(base + "_real.fits", numpy.real(fits), headerItems, overwrite)
 
 def write_mag_phase_fits(base, fits, header="", headerItems={}, overwrite=None):
-    """ Write a complex array to disk by writing magnitude (abs()) and phase (angle()).
+    """ Write a complex array to disk by writing magnitude (abs())
+    and phase (angle()).
 
     arguments:
         base - base filename; the function appends "_mag" and "_phase".
         fits - Array to write.
         header - a pyfits.Header object. Defaults to empty.
-        headerItems - A dictionary of items to be added to the header. This will overwrite items if they are already in the header.
-        overwrite - Weather to overwrite file. Defaults to false.
+        headerItems - A dictionary of items to be added to the header.
+            This will overwrite items if they are already in the header.
+        overwrite - Whether to overwrite file. Defaults to false.
     returns:
         img - a complex-valued array
     """
@@ -240,10 +321,12 @@ def write_mag_phase_fits(base, fits, header="", headerItems={}, overwrite=None):
     writefits(base + "_phase.fits", numpy.angle(fits), headerItems, overwrite)
 
 def open_mag_phase_fits(base):
-    """ Open a complex array that was written to disk using write_mag_phase_fits.
+    """ Open a complex array that was written to disk using
+    write_mag_phase_fits.
 
     arguments:
-        base - base filename; The function tries to find base + _{mag,phase}.fits
+        base - base filename; The function tries to find
+            base + _{mag,phase}.fits
     returns:
         img - a complex-valued array
     """
@@ -253,19 +336,22 @@ def open_complex_fits(base):
     """ Open a complex array that was written to disk using write_complex_fits.
 
     arguments:
-        base - base filename; The function tries to find base + _{real,imag}.fits
+        base - base filename; The function tries to find
+            base + _{real,imag}.fits
     returns:
         img - a complex-valued array
     """
     return openfits(base + "_real.fits") + complex(0,1) * openfits( base + "_imag.fits" )
 
 def _labview_to_andor(img):
-    """Reorientes a LabView acquiried image so that it is the same orientation as what the Andor CCD camera software collects.
+    """Reorientes a LabView acquiried image so that it is the same orientation
+    as what the Andor CCD camera software collects.
 
     arguments:
         img - image to rotate.
     returns:
-        img - the aligned imaged rotated 90 degrees counter-clockwise and flipped horzontally.
+        img - the aligned imaged rotated 90 degrees counter-clockwise and
+            flipped horzontally.
     """
     assert img.ndim in (2,3), "_labview_to_andor: Image is neither 2D nor 3D."
 
@@ -280,15 +366,18 @@ def _labview_to_andor(img):
     return img
 
 def open_photon_counting_fits(filename, correct=False, sort=False, quiet=True):
-    """Open a FITS file generated by the photon counting detector. The format of this file is a tuple of (x, y, gain, time_counter) and each has it's own datatype.
+    """Open a FITS file generated by the photon counting detector. The format of
+    this file is a tuple of (x, y, gain, time_counter) and each has it's own
+    datatype.
 
     arguments:
         filename - file to open
-        correct - weather or not to correct overflows in the data
-        sort - weather or not we should sort the data by increasing incidence times
-        quiet - Weather or not we should inform the user of what we're doing. Defaults to false
+        correct - whether or not to correct overflows in the data
+        sort - whether to sort the data by increasing incidence times
+        quiet - whether to inform the user of what we're doing. Default is false
     returns:
-        data - data as a numpy array. This will raise an IOError if the data is in an unfamiliar format.
+        data - data as a numpy array. This will raise an IOError if the data is
+            in an unfamiliar format.
     """
     import os
     assert os.path.exists(filename), "unknown file %s" % filename
@@ -346,7 +435,8 @@ def save_fits(filename, img, header={}, components=['mag'], overwrite=None):
         img - ndarray to save at filename
         header - pyfits.Header object. Default is empty
         components - components of img to be saved. Must be supplied as a list.
-            available components are: 'mag', 'phase', 'real', 'imag', 'polar', 'cartesian'.
+            available components are:
+                'mag', 'phase', 'real', 'imag', 'polar', 'cartesian'.
             Default is ['mag']
         overwrite - Whether to overwrite a file already existing at filename.
             Default is False.
@@ -361,40 +451,6 @@ def save_fits(filename, img, header={}, components=['mag'], overwrite=None):
 
     for c in _process_components(components):
         writefits(filename + "_" + c + ".fits", _save_maps[c](img), header, overwrite)
-
-def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None):
-    """ Save components of an array as desired filetype specified by file extension.
-    Basically, a wrapper to save_fits, save_image, write_text_array.
-    
-    arguments:
-        filename - path where data will be saved
-        data - ndarray to save at filename
-        header - pyfits.Header object. Default is empty
-        components - components of img to be saved. Must be supplied as a list.
-            available components are: 'mag', 'phase', 'real', 'imag', 'polar', 'cartesian'.
-            Default is ['mag']
-        color_map - If saving data as an image, the color map to use.  Options are 'L','A', 'B', 'SLS', 'HSV' and 'Rainbow'.
-            Default is 'L'.
-        delimiter - If saving data as a text file, the delimiter between data entries.
-            Default is '\t' (tab)
-        overwrite - Whether to overwrite a file already existing at filename.
-            Default is False.
-    returns:
-        nothing. Will throw an exception if something wrong happens.
-    """
-    
-    # define extension types to control switching
-    img_exts  = ('jpg','jpeg','gif','png','bmp')
-    fits_exts = ('fits')
-    txt_exts  = ('txt','csv')
-    
-    # get extension from filename
-    assert len(filename.split('.')) >= 2, "filename appears to have no extension"
-    ext = filename.split('.')[-1]
-    assert ext in img_exts or ext in fits_exts or ext in txt_exts, "ext \"%s\" not recognized"%ext
-    if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map)
-    if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite)
-    if ext in txt_exts:  write_text_array(filename,data,header=header)
 
 def open_fits_header(filename, card=0):
     """    Open just the header from a filename.
@@ -441,10 +497,12 @@ def get_fits_exposure(filename):
 
 def get_fits_accumulations(filename):
     """    get the # of accumulations used in a FITS file.
-        arguments:
-            filename - the FITS file to open.
-        returns:
-            # of accumulations. If it cannot find any it will return 1
+    
+    arguments:
+        filename - the FITS file to open.
+            
+    returns:
+        # of accumulations. If it cannot find any it will return 1
     """
     try:
         acc = get_fits_key(filename, 'NUMACC')
@@ -454,12 +512,15 @@ def get_fits_accumulations(filename):
     return int(acc)
 
 def get_fits_key(filename, key):
-    """ Grabs a key from a FITS file. Searches cards for the key, and returns "no key" if it can't be found.
-        arguments:
-            filename - FITS file.
-            key - key to find.
-        returns:
-            value of the key.  If none is found, returns "no key"
+    """ Grabs a key from a FITS file. Searches cards for the key, and returns
+    "no key" if it can't be found.
+    
+    arguments:
+        filename - FITS file.
+        key - key to find.
+            
+    returns:
+        value of the key.  If none is found, returns "no key"
     """
     error = "Cannot find key"
     card = 0
@@ -481,10 +542,13 @@ def get_fits_key(filename, key):
 
 def get_fits_window(filename):
     """    Gets the window or region of interest for a given image.
+    
         arguments:
             filename - the FITS file to open.
+            
         returns:
-            (xmin, xmax, ymin, ymax) - min/max values in the x and y directions of the window.
+            (xmin, xmax, ymin, ymax) - min/max values in the x and y directions
+                of the window.
     """
     # returns the subimage window that was used when the image was taken.
     from string import split
@@ -502,10 +566,13 @@ def get_fits_kct(filename):
 
 def get_fits_dimensions(filename):
     """ Gets the dimenions of the FITS file from the header.
+    
         arguments:
             filename - the FITS file to open.
+            
         returns:
-            (dim) - a list of the dimensions. The format is the same as the img.ndim command.
+            (dim) - a list of the dimensions. The format is the same as the
+                img.ndim command.
     """
     hdr = open_fits_header(filename)
     naxes = hdr["NAXIS"]
@@ -521,8 +588,10 @@ def get_fits_dimensions(filename):
 #
 def load_pickle(filename):
     """ Load a pickled file.
+    
     arguments:
         filename - File to pickle.  This should be a pickled file.
+        
     returns:
         the data in the pickle file
     """
@@ -532,8 +601,11 @@ def load_pickle(filename):
     
 def save_pickle(path,data):
     """ Load a pickled file.
+    
     arguments:
-        filename - File to pickle.  This should be a pickled file.  This will overwrite the existing file if it exists.
+        filename - File to pickle.  This should be a pickled file.
+        This will overwrite the existing file if it exists.
+        
     returns:
         no return value.  It throws an error if it is not successful.
     """
@@ -546,13 +618,17 @@ def save_pickle(path,data):
 #
     
 def save_image(filename, img, components=['mag'], color_map='L'):
-    """ Save components of an array as an image using PIL.  The type of image depends on the extension of the filename.
+    """ Save components of an array as an image using PIL.  The type of image
+    depends on the extension of the filename.
 
     arguments:
         filename - filename to save
         img - image to save
-        components - a list/string/set/tuple of components to save.  The function will append the name to the end and save the component.
-        color_map - color map to use.  Options are 'A', 'B', 'SLS', 'HSV' and 'Rainbow'.
+        components - a list/string/set/tuple of components to save.  The
+            function will append the name to the end and save the component.
+        color_map - color map to use.  Options are 'A', 'B', 'SLS', 'HSV'
+            and 'Rainbow'.
+            
     returns:
         nothing. Will throw an exception if something wrong happens.
     """
@@ -573,23 +649,24 @@ def save_image(filename, img, components=['mag'], color_map='L'):
         write_image(filename + "_" + c + "." + ext, _save_maps[c](img), color_map) 
 
 def write_image(filename, array, color_map):
-    """write an image to disk as an image.  The image type depends on the extension.
+    """Write an image to disk as an image.  The image type depends on the
+    extension.
 
     arguments:
         filename - filename to save
         array - array to save.
         color_map -  Color map to use.  Can be generated by color_maps()
+        
     returns:
         no return arguments.
     """
-#    import Image
+
     import scipy.misc.pilutil as smp
 
     im = smp.toimage(array)
 
     ext = filename.split('.')[-1]
     assert ext in ('gif', 'png', 'jpg', 'jpeg'), "unknown file format, %s" % ext
-    #print ext
     
     if color_map == None or color_map == 'L':
          # greyscale
@@ -597,14 +674,16 @@ def write_image(filename, array, color_map):
     else:
         im.putpalette(color_maps(color_map))
         # now save the image
-        if ext in ['gif','png']:  im.save(filename)
-        if ext in ['jpg','jpeg']: im.convert('RGB').save(filename,quality=95)
+        if ext in ('gif','png'):  im.save(filename)
+        if ext in ('jpg','jpeg'): im.convert('RGB').save(filename,quality=95)
 
 def color_maps(map):
-    """ List of colormaps.  Used for PNG output.
+    """ List of colormaps.  Used for image output.
 
     arguments:
-        map - map to use.  These maps look very similar to DS9 colormaps.  It can be one of these: ('A', 'B', 'SLS', 'HSV', 'Rainbow')
+        map - map to use, based on DS9 colormaps.
+            Available: ('A', 'B', 'SLS', 'HSV', 'Rainbow')
+        
     returns:
         R, G, B - RGB components
     """
@@ -666,8 +745,10 @@ _save_maps = {
 def _process_components(components):
     """ parse the components array and try to figure out what components
     are to be saved.
+    
     arguments:
         components - component string, list,set or tuple.
+        
     returns:
         components - a list of components to save.
     """
@@ -717,9 +798,11 @@ def _draw_polygon(shapedesc, dim):
 
 def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
     """ From a region file input construct a mask.
+    
     arguments:
         file - region filename
-        intersectionsRemovedFromMask - Whether intersected regions should count as part of the mask. Defaults to false.
+        intersectionsRemovedFromMask - Whether intersected regions should count
+            as part of the mask. Defaults to false.
 
     returns:
         mask - binary mask of the regions
