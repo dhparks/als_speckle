@@ -1,11 +1,12 @@
 # core
+
 import numpy as np
 import pyopencl as cl
 import pyopencl.array as cla
 from pyopencl.elementwise import ElementwiseKernel as EK
 from scipy.optimize import fminbound
 import string,time
-
+    
 # common libs. do some ugly stuff to get the path set to the kernels directory
 from .. import shape, io, wrapping
 from .. import gpu as gpulib

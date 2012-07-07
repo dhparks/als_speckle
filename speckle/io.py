@@ -26,39 +26,6 @@ def set_overwrite(val):
     if isinstance(val, bool):
         overwrite_default = val
         
-# primary wrappers
-def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimiter='\t'):
-    """Open a data file listed in filename. This function looks at the filename
-    extension and passes the necessary arguments to the correct function:
-    openfits, openimage, read_text_array, load_pickle.
-    Future: support open_ds9_mask?
-    
-    Recognized file extensions (more can be added):
-        images: jpg, jpeg, gif, png, bmp
-        fits: fits
-        text: txt, csv
-        pickle: pck
-        
-    Returns:
-        data from filename; see individual opener functions for details
-    """
-    
-    # define extension types to control switching
-    img_exts  = ('jpg','jpeg','gif','png','bmp')
-    fits_exts = ('fits',)
-    txt_exts  = ('txt','csv')
-    pck_exts  = ('pck',)
-    
-    # get extension from filename
-    assert len(filename.split('.')) >= 2, "filename appears to have no extension"
-    ext = filename.split('.')[-1]
-    assert ext in img_exts or ext in fits_exts or ext in txt_exts or ext in pck_exts, "ext \"%s\" not recognized"%ext
-
-    # pass arguments to correct opener
-    if ext in img_exts:  return openimage(filename)
-    if ext in fits_exts: return openfits(filename,quiet=quiet,orientImageHDU=True)
-    if ext in txt_exts:  return read_text_array(filename,convert_to=convert_to,delimiter=delimiter)
-    if ext in pck_exts:  return load_pickle(filename)
     
 def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None):
     """ Save components of an array as desired filetype specified by file extension.

@@ -27,7 +27,9 @@ def check_gpu():
             
     if dp.device == 'gpu':
         try:
+            print "getting gpuinfo"
             gpuinfo = gpulib.gpu.init()
+            print "gotit"
         except gpulib.gpu.GPUInitError as errormsg:
             # gpulib.gpu_init() crashed due to an opencl problem (such as lack of supported gpu)
             print errormsg, "\nfalling back to cpu"

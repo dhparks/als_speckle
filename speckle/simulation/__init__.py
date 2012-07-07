@@ -9,10 +9,15 @@ Author: Daniel Parks (dhparks@lbl.gov)
 __all__ = [
     "singlephoton",
     "random_walk",
-    "gpu_domains",
     "cpu_domains",
 ]
 
 for mod in __all__:
     exec("from %s import *" % mod)
 del mod
+
+try:
+    import pyopencl
+    from gpu_domains import *
+except ImportError:
+    print "didnt load gpu_domains; no pyopencl"

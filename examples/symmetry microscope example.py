@@ -117,7 +117,7 @@ def open_sample(name):
     here is that for magnetic dichroism because it gives a minimal
     airy pattern"""
     
-    data = speckle.io.open(name)
+    data = speckle.io.openimage(name)
     data = data.astype('float')
     data = 2*data/data.max()-1
     return data
@@ -142,7 +142,7 @@ def open_spectra(name):
     # and then extract the fp value to rescale correctly
     # from int16 back to float
     
-    data = speckle.io.open(name).astype('float32')
+    data = speckle.io.openfits(name).astype('float32')
     maxval = name.split('maxval_')[1].split('_mag')[0]
     data *= float(maxval)/2**16.
     return data
@@ -321,7 +321,6 @@ def make_raster_coords(N,xstep,ystep,size=None):
     x_coords = np.arange(start,stop,xstep)
     y_coords = np.arange(start,stop,ystep)
     return x_coords, y_coords
-
 
 import symmetry_microscope_parameters as sp
 check_parameters()
