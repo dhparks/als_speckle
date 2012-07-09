@@ -664,7 +664,7 @@ class gpu_microscope():
         
         self.slice_object(y,x)
         self.make_speckle()
-        if self.can_has_coherence: self.blur_speckle() 
+        if self.can_has_coherence: self.blur() 
     
         # in the cpu microscope, these are handled by symmetries.rot_sym
         self.unwrap_speckle()

@@ -4,6 +4,10 @@ import pyopencl.array as cla
 from pyopencl.elementwise import ElementwiseKernel as cl_kernel
 import pyfft
 
+DFT = numpy.fft.fft2
+IDFT = numpy.fft.ifft2
+shift = numpy.fft.fftshift
+
 class GPUPR:
     
     """ Implement phase retrieval on the GPU to take advantage of the embarassingly-parallel nature of the
@@ -58,38 +62,38 @@ class GPUPR:
         # if the support will be updated with shrinkwrap, initialize some additional gpu kernels
         if shrinkwrap:
             
-            self.set_zero = cl_kernel(self.ctx,
+            self.set_zero = cl_kernel(self.context,
                 "float2 *buff",
                 "buff[i] = (float2)(0.0f, 0.0f)",
                 "set_zero")
             
-            self.copy_real = cl_kernel(self.ctx,
+            self.copy_real = cl_kernel(self.context,
                 "float2 *in,"
                 "float  *out",
                 "out[i] = in[i].x",
                 "set_zero")
             
-            self.make_abs = cl_kernel(self.ctx,
+            self.make_abs = cl_kernel(self.context,
                 "float2 *in,"
                 "float2 *out",
                 "out[i] = (float2)(hypot(in[i].x,in[i].y),0.0f)",
                 "make_abs")
             
-            self.blur_convolve = cl_kernel(self.ctx,
+            self.blur_convolve = cl_kernel(self.context,
                 "float2 *toblur,"
                 "float  *blurrer,"
                 "float2 *blurred",
                 "blurred[i] = (float2) (toblur[i].x*blurrer[i],toblur[i].y*blurrer[i])",
                 "blur_convolve")
             
-            self.support_threshold = cl_kernel(self.ctx,
+            self.support_threshold = cl_kernel(self.context,
                 "float2 *in,"
                 "float *out,"
                 "float t",
                 "out[i] = isgreaterequal(in[i].x,t)",
                 "support_threshold")
             
-            self.bound_support = cl_kernel(self.ctx,
+            self.bound_support = cl_kernel(self.context,
                 "float *s,"
                 "float *s0",
                 "s[i] = s[i]*s0[i]",
@@ -121,10 +125,10 @@ class GPUPR:
         self.psi_fourier = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # to store fourier transforms of psi
         
         if update_sigma != None:
-            from . import shape
+            from .. import shape
             # make gpu arrays for blurring the magnitude of the current estimate in order to update the support
             assert isinstance(update_sigma, (int,float)), "update_sigma must be float or int"
-            blurkernel = abs(DFT(fftshift(shape.gaussian((self.N,self.N),(update_sigma,update_sigma),center=None,normalization=None))))
+            blurkernel = abs(DFT(shift(shape.gaussian((self.N,self.N),(update_sigma,update_sigma),center=None,normalization=None))))
             self.blur_kernel   = cla.to_device(self.queue,blurkernel.astype('float32'))
             self.blur_temp     = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # for holding the blurred estimate
             self.blur_temp_max = cla.empty(self.queue,(self.N,self.N),numpy.float32)

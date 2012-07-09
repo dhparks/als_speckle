@@ -281,6 +281,7 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
     return acutance_list
             
 def _acutance_calc(data,method,normalized,mask,exponent):
+    assert data.ndim == 2, "data is wrong ndim"
 
     if method == 'sobel':
         from scipy.ndimage.filters import sobel
@@ -288,10 +289,10 @@ def _acutance_calc(data,method,normalized,mask,exponent):
         dy = abs(sobel(data,axis=0))
                 
     if method == 'roll':
-        dx = frame-numpy.roll(data,1,axis=0)
-        dy = frame-numpy.roll(data,1,axis=1)
+        dx = data-numpy.roll(data,1,axis=0)
+        dy = data-numpy.roll(data,1,axis=1)
 
-    gradient  = numpy.sqrt(dx**2+dy**2)**exponent
+    gradient = numpy.sqrt(dx**2+dy**2)**exponent
             
     a = numpy.sum(gradient*mask)
     if normalized: a *= 1./numpy.sum(data*mask)

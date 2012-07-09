@@ -195,7 +195,7 @@ class generator():
         
         if 'envelope' in self.returnables_list: self.returnables['envelope'] = temp_envelope
          
-    def set_ggr(ggr):
+    def set_ggr(self,ggr):
         
         assert self.can_has_domains, "must set domains before ggr"
         assert isinstance(ggr,tuple) and len(ggr) == 2, "ggr must be a 2-tuple"

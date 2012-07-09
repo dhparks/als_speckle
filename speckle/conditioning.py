@@ -27,12 +27,14 @@ def remove_dust(data,dust_mask,dust_plan=None):
     """
 
     from scipy.signal import cspline1d, cspline1d_eval
+    
+    if dust_mask == None: return data # quit right away
 
     # check initial types
     assert isinstance(data,numpy.ndarray),       "data must be ndarray"
     assert data.ndim in (2,3),                   "data must be 2d or 3d"
-    assert isinstance(dust_mask,numpy.ndarray),  "plan must be ndarray"
-          
+    assert isinstance(dust_mask,(type(None),numpy.ndarray)),  "plan must be ndarray"
+        
     if dust_plan == None: dust_plan = plan_remove_dust(dust_mask)
 
     # because this function accepts both 2d and 3d functions the easiest solution is to upcast 2d arrays
@@ -86,7 +88,7 @@ def remove_dust(data,dust_mask,dust_plan=None):
     if was_2d: data = data[0]
     return data, dust_plan
 
-def plan_remove_dust(Mask):
+def plan_remove_dust(mask):
     """ Dust removal has requires two pieces of information: a mask describing
     the dust and a plan of operations for doing the spline interpolation within
     the mask. Only the mask is specified by the user. This function generates
@@ -176,12 +178,13 @@ def subtract_background(data, dark=None, x=20, scale=1, abs_val=True):
     if isinstance(dark,numpy.ndarray):
         assert dark.ndim == 2, "dark must be 2d"
         assert data.shape[-2:] == dark.shape, "data and dark must be same shape"
-    assert abs_val in (bool, int), "abs_val must be boolean-evaluable"
+    assert isinstance(abs_val, (bool, int)), "abs_val must be boolean-evaluable"
     
     # subtract DC component from data
     if data.ndim == 2:
         dc = numpy.average(data[0:x,0:x])
         data = abs(data-dc)
+        
     if data.ndim == 3:
         for n in range(data.shape[0]):
             dc = numpy.average(data[n,0:x,0:x])
@@ -427,3 +430,20 @@ def match_counts(img1, img2, region=None, nparam=3):
         return x[0]*(img2 - x[1])
     else:
         return x[0]*(img2 - x[2]) + x[1]
+
+def open_dust_mask(path):
+    
+    import io
+
+    assert isinstance(path,str)
+    pathsplit = path.split('.')
+    assert len(pathsplit) >= 2, "dust mask path has no file extension"
+    ext = pathsplit[-1]
+    assert ext in ['fits','png','gif','bmp'], "dust mask file extension %s not recognized"%ext
+        
+    if ext == 'fits': mask = io.openfits(path).astype('float')
+    else:
+        mask = numpy.flipud(io.openimage(path)).astype('float') # pyfits and PIL have a y-axis disagreement
+        mask = numpy.where(mask > .1,1,0)
+    assert mask.ndim == 2, "mask must be 2d"
+    return mask
