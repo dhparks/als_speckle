@@ -14,7 +14,7 @@ class random_walk():
         self.N = N
         
         if radius == 0:
-            self.do_convolve == False
+            self.do_convolve = False
         if radius > 0:
             from .. import shape
             obj = shape.circle((self.N,self.N),radius)
