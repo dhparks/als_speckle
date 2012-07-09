@@ -326,9 +326,9 @@ def _labview_to_andor(img):
     if dim == 3:
         (fr,ys,xs) = img.shape
         for f in range(fr):
-            img[f] = rot90(fliplr(img[f]))
+            img[f] = numpy.rot90(numpy.fliplr(img[f]))
     elif dim == 2:
-        img = rot90(fliplr(img))
+        img = numpy.rot90(numpy.fliplr(img))
 
     return img
 

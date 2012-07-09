@@ -7,7 +7,7 @@ DFT = numpy.fft.fft2
 IDFT = numpy.fft.ifft2
 shift = numpy.fft.fftshift
 
-from . import shape, conditioning
+from . import shape, conditioning, scattering
 #import shape
 I = complex(0,1)
 

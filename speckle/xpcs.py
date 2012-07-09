@@ -104,7 +104,7 @@ def g2_symm_norm(img, numtau, qAvg = ("circle", 10)):
 
     assert type(qAvg) in (list, tuple) and len(qAvg) == 2, "unknown size for qAvg"
     avgType, avgSize = qAvg
-    assert avgType in _averagingFunctions.keys(), "unknown averaging type %s" % qAvgType
+    assert avgType in _averagingFunctions.keys(), "unknown averaging type %s" % avgType
 
     img, fr, ys, xs = _convert_to_3d(img)
 
@@ -142,7 +142,7 @@ def g2_symm_borthwick_norm(img, numtau, qAvg = ("circle", 10)):
     import sys
     assert type(qAvg) in (list, tuple) and len(qAvg) == 2, "unknown size for qAvg"
     avgType, avgSize = qAvg
-    assert avgType in _averagingFunctions.keys(), "unknown averaging type %s" % qAvgType
+    assert avgType in _averagingFunctions.keys(), "unknown averaging type %s" % avgType
 
     img, fr, ys, xs = _convert_to_3d(img)
 
@@ -181,7 +181,7 @@ def g2_standard_norm(img, numtau, qAvg = ("circle", 10)):
     """
     assert type(qAvg) in (list, tuple) and len(qAvg) == 2, "unknown size for qAvg"
     avgType, avgSize = qAvg
-    assert avgType in _averagingFunctions.keys(), "unknown averaging type %s" % qAvgType
+    assert avgType in _averagingFunctions.keys(), "unknown averaging type %s" % avgType
     assert avgType != "none", "'none' averaging not supported for g2StandardNorm()."
 
     img, fr, ys, xs = _convert_to_3d(img)
@@ -276,8 +276,8 @@ def g2_numerator_fft(img,taus=None):
     assert img.ndim == 3, "g2_numerator: Must be a three dimensional image."
     (fr, ys, xs) = img.shape
 
-    IDFT = numpy.fft.ifftn
-    DFT = numpy.fft.fftn
+    IDFT = np.fft.ifftn
+    DFT = np.fft.fftn
 
     # fft is cyclic so the data must be zero-padded to prevent the data
     # from wrapping around inappropriately.
