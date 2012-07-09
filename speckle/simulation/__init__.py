@@ -20,4 +20,5 @@ try:
     import pyopencl
     from gpu_domains import *
 except ImportError:
-    print "didnt load gpu_domains; no pyopencl"
+    pass
+#    print "didnt load gpu_domains; no pyopencl"
