@@ -357,7 +357,7 @@ class LorentzianSq(OneDimPeak):
         # checks to return high numbers if parameters are getting out of hand.
         #if ( gam > 0 ): return np.ones_like(self.xvals) * self.try_again
         if w < 0: return self.try_again
-        return a*shape.lorentzian(self.data.shape, (w,), center=(x0,))**2 + shift
+        return a*shape.lorentzian(self.data.shape, (w,), center=(x0,))**2 + bg
 
     def guess_parameters(self):
         self.params = np.zeros(4)

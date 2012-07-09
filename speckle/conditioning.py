@@ -86,7 +86,7 @@ def remove_dust(data,dust_mask,dust_plan=None):
     if was_2d: data = data[0]
     return data, dust_plan
 
-def plan_remove_dust(Mask):
+def plan_remove_dust(mask):
     """ Dust removal has requires two pieces of information: a mask describing
     the dust and a plan of operations for doing the spline interpolation within
     the mask. Only the mask is specified by the user. This function generates
