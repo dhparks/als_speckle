@@ -1,19 +1,26 @@
-Speckle is a module for analyzing data from the coherent scattering beamline 12.0.2 at the Advanced Light Source.  The module requires numpy and scipy modules, and it has GPU support when PyOpenCL and PyFFT are installed.
-
+Speckle is a module for analyzing data from the coherent scattering beamline
+12.0.2 at the Advanced Light Source.  The module requires numpy, scipy and
+pyFITS modules, and it has GPU support when PyOpenCL and PyFFT are installed.
 
 Features of the library:
-    * Analyze X-ray photon correlation spectroscopy (XPCS) datasets
-    * Fit 1d (x,y), 2d and 3d (image) datasets to many functions (decayed exponentials with beta parameter, Lorentzians, Gaussians)
+    * Analyze X-ray photon correlation spectroscopy datasets
+    * Fit 1d (x,y), 2d and 3d (image) datasets to many functions (decayed
+        exponentials, Lorentzians, Gaussians)
     * Phase retrieval and data conditioning with GPU support
     * Unwrapping and wrapping centrosymmetric data
     * Rotational symmetry analysis
     * Q-dependent (rotational) and spatial memory analysis
     * Registering and merging of data for imaging
     * Simulations of single-photon XPCS data, domain generation, and random walks
-    * Endstation-specific items such as Q-calculations and conversion from detected events to photons
+    * Endstation-specific items such as Q-calculations and conversion from
+        detected events to photons
 
 
-To install the library, run
+To install the library make sure that the dependcies (numpy, scipy, pyfits, and
+optionally PyOpenCL and PyFFT) are installed. A great python distribution to use
+for python development is Enthought's EPD free (http://www.enthought.com/products/epd.php).
+It contains a large amount of libraries including numpy and scipy.
 
+To install speckle, unzip the file and in the directory run:
     python setup.py build
     sudo python setup.py install

@@ -9,7 +9,8 @@ Welcome to Speckle's documentation!
 Speckle is a module for analyzing data from the coherent scattering beamline
 `12.0.2 <https://sites.google.com/a/lbl.gov/coherent-scattering-beamline/>`_
 at the `Advanced Light Source <http://www-als.lbl.gov>`_.  The module requires
-`numpy <http://numpy.org>`_ and `scipy <http://scipy.org>`_ modules, and it has
+`numpy <http://numpy.org>`_, `scipy <http://scipy.org>`_, and `pyFITS
+<http://www.stsci.edu/institute/software_hardware/pyfits/>`_ modules, and it has
 GPU support when `PyOpenCL <http://mathema.tician.de/software/pyopencl/>`_ and
 `PyFFT <http://packages.python.org/pyfft/>`_ are installed.
 
