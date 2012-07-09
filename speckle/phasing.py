@@ -2,6 +2,7 @@
 import numpy
 DFT = numpy.fft.fft2
 IDFT = numpy.fft.ifft2
+shift = numpy.fft.fftshift
 
 class CPUPR:
     
@@ -21,11 +22,12 @@ class CPUPR:
         self.support0 = support # this is the original support, it is read-only
         
         # generate some necessary files
-        self.estimate   = ((numpy.rand(self.N,self.N)+complex(0,1)*numpy.rand(self.N,self.N))*self.support)
+        self.estimate   = ((numpy.random.rand(self.N,self.N)+complex(0,1)*numpy.random.rand(self.N,self.N))*self.support)
         
         if update_sigma != None:
             assert isinstance(update_sigma, (int,float)), "update_sigma must be float or int"
-            self.blurkernel = DFT(fftshift(shape.gaussian((self.N,self.N),(update_sigma,update_sigma),center=None,normalization=None)))
+            from . import shape
+            self.blurkernel = DFT(shift(shape.gaussian((self.N,self.N),(update_sigma,update_sigma),center=None,normalization=None)))
         
     def iteration(self,algorithm,beta=0.8):
         

@@ -194,45 +194,6 @@ class generator():
         self.transitions += 1
         
         if 'envelope' in self.returnables_list: self.returnables['envelope'] = temp_envelope
-         
-    def set_ggr(ggr):
-        
-        assert self.can_has_domains, "must set domains before ggr"
-        assert isinstance(ggr,tuple) and len(ggr) == 2, "ggr must be a 2-tuple"
-        
-        growth_rate,ncrossings = ggr
-        
-        window_length      = 10  # can be changed but not exposed for simplicity      
-        rate               = (1+growth_rate)**(1./window_length)-1
-        self.plan          = self._ggr_make_plan(self.m0,rate,0.02,50)
-        self.target        = 0
-        self.optimized_spa = 0.05
-
-        if not self.can_has_ggr:
-            self.next_crossing = 0.0
-            self.crossed       = False
-            self.ggr_tracker   = np.zeros((len(self.plan),3),float)
-            self.spa_buffer    = cla.empty(self.queue,(self.N,self.N),np.float32)
-            self.whenflipped   = cla.empty(self.queue,(self.N,self.N),np.int32)
-
-            # build the lookup table for the recency enforcement
-            # these parameters can be changed but are not exposed to the user to keep things simple
-            rmin, rmax, rrate = 0.05, 2., 0.5
-            x = np.arange(len(self.plan)).astype('float')
-            recency_need = rmin*rmax*np.exp(rrate*x)/(rmax+rmin*np.exp(rrate*x))
-            self.recency_need = cla.to_device(self.queue,recency_need.astype(np.float32))
-    
-            self.set_zero(self.whenflipped)
-        
-            # self.crossings are the values of m_out which, when crossed over, generate a signal
-            # to save the output to make a movie out of or whatever
-            if isinstance(ncrossings,(int,float)): self.crossings = np.arange(0,1,1./ncrossings)[1:]
-            if isinstance(ncrossings,(list,tuple,np.ndarray)): self.crossings = ncrossings
-            if ncrossings != None: self.next_crossing = self.crossings[-1]
-        
-        self.direction = np.sign(self.m0-self.plan[-1])
-        
-        self.can_has_ggr = True
      
     def set_coherence(self,clx,cly):
         
@@ -355,83 +316,6 @@ class generator():
             np.clip(self.domains,-1,1,out=self.domains)
 
         if 'domains' in self.returnables_list: self.returnables['domains'] = self.domains
-
-    def ggr_iteration(self,iteration):
-        
-        assert self.can_has_domains, "no domains set!"
-        assert self.can_has_envelope, "no goal envelope set!"
-        assert self.can_has_ggr, "must set ggr before running ggr_iteration"
-
-        # get the target net magnetization
-        net_m       = cla.sum(self.domains)
-        self.goal_m = self.plan[iteration+1]
-        needed_m    = self.goal_m*self.N2-net_m
-        self.target = np.sign(needed_m).astype(np.float32)
-        
-        # copy the current domain pattern to self.incoming
-        self.copy(self.domains,self.incoming)
-        
-        # find the domain walls. these get used in self.make_available. make the correct sites available for modification
-        self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,np.int32(self.N))
-        self.make_available1(self.available,self.allwalls,self.negpins,self.pospins)
-        #if net_m > self.goal_m: self.make_available1(self.available,self.poswalls,self.negpins,self.pospins)
-        #if net_m < self.goal_m: self.make_available1(self.available,self.negwalls,self.negpins,self.pospins)
-        
-        # run the ising bias
-        self.ising(self.domains,self.alpha)
-        
-        # rescale the domains. this operates on the class variables so no arguments are passed. self.domains stores the rescaled real-valued domains.
-        # the rescaled domains are bounded to the range +1 -1.
-        # change in the domain pattern is allowed to happen only in the walls.
-        # enforce the recency condition to prevent domain splittings (basically, make it hard to revert changes from long ago)
-        self.rescale_speckle()
-        self.bound(self.domains,self.domains)
-        self.only_in_walls(self.domains,self.incoming,self.available)
-        self.recency.execute(self.queue,(self.N2,),
-                             self.whenflipped.data,self.domains.data,self.incoming.data,
-                             self.recency_need.data,self.target,np.int32(iteration)).wait()
-
-        # since the domains have been updated, refind the walls
-        self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,np.int32(self.N))
-
-        # now adjust the magnetization so that it reaches the target
-        net_m       = cla.sum(self.domains)
-        needed_m    = self.goal_m*self.N2-net_m
-        self.target = np.sign(needed_m).astype(np.float32)
-        spa         = self.optimized_spa
-        if net_m > 0: self.make_available2(self.available,self.poswalls,self.domains,self.target)
-        if net_m < 0: self.make_available2(self.available,self.negwalls,self.domains,self.target)
-        
-        # now we need to run an optimizer to find the correct value for spa. this should result in an
-        # update to the class variable self.optimized_spa. optimized_spa is a class variable because spa
-        # changes slowly so using the old value as the starting point in the optimization gives a speed up.
-        opt_out = fminbound(self._ggr_spa_error,-1,1,full_output=1)
-        self.optimized_spa = opt_out[0]
-        
-        # use the optimized spa value to actually promote the spins in self.domains
-        self.ggr_promote_spins(self.domains,self.available,self.domains,self.target*self.optimized_spa)
-        self.bound(self.domains,self.domains)
-        m_out   = (cla.sum(self.domains))/self.N2
-        m_error = abs(m_out-self.goal_m)
-        
-        # update the whenflipped data, which records the iteration when each pixel changed sign
-        self.update_whenflipped.execute(self.queue,(self.N2,),self.whenflipped.data,self.domains.data,self.incoming.data,np.int32(iteration))
-        
-        print "%.4d, %.3f, %.3f, %.3f"%(iteration, self.goal_m, m_out, self.optimized_spa)
-        self.ggr_tracker[iteration] = iteration, self.optimized_spa, m_out
-        
-        # set a flag to save output. it is better to check m_out than to trust that the
-        # self.goal_m, asked for in self.plan, has actually been achieved
-        if m_out < self.next_crossing:
-            print "***"
-            self.checkpoint    = True
-            self.crossed       = self.next_crossing
-            try:
-                self.crossings     = self.crossings[:-1]
-                self.next_crossing = self.crossings[-1]
-            except IndexError:
-                self.next_crossing = 0.01
-        else: self.checkpoint = False
 
     def _find_walls(self,neighbors=4):
         # find the walls
