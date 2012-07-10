@@ -108,7 +108,7 @@ def make_samples():
     for frame in range(nf):
         print "  "+str(frame)
         balls.displace(sp.brownianstep)
-        image = balls.place_on_grid()
+        image = 1-balls.place_on_grid()
         speckle.io.save('%s/%s.png'%(ball_path,frame),image)
         
 def open_sample(name):
