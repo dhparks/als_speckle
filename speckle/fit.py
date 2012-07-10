@@ -6,7 +6,7 @@ Author: Keoki Seu (KASeu@lbl.gov)
 import numpy as np
 from scipy.optimize import leastsq
 
-from . import shape
+from . import shape, conditioning, wrapping
 
 class OneDimFit():
     """Framework for calculating the fit for a one-dimensional (x,y) set of
@@ -206,6 +206,39 @@ class TwoDimPeak(OneDimFit):
         ly = abs(self.data[:yargmax-1,xargmax] - hm).argmin()
         ry = abs(self.data[yargmax+1:,xargmax] - hm).argmin()
         return abs(lx - rx), abs(ly-ry)
+
+class TwoDimDonutPeak(OneDimFit):
+    """Framework for calculating the fit for a two-dimensional (x,y,z) set of
+        data that has a peak and is a donut/ring. An example of this is CoPd
+        data collected in transmission geometry. This class is the child of the
+        OneDimFit class that has a FWHM estimation fitting routine for 2d rings
+        /donuts. Depending on the function, the FWHM estimated needs to be
+        multipled by a factor to get to the correct parameter. This class is
+        expected to be used as a basis for a two-dimensional fit of a ringed
+        peak.  The functions fit_function() and guess_parameters() need to be
+        filled up by the child class.
+    """
+    def __init__(self, *args, **kwargs):
+        OneDimFit.__init__(self, *args, **kwargs)
+
+    def estimate_fwhm(self, data):
+        """ Estimate a FWHM peak. This returns a reasonably good estimate of the
+            FWHM of a 1d peak.
+        """
+        # I have to reimplement estimate_fwhm for donut data because it's essentially 1d data.  This estimate_fwhm takes an argument of the estimate rather than looking up the data in self.data
+        hm = (data.max() - data.min())/2
+        argmax = data.argmax()
+        xvals = np.arange(len(data))
+        if argmax == len(self.xvals):
+            argmax = argmax - 1
+        elif argmax == 0:
+            argmax = 1
+
+        absdiff = abs(data - hm)
+        left = xvals[absdiff[np.argwhere(xvals < argmax)].argmin()]
+        right = xvals[absdiff[np.argwhere(xvals > argmax)].argmin()]
+
+        return abs(left-right)
 
 class Linear(OneDimFit):
     """ fit a function to a decay exponent.  This fits the function:
@@ -421,19 +454,36 @@ class Lorentzian2D(TwoDimPeak):
         sp[2] = sp[2]/2
         sp[4] = sp[4]/2
 
-class Lorentzian2DSq(TwoDimPeak):
+class Lorentzian2DSq(Lorentzian2D):
     """ fit a function to a 2d-lorentzian squared.  This fits the function:
         f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1)^2 + bg
     """
     def __init__(self, data, mask=None):
-        TwoDimPeak.__init__(self, data, mask)
-        self.functional = "a / ( ((x-x0)/xw)**2 + ((y-y0)/yw)**2 + 1)**2 + shift "
+        Lorentzian2D.__init__(self, data, mask)
+        self.functional = "a / ( ((x-x0)/xw)**2 + ((y-y0)/yw)**2 + 1)**2 + shift"
         self.params_map ={ 0:"a", 1:"x0", 2:"xw", 3:"y0", 4:"yw", 5:"shift"}
 
     def fit_function(self):
         a, x0, xw, y0, yw, shift = self.params
         if ( xw < 0 or yw < 0): return self.try_again
         return a*(shape.lorentzian(self.data.shape, (yw, xw), center=(y0, x0)))**2 + shift
+
+class GaussianDonut2D(TwoDimDonutPeak):
+    """ Fit a function to a two-dimensional Gaussian donut.  This fits the a
+    radial function:
+        f(r) = a exp(-(r-R)^2/(2*sigma_r^2) + shift
+    where r is an (yc, xc) center, R is a raidius, and sigma_r is the standard
+    deviation.
+    """
+    def __init__(self, data, mask=None):
+        TwoDimDonutPeak.__init__(self, data, mask)
+        self.functional = "f(r) = a exp(-(r-R)^2/(2*sigma_r^2) + shift"
+        self.params_map ={ 0:"a", 1:"r_x", 2:"r_y", 3:"R", 4:"sigma_r", 5:"shift"}
+
+    def fit_function(self):
+        a, rx, ry, R, sigmar, shift = self.params
+        if ( sigmar < 0 or R < 0): return self.try_again
+        return shift + a*np.exp(-1*(shape.radial(self.data.shape, center=(ry, rx)) -R)**2/(2*sigmar**2))
 
     def guess_parameters(self):
         self.params = np.zeros(6)
@@ -442,10 +492,58 @@ class Lorentzian2DSq(TwoDimPeak):
         # average the outside corner values
         sp[5] = np.average(np.concatenate((sd[:,0], sd[:,-1], sd[-1,:], sd[0,:])))
         sp[0] = sd.max() - sp[5]
-        sp[3], sp[1] = np.unravel_index(sd.argmax(), sd.shape)
-        sp[2], sp[4] = self.estimate_fwhm()
-        sp[2] = sp[2]/2
-        sp[4] = sp[4]/2
+        yc, xc = conditioning.find_center(sd, return_type='coords')
+        sp[2], sp[1] = yc, xc
+        Rmax = min(xc, yc, sd.shape[0] - yc, sd.shape[1] - xc)
+        unw_sum = (wrapping.unwrap(self.data, (0, Rmax, (yc,xc) ))).sum(axis=1)
+        sp[3] = unw_sum.argmax()
+        sp[4] = self.estimate_fwhm(unw_sum)/(2*np.sqrt(2*np.log(2)))
+
+class LorentzianDonut2D(TwoDimDonutPeak):
+    """ Fit a function to a two-dimensional Lorentzian donut.  This fits a
+    radial function of the form:
+        f(r) = a/(((r-R)/rw)^2 + 1) + bg
+    where r is an (yc, xc) center, R is a radius, and rw is the std. dev.
+    """
+    def __init__(self, data, mask=None):
+        TwoDimDonutPeak.__init__(self, data, mask)
+        self.functional = "f(r) = a/(((r-R)/rw)^2 + 1) + bg"
+        self.params_map ={ 0:"a", 1:"r_x", 2:"r_y", 3:"R", 4:"rw", 5:"bg"}
+
+    def fit_function(self):
+        a, rx, ry, R, rw, bg = self.params
+        if ( rw < 0 or R < 0): return self.try_again
+        return bg + a / ( ((shape.radial(self.data.shape,center =(ry,rx))-R)/rw)**2 + 1)
+
+    def guess_parameters(self):
+        self.params = np.zeros(6)
+        sd = self.data
+        sp = self.params
+        # average the outside corner values
+        sp[5] = np.average(np.concatenate((sd[:,0], sd[:,-1], sd[-1,:], sd[0,:])))
+        sp[0] = sd.max() - sp[5]
+        yc, xc = conditioning.find_center(sd, return_type='coords')
+        sp[2], sp[1] = yc, xc
+        Rmax = min(xc, yc, sd.shape[0] - yc, sd.shape[1] - xc)
+        unw_sum = (wrapping.unwrap(self.data, (0, Rmax, (yc,xc) ))).sum(axis=1)
+        sp[3] = unw_sum.argmax()
+        sp[4] = self.estimate_fwhm(unw_sum)/2
+
+class LorentzianDonut2DSq(LorentzianDonut2D):
+    """ Fit a function to a two-dimensional (Lorentzian donut)^2.  This fits a
+    radial function:
+        f(r) = a/(((r-R)/rw)^2 + 1)^2 + bg
+    where r is an (yc, xc) center, R is a radius, and wr is the std. dev.
+    """
+    def __init__(self, data, mask=None):
+        LorentzianDonut2D.__init__(self, data, mask)
+        self.functional = "f(r) = a/(((r-R)/rw)^2 + 1)^2 + bg"
+        self.params_map ={ 0:"a", 1:"r_x", 2:"r_y", 3:"R", 4:"rw", 5:"bg"}
+
+    def fit_function(self):
+        a, rx, ry, R, rw, bg = self.params
+        if ( rw < 0 or R < 0): return self.try_again
+        return bg + a / ( ((shape.radial(self.data.shape,center =(ry,rx))-R)/rw)**2 + 1)**2
 
 def linear(data, mask=None):
     """ fit a function to a line.  This fits the function:
@@ -596,6 +694,70 @@ def gaussian_2d(data, mask=None):
             the final fitted values.
     """
     fit = Gaussian2D(data, mask)
+    fit.fit()
+    return fit
+
+def gaussian_donut_2d(data, mask=None):
+    """ fit a function to a two-dimensional Gaussian donut/ring. This fits a
+    radial function:
+        f(r) = a exp(-(r-R)^2/(2*sigma_r^2) + shift
+    where r is an (yc, xc) center, R is a radius, and sigma_r is the standard
+    deviation.
+
+    arguments:
+        data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
+
+    returns:
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
+    """
+    fit = GaussianDonut2D(data, mask)
+    fit.fit()
+    return fit
+
+def lorentzian_donut_2d(data, mask=None):
+    """ fit a function to a two-dimensional Lorentzian donut/ring. This fits a
+    radial function of the form:
+        f(r) = a/(((r-R)/rw)^2 + 1) + bg
+    where r is an (yc, xc) center, R is a radius, and rw is the std. dev.
+
+    arguments:
+        data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
+
+    returns:
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
+    """
+    fit = LorentzianDonut2D(data, mask)
+    fit.fit()
+    return fit
+
+def lorentzian_donut_2d_sq(data, mask=None):
+    """ fit a function to a two-dimensional (Lorentzian donut/ring)^2. This fits a
+    radial function of the form:
+        f(r) = a/(((r-R)/rw)^2 + 1) + bg
+    where r is an (yc, xc) center, R is a radius, and rw is the std. dev.
+
+    arguments:
+        data - Data to fit.  This should be a 2-dimensional array.
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
+
+    returns:
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
+    """
+    fit = LorentzianDonut2DSq(data, mask)
     fit.fit()
     return fit
 

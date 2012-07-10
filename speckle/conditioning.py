@@ -448,30 +448,33 @@ def open_dust_mask(path):
     assert mask.ndim == 2, "mask must be 2d"
     return mask
 
-def find_center(data,return_type='data'):
-    """ Tries to find the center of a speckle pattern such as that from copd
-    wherein the natural center has been blocked. A thin wrapper to align_frames.
-    
+def find_center(data, return_type='coords'):
+    """ Tries to find the center of a speckle pattern that has inversion
+    symmetry where the natual center (direct beam) has been blocked.  An example
+     of this are labyrinth domains.
+
     arguments:
         data -- data whose center is to be found
-        
+        return_type -- What type of data to return.  This can be 'data' where it
+            returns the centered data or 'coords' where it returns the
+            coordinates of the center.  The default is 'coords'.
+
     returns:
         depending on return_type, can return various:
-        
-        'data' -- returns centered data. Default.
-        'coords' -- returns coordinates to roll data"""
-        
+            'coords' -- returns center coordinates in (row, col) format. This is
+                the default.
+            'data' -- returns centered data.
+    """
+    assert isinstance(data, numpy.ndarray) and data.ndim == 2, "data must be a 2-dimensional ndarrray"
+    assert return_type in ('data', 'coords'), "return_type must be 'data' or 'coords'."
     rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
-        
+    
+    # idea here is to use align_frames on the original image and an image rotated by 180 degrees to find the center.
     rotated = numpy.rot90(numpy.rot90(data))
-    coords = align_frames(rotated,align_to=data,return_type='coordinates')[0]
-    
-    r0,r1 = coords
-    r0 = int(-r0*0.5)
-    r1 = int(-r1*0.5)
-    
-    if return_type == 'data': return rolls(data.astype('float'),r0,r1)
-    if return_type == 'coords': return r0,r1
-    
-    
-    
+    r0, r1 = align_frames(rotated,align_to=data,return_type='coordinates')[0]
+
+    r0 = -r0*0.5
+    r1 = -r1*0.5
+
+    if return_type == 'data': return rolls(data,int(r0),int(r1))
+    if return_type == 'coords': return int(data.shape[0]/2.0-r0), int(data.shape[1]/2.0-r1)
