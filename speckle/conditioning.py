@@ -447,3 +447,31 @@ def open_dust_mask(path):
         mask = numpy.where(mask > .1,1,0)
     assert mask.ndim == 2, "mask must be 2d"
     return mask
+
+def find_center(data,return_type='data'):
+    """ Tries to find the center of a speckle pattern such as that from copd
+    wherein the natural center has been blocked. A thin wrapper to align_frames.
+    
+    arguments:
+        data -- data whose center is to be found
+        
+    returns:
+        depending on return_type, can return various:
+        
+        'data' -- returns centered data. Default.
+        'coords' -- returns coordinates to roll data"""
+        
+    rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
+        
+    rotated = numpy.rot90(numpy.rot90(data))
+    coords = align_frames(rotated,align_to=data,return_type='coordinates')[0]
+    
+    r0,r1 = coords
+    r0 = int(-r0*0.5)
+    r1 = int(-r1*0.5)
+    
+    if return_type == 'data': return rolls(data.astype('float'),r0,r1)
+    if return_type == 'coords': return r0,r1
+    
+    
+    

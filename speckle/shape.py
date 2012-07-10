@@ -17,21 +17,23 @@ def radial(size,center=None):
         A n-dimensioanl array where each element is the distance (in pixels) from the center.
    """
     assert isinstance(size,tuple), "size must be a tuple"
+    ndims = len(size)
     
     if center != None:
         assert isinstance(center,tuple), "center must be supplied as a tuple"
-        assert len(center) == len(size), "size and center must be same dimensionality"
+        assert len(center) == ndims, "size and center must be same dimensionality"
     else:
-        center = numpy.zeros(len(size),float)
-        for d in range(len(size)): center[d] = size[d]/2.
+        center = numpy.zeros(ndims,float)
+        for d in range(ndims): center[d] = size[d]/2.
         
     # evaluate pythagorean theorem in n-dimensions
     indices = numpy.indices(size,float)
     r = numpy.zeros_like(indices[0])
 
-    if len(size) == 2: return numpy.hypot(indices[0]-center[0],indices[1]-center[1])
+    if ndims == 2:
+        return numpy.hypot(indices[0]-center[0],indices[1]-center[1])
     else:
-        for d in range(len(size)): r += (indices[d]-center[d])**2
+        for d in range(ndims): r += (indices[d]-center[d])**2
         return numpy.sqrt(r)
     
 def angular(size,center=None):    
