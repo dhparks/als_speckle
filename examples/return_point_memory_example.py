@@ -13,11 +13,12 @@ imgB = speckle.io.openfits(f % 62) # 10 A
 qacfB = speckle.io.openfits(f % 63) # 10 A
 qacfdarkB = speckle.io.openfits(f % 64) # +80 A
 
-# Load the ROI from a ds9 region file
-ROI = speckle.io.open_ds9_mask('RPM-box-R215px.reg')
-ROI = speckle.io.open_ds9_mask('../300K-bgsub-pinhole0070-002.reg')
-# or, alternatively, make your own using shape
-ROI = speckle.shape.rect()
+## Load the ROI from a ds9 region file
+#ROI = speckle.io.open_ds9_mask('RPM-box-R215px.reg')
+#ROI = speckle.io.open_ds9_mask('../300K-bgsub-pinhole0070-002.reg')
+
+# or, alternatively, make your own using shape. This is a box of size l_x=146, l_y=124 centered at (x=1419, y=968). 
+ROI = speckle.shape.rect(imgA.shape, (124,146), center=(968, 1419))
 
 # call rot_memory()
 result, intermediates = speckle.crosscorr.point_memory(imgA, imgB,

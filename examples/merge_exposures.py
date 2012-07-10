@@ -175,8 +175,8 @@ def to2D(img):
 def openAndMerge(file1, file2, fileMaskReplace, fileMaskFit, mergeType = 'hard'):
     return mergeImageByAlignAndMatchCounts(to2D(speckle.io.openfits(file1)), 
                                             to2D(speckle.io.openfits(file2)),
-                                            to2D(speckle.io.openfits(fileMaskToReplace)),
-                                            to2D(speckle.io.openfits(fileMaskToFit)),
+                                            to2D(speckle.io.openfits(fileMaskReplace)),
+                                            to2D(speckle.io.openfits(fileMaskFit)),
                                             mergeType)
 
 def createRegAndMerge(file1, file2, mergeROI, fitROI, mergeType):
@@ -225,7 +225,7 @@ else:
 
 if not direction and args.step:
     direction = 'rows'
-    debugprint("no direction for regions given, using %s." % direction)
+    print("no direction for regions given, using %s." % direction)
 
 outf = args.file1.split("/")[-1].replace(".fits", "") + "_replaced_" + args.file2.split("/")[-1].replace(".fits", "") + ".fits"
 
