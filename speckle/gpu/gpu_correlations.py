@@ -73,12 +73,6 @@ class gpu_microscope():
         
         assert isinstance(object,(int,np.ndarray)), "object spec must be size or array"
         
-        if self.can_has_object:
-            # this means an object has already been set and now we're just updating it
-            assert isinstance(object,np.ndarray) and object.ndim==2, "object must be 2d array"
-            assert object.shape == (self.N,self.N), "object shape differs from initialization values"
-            self.master_object.set(object.astype(self.master_object.dtype))
-        
         if not self.can_has_object:
             if isinstance(object,np.ndarray):
                 assert object.ndim == 2, "object must be 2d"
@@ -100,6 +94,13 @@ class gpu_microscope():
             
             # make fft plan for complex (interleaved); for speckle
             self.fftplan_speckle = fft_plan((self.N,self.N), queue=self.queue)
+            
+        if self.can_has_object:
+            # this means an object has already been set and now we're just updating it
+            assert isinstance(object,np.ndarray) and object.ndim==2, "object must be 2d array"
+            assert object.shape == (self.N,self.N), "object shape differs from initialization values"
+            self.master_object.set(object.astype(self.master_object.dtype))
+        
             
         self.can_has_object = True
         
@@ -197,10 +198,9 @@ class gpu_microscope():
             illumination = pinhole
             self.pr = None
         
-        if self.can_has_pinhole:
-            self.illumination_gpu.set(illumination.astype(self.illumination_gpu.dtype))
-        else:
+        if not self.can_has_pinhole:
             self.illumination_gpu = cla.to_device(self.queue,illumination.astype(np.complex64))
+        else: self.illumination_gpu.set(illumination.astype(self.illumination_gpu.dtype))
         
         self.can_has_pinhole = True
         
@@ -224,10 +224,6 @@ class gpu_microscope():
         gaussian = fftshift(shape.gaussian((self.N,self.N),(cl_y_px,cl_x_px),normalization=1.0))
         #gaussian = fftshift(_gaussian_kernel(cl_y_px,cl_x_px,self.N))
         
-        # make or update blurring buffers
-        if self.can_has_coherence:
-            self.blur_kernel.set(gaussian.astype(self.blur_kernel.dtype))
-        
         if not self.can_has_coherence:
             self.blur_kernel = cl.array.to_device(self.queue,gaussian.astype(np.float32))
             self.blurred_image  = cla.empty(self.queue, (self.N,self.N), np.float32)
@@ -236,6 +232,9 @@ class gpu_microscope():
             # make fft plan for blurring. because the speckle intensity is in a float32 array,
             # the fft plan expects data in split format: two float32 buffers which are re and im components
             self.fftplan_blurred = fft_plan((self.N,self.N), dtype=np.float32, queue=self.queue)
+        
+        if self.can_has_coherence:
+            self.blur_kernel.set(gaussian.astype(self.blur_kernel.dtype))
         
         self.can_has_coherence = True
         
