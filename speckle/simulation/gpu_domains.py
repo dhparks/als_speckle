@@ -497,7 +497,7 @@ class generator():
         # the rescaled domains are bounded to the range +1 -1.
         # change in the domain pattern is allowed to happen only in the walls.
         # enforce the recency condition to prevent domain splittings (basically, make it hard to revert changes from long ago)
-        self.rescale_speckle()
+        self._rescale_speckle()
         self.bound(self.domains,self.domains)
         self.only_in_walls(self.domains,self.incoming,self.available)
         self.recency.execute(self.queue,(self.N2,),
@@ -731,3 +731,4 @@ def function_eval(x,Parameters):
         
 def make_speckle(array):
     return shift(abs(DFT(array))**2)
+

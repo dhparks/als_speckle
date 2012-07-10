@@ -16,7 +16,7 @@ class generator():
     
     """ CPU-executing copd-type domain generation. """
     
-    def __init__(self,device=None,domains=None,alpha=0.5,converged_at=0.002,ggr=None,returnables=('converged',)):
+    def __init__(self,device=None,domains=None,alpha=0.5,converged_at=0.002,returnables=('converged',)):
         
         if device != None:
             "device %s provided to cpu_domains, which requires no device."
@@ -24,10 +24,8 @@ class generator():
         
         self.can_has_domains = False
         self.can_has_envelope = False
-        self.can_has_ggr = False
         
         if domains != None: self.set_domains(domains)
-        if ggr != None: self.set_ggr(ggr)
         self.returnables_list = returnables
         self.returnables = {}
 
@@ -380,57 +378,6 @@ class generator():
         if 'rescaler' in self.returnables_list: self.returnables['rescaler'] = shift(abs(rescaler))
         if 'rescaled' in self.returnables_list: self.returnables['rescaled'] = shift(abs(dft_speckle2))
 
-    def _ggr_make_plan(self,m0,rate,transition,finishing):
-        # make the plan of magnetizations for the ggr algorithm to target 
-        
-        taper = lambda x: 1-rate*np.tanh(50*(1-x))
-        
-        plan = []
-        plan.append(m0)
-        m = m0
-        n = 1
-        
-        # transition is where the plan transitions from goal growth rate (exponential decay behavior)
-        # to a constant drive down to 0 net magnetization. typically transition should be 0.2 or less
-        # as this is where one seems to see "breathing" behavior in domain simulations
-
-        while m >= transition:
-            m1 = plan[-1]
-            m2 = m1*taper(m1)
-            plan.append(m2)
-            m = m2
-            
-        while m > 0:
-            m1 = plan[-1]
-            m2 = m1-transition/finishing
-            plan.append(m2)
-            m = m2
-            
-        return plan
-
-    def _ggr_spa_error(self,spa):
-        # promote the available spins by value target*spa. store in the spa_buffer. bound spa_buffer.
-        # calculate the new total magnetization for this spa value. difference of total and desired is the error function.
-        
-        self.ggr_promote_spins(self.domains,self.available,self.spa_buffer,self.target*spa)
-        self.bound(self.spa_buffer,self.spa_buffer)
-        buffer_average = (cla.sum(self.spa_buffer))/self.N2
-        e = abs(buffer_average-self.goal_m)
-        #print "    %.6e, %.3e"%(spa,e)
-        return e
-
-    def check_convergence(self):
-        
-        # calculate the difference of the previous domains (self.incoming) and the current domains (self.domains).
-        self.power = np.sum(abs(self.domains-self.incoming))/self.N2
-        self.powerlist.append(self.power)
-        
-        # set the convergence condition
-        if self.power >  self.converged_at: self.converged = False
-        if self.power <= self.converged_at: self.converged = True
-        
-        if 'converged' in self.returnables_list and self.converged: self.returnables['converged'] = self.domains
-        
 def function_eval(x,Parameters):
     # for making the envelope
     Type = Parameters[0]
