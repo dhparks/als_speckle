@@ -22,7 +22,6 @@ def set_overwrite(val):
         nothing, sets the variable overwrite_default
     """
     global overwrite_default
-    # don't need to thrown an assert error if the value is not boolean, just default to original value
     if isinstance(val, bool):
         overwrite_default = val
         
@@ -247,13 +246,13 @@ def writefits(filename, img, headerItems={}, overwrite=None):
     hdulist = pyfits.HDUList([hdu])
     try:
         hdulist.writeto(filename)
-    except IOError, detail:
+    except IOError as e:
         if overwrite:
             import os
             os.remove(filename)
             hdulist.writeto(filename)
         else:
-            raise IOError(detail)
+            raise type(e)(e.message + " Try using the overwrite=True keyword to speckle.io.writefits()")
 
 def write_complex_fits(base, fits, headerItems={}, overwrite=None):
     """ Write a complex array to disk.
@@ -365,7 +364,7 @@ def open_photon_counting_fits(filename, correct=False, sort=False, quiet=True):
         ys = len(data)
         newdata = numpy.zeros((ys, ncol), dtype='i4')
         for i in range(0, ncol):
-            newdata[:,i] = data.field(i)
+            newdata[:, i] = data.field(i)
         data = newdata
     else:
         raise IOError("not sure of the data in %s." % filename)
@@ -375,22 +374,22 @@ def open_photon_counting_fits(filename, correct=False, sort=False, quiet=True):
         overflow = 2**31
         # Takes the data from the fast camera and corrects the overflow that happens when the counter rolls over.
         data = data.astype('float')
-        timecol = data[:,time_column]
+        timecol = data[:, time_column]
         diffdata = numpy.diff(timecol)
         
-        Finished = False
-        while not Finished:
+        finished = False
+        while not finished:
             minarg = diffdata.argmin()
             if diffdata[minarg] < -2e9: # if you set this to 0, then there are false positives.  The data may have 'bumps' where the deriv < 0 but these are not rollovers.
                 timecol[minarg+1:] +=  overflow
                 diffdata[minarg] = 1
                 print("Overflow at row %d. Shifted by %d" % (minarg, overflow))
             else:
-                Finished = True
-        data[:,time_column] = timecol
+                finished = True
+        data[:, time_column] = timecol
 
     if sort:
-        data = data[data[:,time_column].argsort(),:]
+        data = data[data[:, time_column].argsort(), :]
 
     return data
 
