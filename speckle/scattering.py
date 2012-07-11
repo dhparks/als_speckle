@@ -186,13 +186,19 @@ def andor_ccd_efficiency(energy):
 
     return np.interp(energy, Energies, QEs)
 
-def ccd_to_photons(img, energy, gain_readout=1e-6, guess_dark=True):
+def ccd_to_photons(img, energy, calc='detected', gain_readout=1e-6, guess_dark=True):
     """Convert a CCD image to number of photons.  This calculates the number of
-        photons that would be incident assuming a detector of 100% efficiency.
+        photons from an Andor CCD image.  Optionally, the number of incident
+        photons can be calculated using calc='incident',
 
     arguments:
         img - array to convert.  Can be 1d, 2d or 3d.
         energy - energy (in eV).
+        calc - What to calculate.  Can be the 'incident', where the number of
+            incident photons is calculated, or 'detected' where the number of
+            detected photons are calculated.  The difference is that the
+            'incident' calculation accounts for CCD efficiency, whereas
+            'detected' does not. Defaults to 'detected'
         gain_readout -readout time of the CCD.  Defaults to 1e-6 (1us).  This
             can be one of (1e-6, 2e-6, 16e-6, 32e-6).
         guess_dark - weather we should try and guess the dark count from the
@@ -216,25 +222,30 @@ def ccd_to_photons(img, energy, gain_readout=1e-6, guess_dark=True):
     assert gain_readout in gain_readtime.keys(), "gain is not a recognized value"
     assert isinstance(guess_dark, bool)
 
+    if calc not in ('incident', 'detected'):
+        print "ccd_to_photons: unknown calculation, defaulting to detected photons."
+        calc = 'detected'
+
     if guess_dark:
         if img.ndim == 3:
             avg = np.average(np.concatenate((img[:,0,0], img[:,-1,0], img[:,0,-1], img[:,-1,-1])))
-            print "3d, avg", avg
         elif img.ndim == 2:
             avg = np.average(np.concatenate((img[0,0], img[-1,0], img[0,-1], img[-1,-1])))
-            print "2d, avg", avg
         elif img.ndim == 1:
-            avg = np.average(np.concatenate((img[0], img[-1])))
-            print "1d, avg", avg
+            avg = (img[0] + img[-1])/2
 
         img = img - avg
 
     gain = gain_readtime[gain_readout]
     QE = andor_ccd_efficiency(energy)
     PEconv = energy/3.65 # number of electrons created from one photon
-    photonsPerCount = (100.0/QE) * gain/ PEconv
-    img = img * photonsPerCount
-    print "1 photon is %d counts" % int(1.0/photonsPerCount)
+    if calc == 'detected':
+        photonsPerCount = gain/ PEconv
+    else: # 'incident'
+        photonsPerCount = (100.0/QE) * gain/ PEconv
+
+    img = img.astype('float') * photonsPerCount
+    print "ccd_to_photons: 1 %s photon is %d counts" % (calc, int(1.0/photonsPerCount))
     return np.where(img.astype('int') < 0, 0, img.astype('int'))
 
 def calculate_bragg((a, b, c), (h, k, l), energy):
