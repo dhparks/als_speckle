@@ -11,6 +11,9 @@ Author: Daniel Parks (dhparks@lbl.gov)
 import numpy
 from . import shape
 
+# If you need to use the python open() function, use this!!
+_open = open
+
 # global overwrite option for FITS files
 overwrite_default = False
 def set_overwrite(val):
@@ -24,25 +27,64 @@ def set_overwrite(val):
     global overwrite_default
     if isinstance(val, bool):
         overwrite_default = val
-        
+
+#
+############### Primary Wrappers ################
+#
+def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimiter='\t'):
+    """Open a data file listed in filename. This function looks at the filename
+    extension and passes the necessary arguments to the correct function:
+    openfits, openimage, read_text_array, load_pickle.
+    Future: support open_ds9_mask?
     
+    Recognized file extensions (more can be added):
+        images: jpg, jpeg, gif, png, bmp
+        fits: fits
+        text: txt, csv
+        pickle: pck
+        
+    Returns:
+        data from filename; see individual opener functions for details
+    """
+    
+    # define extension types to control switching
+    img_exts  = ('jpg', 'jpeg', 'gif', 'png', 'bmp', )
+    fits_exts = ('fits', 'fit', )
+    txt_exts  = ('txt', 'csv', )
+    pck_exts  = ('pck', )
+    ds9mask_exts = ('reg', )
+    all_exts = img_exts + fits_exts + txt_exts + pck_exts + ds9mask_exts
+
+    # get extension from filename
+    assert len(filename.split('.')) >= 2, "filename appears to have no extension"
+    ext = filename.split('.')[-1]
+    assert ext in all_exts, "ext \"%s\" not recognized" % ext
+
+    # pass arguments to correct opener
+    if ext in img_exts:  return openimage(filename)
+    if ext in fits_exts: return openfits(filename,quiet=quiet,orientImageHDU=True)
+    if ext in txt_exts:  return read_text_array(filename,convert_to=convert_to,delimiter=delimiter)
+    if ext in pck_exts:  return load_pickle(filename)
+    if ext in ds9mask_exts: return open_ds9_mask(filename)
+
 def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None):
-    """ Save components of an array as desired filetype specified by file extension.
-    Basically, a wrapper to save_fits, save_image, write_text_array.
+    """ Save components of an array as desired filetype specified by file
+    extension. This is a wrapper to save_fits, save_image, write_text_array.
     
     arguments:
         filename - path where data will be saved
         data - ndarray to save at filename
         header - pyfits.Header object. Default is empty
         components - components of img to be saved. Must be supplied as a list.
-            available components are: 'mag', 'phase', 'real', 'imag', 'polar', 'cartesian'.
-            Default is ['mag']
-        color_map - If saving data as an image, the color map to use.  Options are 'L','A', 'B', 'SLS', 'HSV' and 'Rainbow'.
-            Default is 'L'.
-        delimiter - If saving data as a text file, the delimiter between data entries.
-            Default is '\t' (tab)
+            available components are: 'mag', 'phase', 'real', 'imag', 'polar',
+            'cartesian'. Default is ['mag']
+        color_map - If saving data as an image, the color map to use.  Options
+            are 'L','A', 'B', 'SLS', 'HSV' and 'Rainbow'. Default is 'L'.
+        delimiter - If saving data as a text file, the delimiter between data
+            entries. Default is '\t' (tab)
         overwrite - Whether to overwrite a file already existing at filename.
             Default is False.
+
     returns:
         nothing. Will throw an exception if something wrong happens.
     """
@@ -59,11 +101,10 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
     if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map)
     if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite)
     if ext in txt_exts:  write_text_array(filename,data,header=header)
-        
+
 #
 ############### Text ########################
 #
-
 def write_text_array(filename, array, header='', delimiter='\t'):
     """ Write a tab-separated array to the filesystem.
 
@@ -76,7 +117,7 @@ def write_text_array(filename, array, header='', delimiter='\t'):
         nothing.  It will throw an IOError if it cannot write the file
     """
     import csv
-    with open(filename, "w") as f:
+    with _open(filename, "w") as f:
         f.write(header)
         writer = csv.writer(f, delimiter=delimiter)
         writer.writerows(array)
@@ -105,7 +146,7 @@ def read_text_array(filename, convert_to='float', delimiter='\t'):
         conv_fn = lambda x: x
 
     rows = []
-    with open(filename, 'r') as f:
+    with _open(filename, 'r') as f:
         reader = csv.reader(f, delimiter=delimiter)
         try:
             for row in reader:
@@ -562,7 +603,7 @@ def load_pickle(filename):
         the data in the pickle file
     """
     import pickle
-    with open(filename,'rb') as f:
+    with _open(filename,'rb') as f:
         return pickle.load(f)
     
 def save_pickle(path,data):
@@ -576,7 +617,7 @@ def save_pickle(path,data):
         no return value.  It throws an error if it is not successful.
     """
     import pickle
-    with open(path,'wb') as f:
+    with _open(path,'wb') as f:
         pickle.dump(data,f)
 
 #
@@ -774,7 +815,7 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
         mask - binary mask of the regions
     """
     shapes = []
-    with open(filename, "r") as f:
+    with _open(filename, "r") as f:
         aline = f.readline()
         while aline:
             if aline[0] == "#":
