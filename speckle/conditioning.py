@@ -349,24 +349,24 @@ def match_counts(img1, img2, region=None, nparam=3):
         img2 - a scaled img2 such that the counts in region match.
     """
     import scipy.optimize
-    def diff3(c, img1, img2, region):
+    def diff3(c, img1, img2):
         """ minimize (I1 - d1) - s(I2-d2)
             = I1 - s*I2 + (s*d2 - d1)
         """
         (s, d1, d2) = c
         if d1 < 0 or d2 < 0:
             return 1e30
-        dif = region*(img1 - d1 - s*(img2 - d2))**2
+        dif = (img1 - d1 - s*(img2 - d2))**2
         return dif.sum()
 
-    def diff2(c, img1, img2, region):
+    def diff2(c, img1, img2):
         """ minimize I1 - s(I2-d2)
             = I1 - s*(I2 - d2)
         """
         (s, d2) = c
         if d2 < 0:
             return 1e30
-        dif = region*(img1 - s*(img2 - d2))**2
+        dif = (img1 - s*(img2 - d2))**2
         return dif.sum()
 
     def diff1(c, img1, img2, region):
@@ -374,7 +374,7 @@ def match_counts(img1, img2, region=None, nparam=3):
             = I1 - s*I2
         """
         (s) = c
-        dif = region*(img1 - s*img2)**2
+        dif = (img1 - s*img2)**2
         return dif.sum()
 
     assert isinstance(img1, numpy.ndarray) and img1.ndim == 2, "img1 must be a 2d ndarray."
@@ -419,8 +419,20 @@ def match_counts(img1, img2, region=None, nparam=3):
         funcstr = "(img1-d1)-s*(img2-d2) (%d parameters)" % nparam
 
     print("minimizing %s.\nInitial guess: %s." % (funcstr, paramstr % tuple(c)))
+    
+    ### speed up the optimization by only optimizing in region; this saves the time
+    # required to multiply and sum and consider all the zeros outside the region
 
-    x = scipy.optimize.fmin(diff, c, args=(img1, img2, region), disp=False)
+    take_n = numpy.sum(region)
+    region = region.ravel()
+    indices = numpy.arange(len(region))+1
+    indices *= region
+    indices = indices.argsort()[-take_n:]-1 # these are the locations to optimize
+    
+    img1_a = img1.ravel()[indices]
+    img2_a = img2.ravel()[indices]
+
+    x = scipy.optimize.fmin(diff, c, args=(img1_a, img2_a), disp=False)
 
     print("Final result: %s." % (paramstr % tuple(x)))
 
