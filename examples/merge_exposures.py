@@ -209,7 +209,7 @@ def createRegAndMergeRows(file1, file2, mergeROI, fitROI, rows, direction, merge
                                             direction,
                                             mergeType)  
 
-parser = argparse.ArgumentParser(description='Merge two FITS files together over regions of interest.  This will match the counts in FitRegion and merge file2 into file1 with MergeRegion. The merge can also be done region-by-region by specificing -rs with a direction (either -r or -c for rows and cols, respectively).')
+parser = argparse.ArgumentParser(description='Merge two FITS files together over regions of interest.  This will match the counts in FitRegion and merge file_from2 into file_into1 with MergeRegion. The merge can also be done region-by-region by specificing -rs with a direction (either -r or -c for rows and cols, respectively).')
 
 parser.add_argument('file_into1', help='FITS file to merge into.')
 parser.add_argument('file_from2', help='FITS file to merge from')
@@ -233,15 +233,15 @@ elif args.column:
 else:
     direction = False
 
-if not direction and args.step:
+if not direction and args.regionstep:
     direction = 'rows'
     print("no direction for regions given, using %s." % direction)
 
-outf = args.file1.split("/")[-1].replace(".fits", "") + "_replaced_" + args.file2.split("/")[-1].replace(".fits", "") + ".fits"
+outf = args.file_into1.split("/")[-1].replace(".fits", "") + "_replaced_" + args.file_from2.split("/")[-1].replace(".fits", "") + ".fits"
 
 if direction:   
-    speckle.io.writefits(outf, createRegAndMergeRows(args.file1, args.file2, args.MergeRegion, args.FitRegion, args.step, direction, args.type), overwrite=True)
+    speckle.io.writefits(outf, createRegAndMergeRows(args.file_into1, args.file_from2, args.MergeRegion, args.FitRegion, args.regionstep, direction, args.type), overwrite=True)
 else:
-    speckle.io.writefits(outf, createRegAndMerge(args.file1, args.file2, args.MergeRegion, args.FitRegion, args.type), overwrite=True)
+    speckle.io.writefits(outf, createRegAndMerge(args.file_into1, args.file_from2, args.MergeRegion, args.FitRegion, args.type), overwrite=True)
 
 
