@@ -189,25 +189,26 @@ def openfits(filename, quiet=True, orientImageHDU=True):
     assert os.path.exists(filename), "unknown file %s" % filename
     if not isinstance(quiet, bool):
         quiet = True
+    
+    def pr(msg):
+        if not quiet:
+            print msg
 
     # open fits file - Labview software stores data in ImageHDU and Andor stores it in PrimaryHDU.
     a = pyfits.open(filename)
     # return data where header shows NAXIS != 0
     if a[0].header['NAXIS'] != 0:
-        if not quiet:
-            print 'openfits: %s data located in PrimaryHDU\n' % filename
+        pr('openfits: %s data located in PrimaryHDU' % filename)
         return a[0].data
     elif a[1].header['NAXIS'] != 0:
-        if not quiet:
-            print 'openfits: %s data located in ImageHDU\n' % filename
+        pr('openfits: %s data located in ImageHDU' % filename)
 
         if orientImageHDU:
             # ImageHDU usually means that it was written by Labview. Default to reorient the image into the correct (andor) orientation.
-            if not quiet:
-                print 'openfits: orienting ImageHDU data properly\n'
-                return _labview_to_andor(a[1].data)
-            else:
-                return a[1].data
+            pr('openfits: orienting ImageHDU data properly')
+            return _labview_to_andor(a[1].data)
+        else:
+            return a[1].data
     else:
         raise IOError('openfits: No idea where data is located!')
 
