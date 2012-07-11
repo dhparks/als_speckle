@@ -349,6 +349,8 @@ def match_counts(img1, img2, region=None, nparam=3):
         img2 - a scaled img2 such that the counts in region match.
     """
     import scipy.optimize
+    from . import crosscorr
+
     def diff3(c, img1, img2):
         """ minimize (I1 - d1) - s(I2-d2)
             = I1 - s*I2 + (s*d2 - d1)
@@ -369,7 +371,7 @@ def match_counts(img1, img2, region=None, nparam=3):
         dif = (img1 - s*(img2 - d2))**2
         return dif.sum()
 
-    def diff1(c, img1, img2, region):
+    def diff1(c, img1, img2):
         """ minimize I1 - s*I2
             = I1 - s*I2
         """
@@ -422,17 +424,10 @@ def match_counts(img1, img2, region=None, nparam=3):
     
     ### speed up the optimization by only optimizing in region; this saves the time
     # required to multiply and sum and consider all the zeros outside the region
+    img1_shrunk = crosscorr.apply_shrink_mask(img1, region)
+    img2_shrunk = crosscorr.apply_shrink_mask(img2, region)
 
-    take_n = numpy.sum(region)
-    region = region.ravel()
-    indices = numpy.arange(len(region))+1
-    indices *= region
-    indices = indices.argsort()[-take_n:]-1 # these are the locations to optimize
-    
-    img1_a = img1.ravel()[indices]
-    img2_a = img2.ravel()[indices]
-
-    x = scipy.optimize.fmin(diff, c, args=(img1_a, img2_a), disp=False)
+    x = scipy.optimize.fmin(diff, c, args=(img1_shrunk, img2_shrunk), disp=False)
 
     print("Final result: %s." % (paramstr % tuple(x)))
 
@@ -444,8 +439,7 @@ def match_counts(img1, img2, region=None, nparam=3):
         return x[0]*(img2 - x[2]) + x[1]
 
 def open_dust_mask(path):
-    
-    import io
+    from . import io
 
     assert isinstance(path,str)
     pathsplit = path.split('.')
