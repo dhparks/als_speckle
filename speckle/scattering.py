@@ -11,11 +11,11 @@ import numpy as np
 
 # Constants for each component between the scattering center of the chamber and camera.
 bl_length_components = {
-    "valveLen": 2 * 25.4, # manual valve 2", spec from mdc
-    "CCDLen": (2 + 0.78) * 25.4 - 2, # 2" nipple and 0.78" flange (spec, mdc) that area always attached to camera. According to Andor focal plane of camera is 2.0mm +- 0.4mm behind flange
-    "BeamBlockDiodeLen": 4.92 * 25.4, # Beam block and Diode T flange: 4.92" spec from mdc
-    "CSCToFlange": 259.4, # CSC numbers from Tom, according to model
-    "CSCToThruFlange": 368.3 + 0.78*25.4, # the 0.78" is for the 6" to 2.75" reducing flange on the xmission port.  0.78" spec from mdc
+    "manual_valve": 2 * 25.4, # manual valve 2", spec from mdc
+    "andor_ccd": (2 + 0.78) * 25.4 - 2, # 2" nipple and 0.78" flange (spec, mdc) that area always attached to camera. According to Andor focal plane of camera is 2.0mm +- 0.4mm behind flange
+    "beamblock_diode": 4.92 * 25.4, # Beam block and Diode T flange: 4.92" spec from mdc
+    "CSC_reflection_flange": 259.4, # CSC numbers from Tom, according to model
+    "CSC_transmission_flange": 368.3 + 0.78*25.4, # the 0.78" is for the 6" to 2.75" reducing flange on the xmission port.  0.78" spec from mdc
 }
 
 def calculateQ( imgshape, center, theta, energy, camera_distance, calctype='Qr', pixel_pitch = 0.0135, thetaOffset=0, rotateAngle=0, transmission=False):
@@ -26,13 +26,22 @@ def calculateQ( imgshape, center, theta, energy, camera_distance, calctype='Qr',
         center - center coordinate in (xcenter, ycenter) format
         theta - Sample angle where Q needs to be calculated.
         energy - Beam energy in eV.
-        camera_distance - Sample to CCD length, in mm. A dictionary of ditances can be found in bl_length_components[].
-        pixel_pitch - pixel size, in mm/px.  If the image is binned multiply by binning. Defaults to 0.0135 (13.5 um pixels, binned 1)
-        calctype - Specify the type of calculation to do. Options are 'Qx', 'Qy', 'Qz', 'Qr', 'Q'.  Defaults to 'Qr'
-        thetaOffset - This is the angle where theta=0.  It is a peak in the theta scan of the surface.  This is used to correct for theta. Defaults to 0.0.
-        rotateAngle - Rotate the image in the plane by a given angle. Sometimes the camera is not perfectly aligned with the scattering plane, so it may be necessary to rotate Q slightly to compensate.  This is seen in RPM, FeF2, HoTiO data, among others. Defaults to 0.0.
+        camera_distance - Sample to CCD length, in mm. A dictionary of distances
+            can be found in bl_length_components[].
+        pixel_pitch - pixel size, in mm/px.  If the image is binned multiply by
+            binning. Defaults to 0.0135 (13.5 um pixels, binned 1)
+        calctype - Specify the type of calculation to do. Options are 'Qx',
+            'Qy', 'Qz', 'Qr', 'Q'.  Defaults to 'Qr'
+        thetaOffset - This is the angle where theta=0.  It is a peak in the
+            theta scan of the surface.  This is used to correct for theta.
+            Defaults to 0.0.
+        rotateAngle - Rotate the image in the plane by a given angle. Sometimes
+            the camera is not perfectly aligned with the scattering plane, so it
+            may be necessary to rotate Q slightly to compensate.  This is seen in
+            RPM, FeF2, HoTiO data, among others. Defaults to 0.0.
+
     returns:
-        calculated q vector of dimension imgshape. The units of the qmap is A^{-1}
+        calculated q vector of dimension imgshape. The units are in is A^{-1}.
     """
     assert type(theta) in (int, float) and theta > 0, "theta must be greater than 0"
     assert type(energy) in (int, float) and energy > 0, "energy must be greater than 0"
@@ -47,12 +56,10 @@ def calculateQ( imgshape, center, theta, energy, camera_distance, calctype='Qr',
 
     # the location of the specular in two-theta.
     thetaSpecular = 2.0 * (theta - thetaOffset) * (np.pi/180.0)
-#    print("calculateQ: theta - %0.2f degrees.\nthetaOffset - %0.2f degrees\n2theta - %0.2f degrees.\ncamera_distance - %0.1f mm\nenergy - %0.1f eV" % (theta, thetaOffset, thetaSpecular*180/np.pi, camera_distance, energy))
 
     # Image parameters
     xs, ys = imgshape
     cimgx, cimgy = center
-#    print("calculateQ: xsize=%d, ysize=%d; xcenter=%d, ycenter=%d" % (xs, ys, cimgx, cimgy))
 
     # set up camera coordinates. The coordinates are sample coordinates meaning x = manipulator z, y = manipulator x, z= manipulator y.  This is done so that 
     xr = np.ones(xs,dtype=float)
@@ -166,8 +173,16 @@ def andor_ccd_efficiency(energy):
     Energies = np.array([  1.23983,   1.30828,   1.55564, 1.67120,   1.78466,   1.92872, 2.07200,   2.52331,   2.75976, 3.14721,   3.30120,   3.32097, 3.44212,   3.65392,   3.78721, 3.97252,   4.31890,   4.39697, 4.61212,   5.01427,   5.32281, 5.65034,   5.92682,   6.32920, 10.0239,   20.0386,   30.0757, 100.479,   104.144,   301.476, 602.675,   742.764,   995.234, 1415.58,   1797.50,   1808.26, 3040.07,   4001.09,   5361.09, 9067.11,   10278.5,   20062.5])
     QEs = np.array([ 16.819, 30.713, 56.2157, 60.2377, 61.7916, 61.9744, 61.2431, 58.7751, 55.3016, 49.3601, 43.3272, 39.4881, 38.8483, 40.4936, 40.3108, 39.3053, 34.2779, 27.6051, 24.9543, 32.7239, 33.9123, 33.9123, 34.1865, 33.181, 18.0073, 20.3839, 25.0457, 44.6984, 25.3199, 39.9452, 65.0823, 85.192, 94.6984, 90.0366, 64.8995, 96.5265, 94.1499, 74.5887, 58.0439, 18.6472, 13.2541, 2.01097])
 
-    assert type(energy) in (float, int), "energy must be float or int"
-    assert Energies.min() < energy < Energies.max(), "energy must be between %f and %f." % (Energies.min(), Energies.max())
+    if isinstance(energy, np.ndarray):
+        if energy.min() < Energies.min():
+            print "andor_ccd_efficiency Warning.: %1.2f eV is smaller than energy interpolation min" % energy.min()
+        if energy.max() > Energies.max():
+            print "andor_ccd_efficiency Warning: %1.2f eV is larger than energy interpolation max" % energy.max()
+
+    else:
+        assert type(energy) in (float, int), "energy must be float, int or ndarray"
+        if energy < Energies.min() or energy > Energies.max():
+            print "andor_ccd_efficiency Warning: %1.2f eV is out of range of energy interpolation range [%1.2f:%1.2f] eV." % (energy, Energies.min(), Energies.max())
 
     return np.interp(energy, Energies, QEs)
 
