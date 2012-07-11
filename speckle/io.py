@@ -34,14 +34,14 @@ def set_overwrite(val):
 def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimiter='\t'):
     """Open a data file listed in filename. This function looks at the filename
     extension and passes the necessary arguments to the correct function:
-    openfits, openimage, read_text_array, load_pickle.
-    Future: support open_ds9_mask?
+    openfits, openimage, read_text_array, load_pickle, and open_ds9_mask.
     
-    Recognized file extensions (more can be added):
+    Recognized file extensions:
         images: jpg, jpeg, gif, png, bmp
         fits: fits
         text: txt, csv
         pickle: pck
+        DS9 region: reg
         
     Returns:
         data from filename; see individual opener functions for details
