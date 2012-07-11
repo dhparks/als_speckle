@@ -159,12 +159,22 @@ def mergeImage(img1, img2, mergeROI, mergeType):
         return np.where(mergeROI, img2, img1)
     else:
         # maxfromBB is the maximum distance from the BB that we replace
-        maxfromBB = 12
+        maxfromBB = 12.
 
-        distancemap = distance_transform(mergeROI)
-        img1Mask = (erf( (distancemap-maxfromBB)/12 ) + 1 )/2 # factor inside erf() smooths it out a little
-        img2Mask = 1 - img1Mask
-        return img1*img1Mask + img2*img2Mask
+        # distancemap is an expensive calculation, so only calculate it in the
+        # relevant distance around mergeROI
+        bounds = bound(mergeROI,force_to_square=False,pad=int(2*maxfromBB))
+        r0,c0 = bounds[0],bounds[2]
+        rows = int(bounds[1]-bounds[0])
+        cols = int(bounds[3]-bounds[2])
+        subROI = mergeROI[r0:r0+rows,c0:c0+cols]
+        distancemap = distance_transform(subROI)
+
+        img1Mask = (erf( (distancemap-maxfromBB)/12 ) + 1. )/2. # factor inside erf() smooths it out a little
+        blender = numpy.ones_like(img1)
+        blender[r0:r0+rows,c0:c0+cols] = img1Mask
+        
+        return img1*blender + img2*(1-blender)
 
 def to2D(img):
     if img.ndim == 3:
