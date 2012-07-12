@@ -426,9 +426,6 @@ def match_counts(img1, img2, region=None, nparam=3):
     # sum and consider all the zeros outside the region
     img1_shrunk = take_masked_pixels(img1, region)
     img2_shrunk = take_masked_pixels(img2, region)
-    
-    import io
-    io.save('fit region.fits',region)
 
     x = scipy.optimize.fmin(diff, c, args=(img1_shrunk, img2_shrunk), disp=False)
 
