@@ -422,10 +422,13 @@ def match_counts(img1, img2, region=None, nparam=3):
 
     print("minimizing %s.\nInitial guess: %s." % (funcstr, paramstr % tuple(c)))
     
-    ### speed up the optimization by only optimizing in region; this saves the time
-    # required to multiply and sum and consider all the zeros outside the region
-    img1_shrunk = crosscorr.apply_shrink_mask(img1, region)
-    img2_shrunk = crosscorr.apply_shrink_mask(img2, region)
+    # optimize only in region; this saves the time required to multiply and
+    # sum and consider all the zeros outside the region
+    img1_shrunk = take_masked_pixels(img1, region)
+    img2_shrunk = take_masked_pixels(img2, region)
+    
+    import io
+    io.save('fit region.fits',region)
 
     x = scipy.optimize.fmin(diff, c, args=(img1_shrunk, img2_shrunk), disp=False)
 
@@ -484,3 +487,201 @@ def find_center(data, return_type='coords'):
 
     if return_type == 'data': return rolls(data,int(r0),int(r1))
     if return_type == 'coords': return int(data.shape[0]/2.0-r0), int(data.shape[1]/2.0-r1)
+    
+def take_masked_pixels(data,mask):
+    """ Copy the pixels in data masked by mask into a 1d array.
+    The pixels are unordered. This is useful for optimizing subtraction, etc,
+    within a masked region (particularly  a multipartite mask) because it
+    eliminates costly and unnecessary work.
+    
+    arguments:
+        data -- 2d or 3d data from which pixels are taken
+        mask -- 2d mask file describing which pixels to take.
+        
+    returns:
+        if data is 2d, a 1d array of selected pixels
+        if data is 2d, a 2d array where axis 0 is the frame axis"""
+        
+    assert isinstance(data,numpy.ndarray) and data.ndim in (2,3), "data must be 2d or 3d array"
+    assert isinstance(mask,numpy.ndarray) and mask.ndim == 2, "mask must be 2d array"
+    if data.ndim == 2: assert data.shape == mask.shape, "data and mask must be same shape"
+    if data.ndim == 3: assert data[0].shape == mask.shape, "data and mask must be same shape"
+
+    # find which pixels to take (ie, which are not zero)
+    mask = numpy.where(mask > 1e-6, 1, 0)
+    indices = numpy.nonzero(mask.ravel())
+
+    # return the requested pixels
+    if data.ndim == 2:
+        return data.ravel()[indices]
+    if data.ndim == 3:
+        buffer = numpy.zeros((data.shape[0]))
+        for n,f in enumerate(data):
+            buffer[n] = f.ravel()[indices]
+        return buffer
+    
+def merge(data_to, data_from, fit_region, merge_region, width=10):
+    """ Merge together two images (data_to, data_from) into a single
+    high-dynamic-range image. A primary use of this function is to stitch a pair
+    of images taken in transmission: one with the blocker in, one with the
+    the blocker out.
+    
+    Merging follows two steps: count levels are matched in a selectable region,
+    and then counts are smoothly blended between the two images.
+    
+    It is assumed that the two images have been proprely registered before being
+    passed to this function.
+    
+    arguments:
+        data_to -- data will be copied "into" this image. Experimentally,
+            this corresponds to the image with the blocker at center.
+        data_from -- data will be copied "from" this image. Experimentally,
+            this corresponds to the image with the blocker out of the way.
+        fit_region -- an array or path to an array or ds9 region file.
+            fit_region describes where the counts should be compared.
+        merge_region -- an array or path to an array or ds9 file. merge_region
+            describes where the two images should be blended. This will often
+            be a binary image of the blocker. If an array is supplied it should
+            be binary. The blending function is derived from this information.
+        width -- (optional) Sets a width for the blending region. Larger width
+            blends farther (slower) from the edge of the blocker specified in
+            merge_region.
+             
+    returns:
+        an array with data smoothly blended between data_to and data_from.
+    """
+    
+    # check types
+    assert isinstance(data_to, numpy.ndarray) and data_to.ndim == 2, "data_to must be 2d array"
+    assert isinstance(data_from, numpy.ndarray) and data_from.ndim == 2, "data_from must be 2d array"
+    assert data_to.shape == data_from.shape, "data_to and data_from must be same shape"
+    assert isinstance(fit_region, (numpy.ndarray,str)), "fit_region must be an array or a path to an array"
+    assert isinstance(merge_region, (numpy.ndarray,str)), "merge_region must be an array or a path to an array"
+    assert isinstance(width, (int,float)), "width must be float or int"
+    
+    def make_blender(base,width):
+    
+        """ Fast blender generation from region. Helper function for
+        merge. """
+        
+        from . import shape
+        convolve = lambda x,y: numpy.fft.ifft2(numpy.fft.fft2(x)*numpy.fft.fft2(y))
+        shift = numpy.fft.fftshift
+    
+        bounds = bound(base,force_to_square=True,pad=int(4*width))
+        r0,c0, rows, cols = bounds[0], bounds[2], int(bounds[1]-bounds[0]), int(bounds[3]-bounds[2])
+        bounded = base[r0:r0+rows,c0:c0+cols]
+        
+        convolver1 = shift(shape.circle(bounded.shape,2*width,AA=0))
+        convolver2 = shift(shape.gaussian(bounded.shape,(width,width),normalization=1.0))
+    
+        expanded = numpy.clip(abs(convolve(bounded,convolver1)),0,1)
+        blurred = 1-convolve(expanded,convolver2)
+        
+        blender = numpy.ones(base.shape,float)
+        blender[r0:r0+rows,c0:c0+cols] = blurred
+        blender *= 1-base
+            
+        return blender
+    
+    # open merge and fit regions if necessary 
+    if isinstance(merge_region, str):
+        from . import io
+        merge_region = io.open(merge_region)
+    if isinstance(fit_region, str):
+        from . import io
+        fit_region = io.open(fit_region)
+    assert merge_region.shape == data_to.shape, "merge_region and data must be same shape"
+    assert fit_region.shape == data_to.shape, "fit_region and data must be same shape"
+    
+    # scale the data to reconcile acquisition times etc
+    data_from = match_counts(data_to, data_from, region=fit_region)
+    
+    # make the blender
+    blender1 = make_blender(merge_region,width)
+
+    # return the merged data
+    return data_to*blender1 + data_from*(1-blender1) 
+
+def bound(data,threshold=1e-10,force_to_square=False,pad=0):
+    
+    """ Find the minimally-bounding subarray for data.
+    
+    arguments:
+        data -- array to be bounded
+        threshold -- (optional) value above which data is considered boundable
+        force_to_square -- (optional) if True, forces the minimally bounding
+            subarray to be square in shape. Default is False.
+        pad -- (optional) expand the minimally bounding coordinates by this
+            amount on each side. Default = 0 for minimally bounding.
+    
+    returns:
+        bounding coordinates -- an array of (row_min, row_max, col_min, col_max)
+            which bound data
+    """
+    
+    data = numpy.where(data > threshold,1,0)
+    rows,cols = data.shape
+    
+    rmin,rmax,cmin,cmax = 0,0,0,0
+    
+    for row in range(rows):
+        if data[row,:].any():
+            rmin = row
+            break
+            
+    for row in range(rows):
+        if data[rows-row-1,:].any():
+            rmax = rows-row
+            break
+            
+    for col in range(cols):
+        if data[:,col].any():
+            cmin = col
+            break
+    
+    for col in range(cols):
+        if data[:,cols-col-1].any():
+            cmax = cols-col
+            break
+        
+    if rmin >= pad: rmin += -pad
+    else: rmin = 0
+    
+    if rows-rmax >= pad: rmax += pad
+    else: rmax = rows
+    
+    if cmin >= pad: cmin += -pad
+    else: cmin = 0
+    
+    if cols-cmax >= pad: cmax += pad
+    else: cmax = cols
+        
+    if force_to_square:
+        delta_r = rmax-rmin
+        delta_c = cmax-cmin
+        
+        if delta_r%2 == 1:
+            delta_r += 1
+            if rmax < rows: rmax += 1
+            else: rmin += -1
+            
+        if delta_c%2 == 1:
+            delta_c += 1
+            if cmax < cols: cmax += 1
+            else: cmin += -1
+            
+        if delta_r > delta_c:
+            average_c = (cmax+cmin)/2
+            cmin = average_c-delta_r/2
+            cmax = average_c+delta_r/2
+            
+        if delta_c > delta_r:
+            average_r = (rmax+rmin)/2
+            rmin = average_r-delta_c/2
+            rmax = average_r+delta_c/2
+            
+        if delta_r == delta_c:
+            pass
+        
+    return numpy.array([rmin,rmax,cmin,cmax]).astype('int32')
