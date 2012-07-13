@@ -28,7 +28,7 @@ def remove_dust(data_in,dust_mask,dust_plan=None):
 
     from scipy.signal import cspline1d, cspline1d_eval
     
-    if dust_mask == None: return data # quit right away
+    if dust_mask == None: return data_in # quit right away
     data = numpy.copy(data_in) # having issues with in-place changes
 
     # check initial types
@@ -202,10 +202,11 @@ def subtract_background(data, dark=None, x=20, scale=1, abs_val=True):
     else:
         return data
 
-def hot_pixels(data, iterations=1, threshold=2):
-    """A basic hot pixel remover which uses numpy.medfilt to define hot pixels
-    as those which exceed a certain multiple of the local median.
-    
+def remove_hot_pixels(data, iterations=1, threshold=2):
+    """Uses numpy.medfilt to define hot pixels as those which exceed a certain
+    multiple of the local median and remove them by replacing with the median of
+    the nearest neighbors.
+
     Required:
         data - 2d or 3d array from which hot pixels will be removed
         
@@ -602,8 +603,8 @@ def merge(data_to, data_from, fit_region, fill_region, width=10):
         blur_kernel = shift(shape.gaussian(bounded.shape,(width,width),normalization=1.0))
     
         # two convolutions make the blender
-        expanded = numpy.clip(abs(convolve(bounded,convolver1)),0,1)
-        blurred = 1-abs(convolve(expanded,convolver2))
+        expanded = numpy.clip(abs(convolve(bounded,grow_kernel)),0,1)
+        blurred = 1-abs(convolve(expanded,blur_kernel))
 
         # embed the bounded convolutions inside the correct spot in an array of
         # the correct size to return and set pixels inside fill_region to
