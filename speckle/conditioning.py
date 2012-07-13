@@ -7,12 +7,12 @@ Author: Keoki Seu (kaseu@lbl.gov)
 """
 import numpy
 
-def remove_dust(data,dust_mask,dust_plan=None):
+def remove_dust(data_in,dust_mask,dust_plan=None):
     """ Attempts to remove dust and burn marks from CCD images by interpolating
     in regions marked as defective in a plan file.
     
     Requires:
-        data - the data from which dust will be removed. 2d or 3d ndarray.
+        data_ins - the data from which dust will be removed. 2d or 3d ndarray.
         dust_mask - a binary array describing from which pixels dust must be
             removed.
 
@@ -22,13 +22,14 @@ def remove_dust(data,dust_mask,dust_plan=None):
             then as output.
 
     Returns:
-        data - the data array with the dust spots removed.
+        data_out - the data array with the dust spots removed.
         plan - plan unique to dust_mask which can be passed again for re-use.
     """
 
     from scipy.signal import cspline1d, cspline1d_eval
     
     if dust_mask == None: return data # quit right away
+    data = numpy.copy(data_in) # having issues with in-place changes
 
     # check initial types
     assert isinstance(data,numpy.ndarray),       "data must be ndarray"
@@ -39,6 +40,7 @@ def remove_dust(data,dust_mask,dust_plan=None):
 
     # because this function accepts both 2d and 3d functions the easiest solution is to upcast 2d arrays
     # to 3d arrays with frame axis of length 1
+    
     was_2d = False
     if data.ndim == 2:
         was_2d = True
@@ -85,7 +87,7 @@ def remove_dust(data,dust_mask,dust_plan=None):
         # insert the interpolated data
         data[z] = frame*(1.-dust_mask)+dust_mask*interpolated_values
 
-    if was_2d: data = data[0]
+    if was_2d: data.shape = (Lr,Lc)
     return data, dust_plan
 
 def plan_remove_dust(mask):
@@ -475,7 +477,9 @@ def find_center(data, return_type='coords'):
     assert return_type in ('data', 'coords'), "return_type must be 'data' or 'coords'."
     rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
     
-    # idea here is to use align_frames on the original image and an image rotated by 180 degrees to find the center.
+    # pass to align_frames both the image to be centered and a version
+    # rotated 180 degrees. coordinates to shift to center are 1/2
+    # coordinates to align the images
     rotated = numpy.rot90(numpy.rot90(data))
     r0, r1 = align_frames(rotated,align_to=data,return_type='coordinates')[0]
 
@@ -563,25 +567,34 @@ def merge(data_to, data_from, fit_region, fill_region, width=10):
     
     def make_blender(base,width):
     
-        """ Fast blender generation from region. Helper function for
+        """ Fast blender generation from fill_region. Helper function for
         merge. """
         
         from . import shape
         convolve = lambda x,y: numpy.fft.ifft2(numpy.fft.fft2(x)*numpy.fft.fft2(y))
         shift = numpy.fft.fftshift
     
+        # to speed up the calculation, only do the convolutions in the pixels
+        # closely surrounding fill_region
         bounds = bound(base,force_to_square=True,pad=int(4*width))
         r0,c0, rows, cols = bounds[0], bounds[2], int(bounds[1]-bounds[0]), int(bounds[3]-bounds[2])
         bounded = base[r0:r0+rows,c0:c0+cols]
         
-        convolver1 = shift(shape.circle(bounded.shape,2*width,AA=0))
-        convolver2 = shift(shape.gaussian(bounded.shape,(width,width),normalization=1.0))
+        # define convolution kernels.
+        grow_kernel = shift(shape.circle(bounded.shape,2*width,AA=0))
+        blur_kernel = shift(shape.gaussian(bounded.shape,(width,width),normalization=1.0))
     
-        expanded = numpy.clip(abs(convolve(bounded,convolver1)),0,1)
-        blurred = 1-convolve(expanded,convolver2)
+        # two convolutions make the blender
+        expanded = numpy.clip(abs(convolve(bounded,grow_kernel)),0,1)
+        blurred = 1-convolve(expanded,blur_kernel)
         
+        # embed the bounded convolutions inside the correct spot in an array of the
+        # correct size to return
         blender = numpy.ones(base.shape,float)
         blender[r0:r0+rows,c0:c0+cols] = blurred
+        
+        # set the pixels inside fill_region to exactly 0 rather than
+        # some small decimal
         blender *= 1-base
             
         return blender
