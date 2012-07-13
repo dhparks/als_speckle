@@ -549,7 +549,7 @@ def merge(data_to, data_from, fit_region, fill_region, width=10):
             this corresponds to the image with the blocker out of the way.
         fit_region -- (optional) an array or path to an array or ds9 region
             file. fit_region describes where the counts should be compared.
-            If no region is specified, count matching is skipped.
+            If fit_region is None, count matching is skipped.
         fill_region -- an array or path to an array or ds9 file. fill_region
             describes which pixels in data_to will be replaced entirely by
             pixels in data_from. Outside the fill region there is a transition
@@ -560,7 +560,8 @@ def merge(data_to, data_from, fit_region, fill_region, width=10):
             between data_to and data_from. Numerically, width is the standard
             deviation of a gaussian used to convolve fill_region. 10 by default,
             but for better merging of thin features such as the blocker wire a
-            smaller value may be appropriate.
+            smaller value may be appropriate.  If width <= 0, a hard merge is
+            conducted (no blending).
              
     returns:
         an array with data smoothly blended between data_to and data_from.
@@ -571,32 +572,35 @@ def merge(data_to, data_from, fit_region, fill_region, width=10):
     assert isinstance(data_from, numpy.ndarray) and data_from.ndim == 2, "data_from must be 2d array"
     assert data_to.shape == data_from.shape, "data_to and data_from must be same shape"
     assert isinstance(fit_region, (numpy.ndarray,str,type(None))), "fit_region must be an array or a path to an array"
-    assert isinstance(fill_region, (numpy.ndarray,str)), "merge_region must be an array or a path to an array"
+    assert isinstance(fill_region, (numpy.ndarray,str)), "fill_region must be an array or a path to an array"
     assert isinstance(width, (int,float)), "width must be float or int"
+
+    def make_blender(fill_region, width):
     
-    def make_blender(base,width):
-    
-        """ Fast blender generation from region. Helper function for
-        merge. """
-        
+        """ Fast blender generation from region. Helper function for merge.
+            Returns a blender array that is 0 in fill_region with a gradual
+            transition to 1 outside.  If width <= 0, do a hard merge without
+            blending.
+        """
+        if width <= 0: # Do a hard merge if width <= 0
+            return numpy.where(fill_region, 0, 1)
+
         from . import shape
         convolve = lambda x,y: numpy.fft.ifft2(numpy.fft.fft2(x)*numpy.fft.fft2(y))
         shift = numpy.fft.fftshift
     
-        bounds = bound(base,force_to_square=True,pad=int(4*width))
-        r0,c0, rows, cols = bounds[0], bounds[2], int(bounds[1]-bounds[0]), int(bounds[3]-bounds[2])
-        bounded = base[r0:r0+rows,c0:c0+cols]
+        r_min, r_max, c_min, c_max = bound(fill_region, pad=int(5*width))
+        bounded = fill_region[r_min:r_max, c_min:c_max]
         
         convolver1 = shift(shape.circle(bounded.shape,2*width,AA=0))
         convolver2 = shift(shape.gaussian(bounded.shape,(width,width),normalization=1.0))
     
         expanded = numpy.clip(abs(convolve(bounded,convolver1)),0,1)
-        blurred = 1-convolve(expanded,convolver2)
-        
-        blender = numpy.ones(base.shape,float)
-        blender[r0:r0+rows,c0:c0+cols] = blurred
-        blender *= 1-base
-            
+        blurred = 1-abs(convolve(expanded,convolver2))
+
+        blender = numpy.ones(fill_region.shape,float)
+        blender[r_min:r_max, c_min:c_max] = blurred*(1-bounded)
+
         return blender
 
     # open merge and fit regions if necessary 
@@ -606,13 +610,13 @@ def merge(data_to, data_from, fit_region, fill_region, width=10):
     if isinstance(fit_region, str):
         from . import io
         fit_region = io.open(fit_region)
-    assert fill_region.shape == data_to.shape, "merge_region and data must be same shape"
+    
+    assert fill_region.shape == data_to.shape, "fill_region and data must be same shape"
     if fit_region != None:
         assert fit_region.shape == data_to.shape, "fit_region and data must be same shape"
-    
-    # scale the data to reconcile acquisition times etc
-    if fit_region != None: data_from = match_counts(data_to, data_from, region=fit_region)
-    
+        # scale the data to reconcile acquisition times etc
+        data_from = match_counts(data_to, data_from, region=fit_region)
+
     # make the blender
     blender1 = make_blender(fill_region,width)
 
