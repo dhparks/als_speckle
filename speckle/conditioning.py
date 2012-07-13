@@ -221,17 +221,18 @@ def hot_pixels(data, iterations=1, threshold=2):
     from scipy.signal import medfilt
     
     # check types
-    assert isinstance(data,numpy.ndarray), "data must be ndarray"
-    assert data.ndim in (2,3), "data must be 2d or 3d"
-    assert isinstance(iterations,int), "number of iterations must be integer"
-    assert isinstance(threshold, (int,float)), "threshold must be float or int"
+    assert isinstance(data, numpy.ndarray), "data must be ndarray"
+    assert data.ndim in (2, 3), "data must be 2d or 3d"
+    assert isinstance(iterations, int) and iterations > 0, "number of iterations must be integer > 0"
+    assert isinstance(threshold, (int, float)), "threshold must be float or int"
     
-    was_2d = False
     if data.ndim == 2:
         was_2d = True
         data.shape = (1,data.shape[0],data.shape[1])
-    for z,frame in enumerate(data):
+    else: # 3d
+        was_2d =False
 
+    for z,frame in enumerate(data):
         for m in range(iterations):
             median = medfilt(frame)+.1
             Q = numpy.where(frame/median > threshold,1,0)
@@ -439,6 +440,14 @@ def match_counts(img1, img2, region=None, nparam=3):
         return x[0]*(img2 - x[2]) + x[1]
 
 def open_dust_mask(path):
+    """ Open a dust mask.
+
+    arguments:
+        path - the path to a dust mask
+
+    returns:
+        mask - the opened dust mask
+    """
     from . import io
 
     assert isinstance(path,str)
@@ -447,7 +456,8 @@ def open_dust_mask(path):
     ext = pathsplit[-1]
     assert ext in ['fits','png','gif','bmp'], "dust mask file extension %s not recognized"%ext
         
-    if ext == 'fits': mask = io.openfits(path).astype('float')
+    if ext == 'fits':
+        mask = io.openfits(path).astype('float')
     else:
         mask = numpy.flipud(io.openimage(path)).astype('float') # pyfits and PIL have a y-axis disagreement
         mask = numpy.where(mask > .1,1,0)
@@ -485,11 +495,11 @@ def find_center(data, return_type='coords'):
     if return_type == 'data': return rolls(data,int(r0),int(r1))
     if return_type == 'coords': return int(data.shape[0]/2.0-r0), int(data.shape[1]/2.0-r1)
     
-def take_masked_pixels(data,mask):
+def take_masked_pixels(data, mask):
     """ Copy the pixels in data masked by mask into a 1d array.
     The pixels are unordered. This is useful for optimizing subtraction, etc,
-    within a masked region (particularly  a multipartite mask) because it
-    eliminates costly and unnecessary work.
+    within a masked region (particularly a multipartite mask) because it
+    eliminates all the pixels that don't contribute in the mask.
     
     arguments:
         data -- 2d or 3d data from which pixels are taken
@@ -497,25 +507,26 @@ def take_masked_pixels(data,mask):
         
     returns:
         if data is 2d, a 1d array of selected pixels
-        if data is 2d, a 2d array where axis 0 is the frame axis"""
-        
+        if data is 2d, a 2d array where axis 0 is the frame axis
+    """
     assert isinstance(data,numpy.ndarray) and data.ndim in (2,3), "data must be 2d or 3d array"
     assert isinstance(mask,numpy.ndarray) and mask.ndim == 2, "mask must be 2d array"
-    if data.ndim == 2: assert data.shape == mask.shape, "data and mask must be same shape"
-    if data.ndim == 3: assert data[0].shape == mask.shape, "data and mask must be same shape"
+    if data.ndim == 2:
+        assert data.shape == mask.shape, "data and mask must be same shape"
+    else: # data.ndim == 3
+        assert data[0].shape == mask.shape, "data and mask must be same shape"
 
-    # find which pixels to take (ie, which are not zero)
-    mask = numpy.where(mask > 1e-6, 1, 0)
-    indices = numpy.nonzero(mask.ravel())
+    # find which pixels to take (ie, which are not masked)
+    indices = numpy.nonzero(numpy.where(mask > 1e-6, 1, 0))
 
     # return the requested pixels
     if data.ndim == 2:
-        return data.ravel()[indices]
+        return data[indices]
     if data.ndim == 3:
-        buffer = numpy.zeros((data.shape[0]))
-        for n,f in enumerate(data):
-            buffer[n] = f.ravel()[indices]
-        return buffer
+        result = numpy.zeros((data.shape[0], len(indices[0])))
+        for i,fr in enumerate(data):
+            result[i] = fr[indices]
+        return result
     
 def merge(data_to, data_from, fit_region, merge_region, width=10):
     """ Merge together two images (data_to, data_from) into a single
@@ -580,7 +591,7 @@ def merge(data_to, data_from, fit_region, merge_region, width=10):
         blender *= 1-base
             
         return blender
-    
+
     # open merge and fit regions if necessary 
     if isinstance(merge_region, str):
         from . import io
