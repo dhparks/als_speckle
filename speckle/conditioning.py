@@ -552,7 +552,7 @@ def merge(data_to, data_from, fit_region, merge_region, width=10):
     assert isinstance(data_to, numpy.ndarray) and data_to.ndim == 2, "data_to must be 2d array"
     assert isinstance(data_from, numpy.ndarray) and data_from.ndim == 2, "data_from must be 2d array"
     assert data_to.shape == data_from.shape, "data_to and data_from must be same shape"
-    assert isinstance(fit_region, (numpy.ndarray,str)), "fit_region must be an array or a path to an array"
+    assert isinstance(fit_region, (numpy.ndarray,str,type(None))), "fit_region must be an array or a path to an array"
     assert isinstance(merge_region, (numpy.ndarray,str)), "merge_region must be an array or a path to an array"
     assert isinstance(width, (int,float)), "width must be float or int"
     
@@ -592,7 +592,7 @@ def merge(data_to, data_from, fit_region, merge_region, width=10):
     assert fit_region.shape == data_to.shape, "fit_region and data must be same shape"
     
     # scale the data to reconcile acquisition times etc
-    data_from = match_counts(data_to, data_from, region=fit_region)
+    if fit_region != None: data_from = match_counts(data_to, data_from, region=fit_region)
     
     # make the blender
     blender1 = make_blender(merge_region,width)
