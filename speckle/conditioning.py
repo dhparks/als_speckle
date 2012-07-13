@@ -350,7 +350,6 @@ def match_counts(img1, img2, region=None, nparam=3):
         img2 - a scaled img2 such that the counts in region match.
     """
     import scipy.optimize
-    from . import crosscorr
 
     def diff3(c, img1, img2):
         """ minimize (I1 - d1) - s(I2-d2)
@@ -397,9 +396,12 @@ def match_counts(img1, img2, region=None, nparam=3):
         print("***** match_counts: Region of interest is empty! *****")
         return img2
 
-    d1 = img1[0,0]
-    d2 = img2[0,0]
-    c0guess = (img1-d1)/(img2-d2)
+    d1 = numpy.average(img1[:,0])
+    d2 = numpy.average(img2[:,0])
+    try:
+        c0guess = (img1-d1)/(img2-d2)
+    except RuntimeWarning:
+        pass
     # remove the infinities and nans.  we get these from img2-d2 =0
     c0guess = numpy.where(numpy.isfinite(c0guess), c0guess, 0)
 
