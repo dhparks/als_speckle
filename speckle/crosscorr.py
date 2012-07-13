@@ -4,7 +4,7 @@ Author: Keoki Seu (KASeu@lbl.gov)
 """
 import numpy as np
 
-from . import averaging, shape, wrapping
+from . import averaging, shape, wrapping, masking
 
 def point_memory( imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None, flatten_width=30, removeCCBkg=True, pickPeakMethod="integrate", intermediates=False):
     """Calculates the cross-correlation coefficient between two image pairs imgA
@@ -159,13 +159,13 @@ def point_memory( imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None,
 
 
     if havemask:
-        imgA = apply_shrink_mask(imgA, mask)
-        imgB = apply_shrink_mask(imgB, mask)
+        imgA = masking.apply_shrink_mask(imgA, mask)
+        imgB = masking.apply_shrink_mask(imgB, mask)
         store('03-A_flatten_masked', imgA)
         store('03-B_flatten_masked', imgB)       
         if haveqACFs:
-            qacfA = apply_shrink_mask(qacfA, mask)
-            qacfB = apply_shrink_mask(qacfB, mask)
+            qacfA = masking.apply_shrink_mask(qacfA, mask)
+            qacfB = masking.apply_shrink_mask(qacfB, mask)
             store('03-A_qACF_flatten_masked', qacfA)
             store('03-B_qACF_flatten_masked', qacfB)       
         # this was in the old code. not sure why?
@@ -228,52 +228,6 @@ def point_memory( imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None,
         return ccval, intermediate_arrays
     else:
         return ccval
-
-def apply_shrink_mask(img, mask):
-    """ Applys a mask and shrinks the image to just the size of the mask.
-
-    arguments:
-        img - img to mask.  Must be array of 2 or 3 dimensions.
-        mask - mask to use.  Must be two dimensional.
-
-    returns:
-        img - shrunk image with a mask applied
-    """
-    assert isinstance(img, np.ndarray), "img must be an array"
-    assert isinstance(mask, np.ndarray), "mask must be an array"
-    assert img.shape == mask.shape, "img and mask must be the same shape"
-    assert img.ndim in (2, 3), "image must be two or three dimensional"
-    
-    def apply_shrink(img, mask):
-        result = img*mask
-        (ys, xs) = img.shape
-        aw = np.argwhere(result)
-        (ystart, xstart) = aw.min(0)
-        (ystop, xstop) = aw.max(0) + 1
-
-        if xstart == xstop:
-            # we have a single row, try to increase x in both directions
-            if xstart != 0:
-                xstart -= 1
-            if xstop != xs:
-                xstop += 1
-
-        if ystart == ystop:
-            # we have a single column, try to increase y in both directions
-            if ystart != 0:
-                ystart -= 1
-            if ystop != xs:
-                ystop += 1
-
-        return img[ystart:ystop, xstart:xstop]
-
-    if img.ndim == 3:
-        res = np.zeros_like(img)
-        for i in range(img.shape[0]):
-            res[i] = apply_shrink(img[i], mask)
-        return res
-    else:
-        return apply_shrink(img, mask)
 
 def crosscorr(imgA, imgB, axes=(0,1), already_fft=(), shift=True):
     """ Calculates the cross correlation of the function. Returns the

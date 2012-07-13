@@ -353,6 +353,7 @@ def match_counts(img1, img2, region=None, nparam=3):
         img2 - a scaled img2 such that the counts in region match.
     """
     import scipy.optimize
+    from . import masking
 
     def diff3(c, img1, img2):
         """ minimize (I1 - d1) - s(I2-d2)
@@ -430,8 +431,8 @@ def match_counts(img1, img2, region=None, nparam=3):
     
     # optimize only in region; this saves the time required to multiply and
     # sum and consider all the zeros outside the region
-    img1_shrunk = take_masked_pixels(img1, region)
-    img2_shrunk = take_masked_pixels(img2, region)
+    img1_shrunk = masking.take_masked_pixels(img1, region)
+    img2_shrunk = masking.take_masked_pixels(img2, region)
 
     x = scipy.optimize.fmin(diff, c, args=(img1_shrunk, img2_shrunk), disp=False)
 
@@ -501,40 +502,7 @@ def find_center(data, return_type='coords'):
 
     if return_type == 'data': return rolls(data,int(r0),int(r1))
     if return_type == 'coords': return int(data.shape[0]/2.0-r0), int(data.shape[1]/2.0-r1)
-    
-def take_masked_pixels(data, mask):
-    """ Copy the pixels in data masked by mask into a 1d array.
-    The pixels are unordered. This is useful for optimizing subtraction, etc,
-    within a masked region (particularly a multipartite mask) because it
-    eliminates all the pixels that don't contribute in the mask.
-    
-    arguments:
-        data -- 2d or 3d data from which pixels are taken
-        mask -- 2d mask file describing which pixels to take.
-        
-    returns:
-        if data is 2d, a 1d array of selected pixels
-        if data is 2d, a 2d array where axis 0 is the frame axis
-    """
-    assert isinstance(data,numpy.ndarray) and data.ndim in (2,3), "data must be 2d or 3d array"
-    assert isinstance(mask,numpy.ndarray) and mask.ndim == 2, "mask must be 2d array"
-    if data.ndim == 2:
-        assert data.shape == mask.shape, "data and mask must be same shape"
-    else: # data.ndim == 3
-        assert data[0].shape == mask.shape, "data and mask must be same shape"
 
-    # find which pixels to take (ie, which are not masked)
-    indices = numpy.nonzero(numpy.where(mask > 1e-6, 1, 0))
-
-    # return the requested pixels
-    if data.ndim == 2:
-        return data[indices]
-    if data.ndim == 3:
-        result = numpy.zeros((data.shape[0], len(indices[0])))
-        for i,fr in enumerate(data):
-            result[i] = fr[indices]
-        return result
-    
 def merge(data_to, data_from, fit_region, fill_region, width=10):
     """ Merge together two images (data_to, data_from) into a single
     high-dynamic-range image. A primary use of this function is to stitch a pair
@@ -571,7 +539,7 @@ def merge(data_to, data_from, fit_region, fill_region, width=10):
     returns:
         an array with data smoothly blended between data_to and data_from.
     """
-    
+    from . import masking
     # check types
     assert isinstance(data_to, numpy.ndarray) and data_to.ndim == 2, "data_to must be 2d array"
     assert isinstance(data_from, numpy.ndarray) and data_from.ndim == 2, "data_from must be 2d array"
@@ -595,7 +563,7 @@ def merge(data_to, data_from, fit_region, fill_region, width=10):
     
         # to speed up the calculation, only do the convolutions in the pixels
         # closely surrounding fill_region
-        r_min, r_max, c_min, c_max = bound(fill_region, force_to_square=True, pad=int(5*width))
+        r_min, r_max, c_min, c_max = masking.bounding_box(fill_region, force_to_square=True, pad=int(5*width))
         bounded = fill_region[r_min:r_max, c_min:c_max]
         
         # define convolution kernels.
@@ -633,86 +601,3 @@ def merge(data_to, data_from, fit_region, fill_region, width=10):
 
     # return the merged data
     return data_to*blender1 + data_from*(1-blender1) 
-
-def bound(data,threshold=1e-10,force_to_square=False,pad=0):
-    
-    """ Find the minimally-bounding subarray for data.
-    
-    arguments:
-        data -- array to be bounded
-        threshold -- (optional) value above which data is considered boundable
-        force_to_square -- (optional) if True, forces the minimally bounding
-            subarray to be square in shape. Default is False.
-        pad -- (optional) expand the minimally bounding coordinates by this
-            amount on each side. Default = 0 for minimally bounding.
-    
-    returns:
-        bounding coordinates -- an array of (row_min, row_max, col_min, col_max)
-            which bound data
-    """
-    
-    data = numpy.where(data > threshold,1,0)
-    rows,cols = data.shape
-    
-    rmin,rmax,cmin,cmax = 0,0,0,0
-    
-    for row in range(rows):
-        if data[row,:].any():
-            rmin = row
-            break
-            
-    for row in range(rows):
-        if data[rows-row-1,:].any():
-            rmax = rows-row
-            break
-            
-    for col in range(cols):
-        if data[:,col].any():
-            cmin = col
-            break
-    
-    for col in range(cols):
-        if data[:,cols-col-1].any():
-            cmax = cols-col
-            break
-        
-    if rmin >= pad: rmin += -pad
-    else: rmin = 0
-    
-    if rows-rmax >= pad: rmax += pad
-    else: rmax = rows
-    
-    if cmin >= pad: cmin += -pad
-    else: cmin = 0
-    
-    if cols-cmax >= pad: cmax += pad
-    else: cmax = cols
-        
-    if force_to_square:
-        delta_r = rmax-rmin
-        delta_c = cmax-cmin
-        
-        if delta_r%2 == 1:
-            delta_r += 1
-            if rmax < rows: rmax += 1
-            else: rmin += -1
-            
-        if delta_c%2 == 1:
-            delta_c += 1
-            if cmax < cols: cmax += 1
-            else: cmin += -1
-            
-        if delta_r > delta_c:
-            average_c = (cmax+cmin)/2
-            cmin = average_c-delta_r/2
-            cmax = average_c+delta_r/2
-            
-        if delta_c > delta_r:
-            average_r = (rmax+rmin)/2
-            rmin = average_r-delta_c/2
-            rmax = average_r+delta_c/2
-            
-        if delta_r == delta_c:
-            pass
-        
-    return numpy.array([rmin,rmax,cmin,cmax]).astype('int32')
