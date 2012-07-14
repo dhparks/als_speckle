@@ -23,6 +23,7 @@ class OneDimFit():
         # prepare the data
         assert isinstance(data, np.ndarray), "data must be an array"
         assert data.ndim == 2, "data must be two-dimensional"
+        assert not np.iscomplexobj(data), "data must not be complex"
 
         ys, xs = data.shape
         if ys == 2 or xs == 2:
