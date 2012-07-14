@@ -520,7 +520,7 @@ def merge(data_to, data_from, fit_region, fill_region, width=10):
             this corresponds to the image with the blocker at center.
         data_from -- data will be copied "from" this image. Experimentally,
             this corresponds to the image with the blocker out of the way.
-        fit_region -- (optional) an array or path to an array or ds9 region
+        fit_region -- an array or path to an array or ds9 region
             file. fit_region describes where the counts should be compared.
             If fit_region is None, count matching is skipped.
         fill_region -- an array or path to an array or ds9 file. fill_region
