@@ -300,8 +300,6 @@ def lorentzian(size,widths,center=None,angle=0,normalization=None):
     if normalization is not None:
         assert isinstance(normalization,(float,int)), "normalization must be float or int"
 
-    linlor = lambda x, c, w: 1./( ((x-c)/w)**2 + 1. )
-
     # now build the lorentzian.
     if len(size) == 1:
         x = numpy.arange(size[0]).astype('float')

@@ -7,7 +7,6 @@ Author: Keoki Seu (kaseu@lbl.gov)
 
 """
 import numpy as np
-from . import shape
 from . import averaging
 
 def _convert_to_3d(img):

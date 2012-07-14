@@ -536,7 +536,6 @@ def rot_memory( imgA, imgB, center, darks=None, qacfs=None, qacfdarks=None, Rval
         Rvals = range(0, R-r, Rstep)
         avg_cc = np.zeros( (len(Rvals), unwx))
         for i, R in enumerate(Rvals):
-            s = cc[R:R+Rstep].sum(axis=0)
             avg_cc[i] = cc[R:R+Rstep].sum(axis=0)
         return avg_cc
 
