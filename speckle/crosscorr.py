@@ -1,4 +1,5 @@
-""" Functions that calculate the image cross-correlation between two images. Implements the spatial memory algorithms.
+""" Functions that calculate the image cross-correlation between two images.
+Implements the alignment, spatial and rotational memory algorithms.
 
 Author: Keoki Seu (KASeu@lbl.gov)
 """
@@ -6,7 +7,7 @@ import numpy as np
 
 from . import averaging, shape, wrapping, masking
 
-def point_memory( imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None, flatten_width=30, removeCCBkg=True, pickPeakMethod="integrate", intermediates=False):
+def point_memory(imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None, flatten_width=30, removeCCBkg=True, pickPeakMethod="integrate", intermediates=False):
     """Calculates the cross-correlation coefficient between two image pairs imgA
         and imgB. This calculates the value rho where:
         rho = \frac{\sum(CC(imgA, imgB))}{\sqrt{AC(A) AC(B)}}.
@@ -289,7 +290,7 @@ def crosscorr(imgA, imgB, axes=(0,1), already_fft=(), shift=True):
     else:
         return cc
     
-def autocorr(img,axes=(0,1)):
+def autocorr(img, axes=(0,1)):
     """ Calculates the autocorrelation of an image.
 
     arguments:
@@ -301,7 +302,7 @@ def autocorr(img,axes=(0,1)):
     """
     return crosscorr(img, img, axes=axes)
     
-def pairwise_covariances(data,save_memory=False):
+def pairwise_covariances(data, save_memory=False):
     """ Given 3d data, cross-correlates every frame with every other frame to generate
     all the normalized pairwise covariances (ie, "similarity" or "rho" in Pierce etc).
     This is useful for determining which frames to sum in the presence of drift or slow
@@ -441,7 +442,7 @@ def rot_crosscorr(imgA, imgB, center, RRange):
     
     return avg_cc
 
-def rot_memory( imgA, imgB, center, darks=None, qacfs=None, qacfdarks=None, Rvals=25, flatten_width=30, removeCCBkg=True, pickPeakMethod="integrate", intermediates=False):
+def rot_memory(imgA, imgB, center, darks=None, qacfs=None, qacfdarks=None, Rvals=25, flatten_width=30, removeCCBkg=True, pickPeakMethod="integrate", intermediates=False):
     """Calculates the rotational cross-correlation coefficient between two image
     pairs imgA and imgB. This calculates the value rho_q where:
         rho_q = \frac{\sum(CC(A_q, B_q))}{\sqrt{AC(A_q) AC(B_q)}},
