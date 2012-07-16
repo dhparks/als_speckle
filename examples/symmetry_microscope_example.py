@@ -1,6 +1,6 @@
 # core
 import numpy as np
-import time
+
 DFT = np.fft.fft2
 IDFT = np.fft.ifft2
 fftshift = np.fft.fftshift
@@ -167,7 +167,6 @@ def raster_spectra(sm_instance):
     spectra = np.zeros((nf,nx*ny,nq,nc),float)
 
     for frame in range(nf):
-        time0 = time.time()
         print "  frame %s"%frame
         
         # open a sample frame from disk and load into the class

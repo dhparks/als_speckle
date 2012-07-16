@@ -1,5 +1,5 @@
 # core libraries
-import numpy,sys
+import numpy
 fftshift = numpy.fft.fftshift
 fft2 = numpy.fft.fft2
 import time

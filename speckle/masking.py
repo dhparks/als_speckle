@@ -39,7 +39,6 @@ def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0):
     if force_to_square:
         delta_r = rmax-rmin
         delta_c = cmax-cmin
-        goal_width = max(delta_r, delta_c)
         
         if delta_r%2 == 1:
             delta_r += 1
@@ -79,9 +78,8 @@ def apply_shrink_mask(img, mask):
     assert img.ndim in (2, 3), "image must be two or three dimensional"
     
     def apply_shrink(img, mask):
-        result = img*mask
-        ystart, ystop, xstart, xstop = bounding_box(img, threshold=0)
-        return img[ystart:ystop, xstart:xstop]
+        ystart, ystop, xstart, xstop = bounding_box(mask, threshold=0)
+        return (img*mask)[ystart:ystop, xstart:xstop]
 
     if img.ndim == 3:
         res = np.zeros_like(img)
