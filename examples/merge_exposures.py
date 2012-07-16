@@ -71,7 +71,7 @@ def align_match_row_merge(img1, img2, mergeROI, fitROI, regions=(0, 2048, 256), 
             continue
 
         if iteration == 0:
-            merge_part = speckle.conditioning.merge(img1, alignImg2, maskFitROI, maskMergeROI, blend_width)
+            merge_part = speckle.conditioning.merge(img1, alignImg2, maskMergeROI, maskFitROI, blend_width)
         else:
             merge_part = merge_part * (1 - maskMergeROI) + match_merge(img1, alignImg2, maskMergeROI, maskFitROI, blend_width) * maskMergeROI
 
@@ -93,8 +93,8 @@ def align_match_merge(img1, img2, mergeROI, fitROI, blend_width=10):
     returns:
         img1 with img2 merged in.
     """
-    alignedImg2 = speckle.conditioning.align_frames(img2, align_to=img1, region=ROI)
-    return speckle.conditioning.merge(img1, alignedImg2, fitROI, mergeROI, blend_width)
+    alignedImg2 = speckle.conditioning.align_frames(img2, align_to=img1, region=fitROI)
+    return speckle.conditioning.merge(img1, alignedImg2, mergeROI, fitROI, blend_width)
 
 def match_merge(img1, img2, mergeROI, fitROI, blend_width=10):
     """ merge two images together by matching counts.
@@ -111,7 +111,7 @@ def match_merge(img1, img2, mergeROI, fitROI, blend_width=10):
         img1 with img2 merged in.
     """
     alignImg2 = speckle.conditioning.match_counts(img1, img2, region=fitROI)
-    return speckle.conditioning.merge(img1, alignImg2, fitROI, mergeROI, blend_width)
+    return speckle.conditioning.merge(img1, alignImg2, mergeROI, fitROI, blend_width)
 
 def to2D(img):
     if img.ndim == 3:
