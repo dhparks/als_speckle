@@ -61,20 +61,26 @@ def square(size,length,center=None):
     
     arguments:
         size: the size of the array as a tuple (rows,columns).
-        length: length of the square.
-        center: the center of the coordinate system as a tuple (center_row,center_column)
+        length: length of the square. Must be float or int, and is casted to int
+        center: the center of the coordinate system as a tuple (center_row,
+            center_column)
+
     returns:
-        A 2-dimensional numpy array with a square of length (length) centered at (center).
+        A 2-dimensional numpy array with a square of length (length) centered at
+            (center).
     """
+    assert isinstance(length, (float, int)), "length must be float or int, but will be cast to int"
     return rect(size, (length, length), center)
     
 def rect(size,lengths,center=None):
-    """ Generate a rectangle in a numpy array.
+    """ Generate a rectangle in a numpy array. If the recangle to be drawn is larger than the array, the rectangle is drawn to the edges of the array and will be smaller than the specified size.
     
     arguments:
         size: the size of the array as a tuple (rows,columns).
         lengths: a 2-tuple formatted as (rows_length,col_length).
-        center: the center of the coordinate system as a tuple (center_row,center_column)
+        center: the center of the coordinate system as a tuple (center_row,
+            center_column)
+
     returns:
         A 2-dimensional numpy array with a rectangle of (lengths) centered at (center).
     """
@@ -84,12 +90,36 @@ def rect(size,lengths,center=None):
     assert isinstance(lengths,tuple) and len(lengths) == 2, "lengths must be tuple"
     row_length,col_length = lengths
     assert isinstance(row_length,(float, int)) and isinstance(col_length,(float, int)), "lengths must be float or integer, but will be cast to int"
-    
+
     row_length = int(row_length)
     col_length = int(col_length)
     
     temp = numpy.zeros(size,int)
-    temp[center[0]-row_length/2:center[0]+row_length/2,center[1]-col_length/2:center[1]+col_length/2] = 1
+
+    r_min = center[0]-row_length/2
+    r_max = center[0]+row_length/2
+    c_min = center[1]-col_length/2
+    c_max = center[1]+col_length/2
+
+    warn = False
+    # Crop the extremum values if we go outside the array. If this is not done, then the array is not filled.
+    if r_min < 0:
+        warn = True
+        r_min = 0
+    if c_min < 0:
+        warn = True
+        c_min = 0
+    if r_max > size[0]:
+        warn = True
+        r_max = size[0]
+    if c_max > size[1]:
+        warn = True
+        r_max = size[1]
+
+    if warn:
+        print "rect() warning: parts of the rectangle are outside the array"
+
+    temp[r_min:r_max, c_min:c_max] = 1
     return temp
     
 def circle(size,radius,center=None,AA=True):

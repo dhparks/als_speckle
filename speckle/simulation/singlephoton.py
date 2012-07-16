@@ -89,7 +89,6 @@ def sp_sim_xpcs_events(events, decaytime, scatterrate, clockperiod=40e-9):
         atATime = int(1e7)
 
     Exy = np.zeros((2,atATime))
-    finished = False
     # list of times, add zero so when we check for deadtime the list isn't empty. Remove it at the end.
     incidencetimes = np.zeros(events, dtype='int64')
 

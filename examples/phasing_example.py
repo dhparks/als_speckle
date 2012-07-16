@@ -30,7 +30,7 @@ def reconstruct_gpu(gpuinfo):
     # find the region which bounds the support. this will prevent having to store and save a bunch
     # of redundant zeros. as used here, this will generate square bounding with a ring of zeros around
     # the outside for margin of error.
-    bounds = masking.bounding_box(support,force_to_square=True,pad=4)
+    bounds = speckle.masking.bounding_box(support,force_to_square=True,pad=4)
     r0,c0 = bounds[0],bounds[2]
     rows = int(bounds[1]-bounds[0])
     cols = int(bounds[3]-bounds[2])
@@ -41,7 +41,7 @@ def reconstruct_gpu(gpuinfo):
     save_buffer = numpy.zeros((params.trials+1,rows,cols),numpy.complex64)
     
     # load the data onto the gpu using the GPUPR methods
-    if params.shrinkwrap: reconstruction.load_data(data,support,update_sigma=shrinkwrap_sigma)
+    if params.shrinkwrap: reconstruction.load_data(data,support,update_sigma=phasing.shrinkwrap_sigma)
     if not params.shrinkwrap: reconstruction.load_data(data,support)
     
     for trial in range(params.trials):

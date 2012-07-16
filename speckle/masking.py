@@ -5,7 +5,6 @@ data that is not of interest.
 import numpy as np
 
 def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0):
-    
     """ Find the minimally-bounding subarray for data.
     
     arguments:
@@ -20,43 +19,22 @@ def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0):
         bounding coordinates -- an array of (row_min, row_max, col_min, col_max)
             which bound data
     """
-    
+    assert isinstance(data, np.ndarray) and data.ndim == 2, "data must be a 2d ndarray"
+    assert isinstance(pad, int), "data must be an integer"
+    assert isinstance(force_to_square, bool), "force_to_square must be a bool"
+    assert isinstance(threshold, (int, float)), "threshold must be int or float"
     data = np.where(data > threshold, 1, 0)
     rows, cols = data.shape
     
-    rmin, rmax, cmin, cmax = 0, 0, 0, 0
-    
-    for row in range(rows):
-        if data[row, :].any():
-            rmin = row
-            break
-            
-    for row in range(rows):
-        if data[rows-row-1, :].any():
-            rmax = rows-row
-            break
-            
-    for col in range(cols):
-        if data[:, col].any():
-            cmin = col
-            break
-    
-    for col in range(cols):
-        if data[:, cols-col-1].any():
-            cmax = cols-col
-            break
-        
-    if rmin >= pad: rmin += -pad
-    else: rmin = 0
-    
-    if rows-rmax >= pad: rmax += pad
-    else: rmax = rows
-    
-    if cmin >= pad: cmin += -pad
-    else: cmin = 0
-    
-    if cols-cmax >= pad: cmax += pad
-    else: cmax = cols
+    aw = np.argwhere(data)
+    (rmin, cmin) = aw.min(0)
+    (rmax, cmax) = aw.max(0) + 1
+
+    # pad the boundaries
+    rmin = 0 if rmin < pad else rmin - pad
+    rmax = rows if rmax + pad > rows else rmax + pad
+    cmin = 0 if cmin < pad else cmin - pad
+    cmax = cols if cmax + pad > cols else cmax + pad
         
     if force_to_square:
         delta_r = rmax-rmin
@@ -81,11 +59,8 @@ def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0):
             average_r = (rmax+rmin)/2
             rmin = average_r-delta_c/2
             rmax = average_r+delta_c/2
-            
-        if delta_r == delta_c:
-            pass
         
-    return np.array([rmin, rmax, cmin, cmax]).astype('int32')
+    return np.array([rmin, rmax, cmin, cmax]).astype('int')
 
 def apply_shrink_mask(img, mask):
     """ Applys a mask and shrinks the image to just the size of the mask.
@@ -103,27 +78,8 @@ def apply_shrink_mask(img, mask):
     assert img.ndim in (2, 3), "image must be two or three dimensional"
     
     def apply_shrink(img, mask):
-        result = img*mask
-        (ys, xs) = img.shape
-        aw = np.argwhere(result)
-        (ystart, xstart) = aw.min(0)
-        (ystop, xstop) = aw.max(0) + 1
-
-        if xstart == xstop:
-            # we have a single row, try to increase x in both directions
-            if xstart != 0:
-                xstart -= 1
-            if xstop != xs:
-                xstop += 1
-
-        if ystart == ystop:
-            # we have a single column, try to increase y in both directions
-            if ystart != 0:
-                ystart -= 1
-            if ystop != xs:
-                ystop += 1
-
-        return img[ystart:ystop, xstart:xstop]
+        ystart, ystop, xstart, xstop = bounding_box(mask, threshold=0)
+        return (img*mask)[ystart:ystop, xstart:xstop]
 
     if img.ndim == 3:
         res = np.zeros_like(img)
