@@ -214,7 +214,7 @@ def point_memory(imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None, 
         store("05-B_ac_spline", spl_autoB)
 
     if pickPeakMethod == "integrate":
-        circ = shape.circle(cc.shape, PEAK_INTEGRATE_RADIUS)
+        circ = shape.circle(cc.shape, PEAK_INTEGRATE_RADIUS, AA=False)
         CCval = (cc*circ).sum()
         ACval = np.sqrt((autoA*circ).sum() * (autoB*circ).sum())
         store("06-cc_summed_region", cc*circ)
