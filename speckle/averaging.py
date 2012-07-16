@@ -4,6 +4,8 @@ Author: Keoki Seu (KASeu@lbl.gov)
 """
 import numpy as np
 
+from . import shape
+
 def smooth_with_rectangle(img, boxsize):
     """Uses a convolution to average each pixel of an image by a surrounding box
         of boxsize pixels.
@@ -16,8 +18,6 @@ def smooth_with_rectangle(img, boxsize):
     returns:
         rectangle averaged img
     """
-    from . import shape
-
     assert isinstance(img, np.ndarray), "Must be an array"
     assert img.ndim in (2, 3), "Must be two- or three- dimensional"
 
@@ -72,8 +72,6 @@ def smooth_with_circle(img, radius):
     returns:
         circularly-averaged img.
     """
-    from . import shape
-
     assert type(radius) in (float, int), "radius must be a float or int"
     assert isinstance(img, np.ndarray) and img.ndim in (2,3), "must be 2 or 3-dimensional array"
 
@@ -94,8 +92,6 @@ def smooth_with_gaussian(img, fwhm):
     returns:
         img replaced by the gaussian function of fwhm.
     """
-    from . import shape
-
     assert type(fwhm) in (float, int), "FWHM must be a float or int"
 
     sigma_x = fwhm/(2*np.sqrt(2*np.log(2)))

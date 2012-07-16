@@ -1,9 +1,11 @@
 """ CPU-based rotational symmetry code
 
-Author: Daniel Parks (dhparks@lbl.gov)"""
-
+Author: Daniel Parks (dhparks@lbl.gov)
+"""
 import numpy as np
+
 from . import shape, wrapping, crosscorr
+
 DFT = np.fft.fft2
 IDFT = np.fft.ifft2
 shift = np.fft.fftshift

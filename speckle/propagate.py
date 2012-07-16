@@ -3,12 +3,13 @@
 Author: Daniel Parks (dhparks@lbl.gov)"""
 
 import numpy
+
+from . import shape, conditioning, scattering, wrapping
+
 DFT = numpy.fft.fft2
 IDFT = numpy.fft.ifft2
 shift = numpy.fft.fftshift
 
-from . import shape, conditioning, scattering
-#import shape
 I = complex(0,1)
 
 def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=None,phase=None,data_is_fourier=False):
@@ -96,9 +97,6 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=N
     
     returned[n] is the wavefield propagated to distances[n].
     """
-    
-    from . import scattering
-   
     # check types and defaults
     assert isinstance(data,numpy.ndarray),                              "data must be an array"
     assert data.dtype in (float, complex),                              "data must be float or complex"
@@ -180,8 +178,6 @@ def apodize(data,kt=.1,threshold=0.01,sigma=5,return_type='data'):
         data = abs(data)
         was_complex = True
         
-    # import necessary libraries
-    from . import wrapping
     convolve = lambda x,y: numpy.fft.ifft(numpy.fft.fft(x)*numpy.fft.fft(y))
 
     # find the center of mass

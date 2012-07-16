@@ -1,5 +1,8 @@
 # core
 import numpy
+
+from . import shape
+
 DFT = numpy.fft.fft2
 IDFT = numpy.fft.ifft2
 shift = numpy.fft.fftshift
@@ -26,7 +29,6 @@ class CPUPR:
         
         if update_sigma != None:
             assert isinstance(update_sigma, (int,float)), "update_sigma must be float or int"
-            from . import shape
             self.blurkernel = DFT(shift(shape.gaussian((self.N,self.N),(update_sigma,update_sigma),center=None,normalization=None)))
         
     def iteration(self,algorithm,beta=0.8):

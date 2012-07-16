@@ -6,6 +6,7 @@ Author: Daniel Parks (dhparks@lbl.gov)
 Author: Keoki Seu (kaseu@lbl.gov)
 """
 import numpy
+from . import masking, io, shape, crosscorr
 
 def remove_dust(data_in,dust_mask,dust_plan=None):
     """ Attempts to remove dust and burn marks from CCD images by interpolating
@@ -270,9 +271,6 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
             'coordinates' - the coordinates that the arrays need to be rolled
                 in order to align them.
     """
-
-    from . import crosscorr
-    
     # check types
     assert isinstance(data,numpy.ndarray),                        "data to align must be an array"
     assert isinstance(align_to,(type(None),numpy.ndarray)),       "align_to must be an array or None"
@@ -350,7 +348,6 @@ def match_counts(img1, img2, region=None, nparam=3):
         img2 - a scaled img2 such that the counts in region match.
     """
     import scipy.optimize
-    from . import masking
 
     def diff3(c, img1, img2):
         """ minimize (I1 - d1) - s(I2-d2)
@@ -451,8 +448,6 @@ def open_dust_mask(path):
     returns:
         mask - the opened dust mask
     """
-    from . import io
-
     assert isinstance(path,str)
     pathsplit = path.split('.')
     assert len(pathsplit) >= 2, "dust mask path has no file extension"
@@ -536,7 +531,6 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
     returns:
         an array with data smoothly blended between data_to and data_from.
     """
-    from . import masking
     # check types
     assert isinstance(data_to, numpy.ndarray) and data_to.ndim == 2, "data_to must be 2d array"
     assert isinstance(data_from, numpy.ndarray) and data_from.ndim == 2, "data_from must be 2d array"
@@ -554,7 +548,6 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
         if width <= 0: # Do a hard merge if width <= 0
             return numpy.where(fill_region, 0, 1)
 
-        from . import shape
         convolve = lambda x,y: numpy.fft.ifft2(numpy.fft.fft2(x)*numpy.fft.fft2(y))
         shift = numpy.fft.fftshift
     
@@ -581,10 +574,8 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
 
     # open merge and fit regions if necessary 
     if isinstance(fill_region, str):
-        from . import io
         fill_region = io.open(fill_region)
     if isinstance(fit_region, str):
-        from . import io
         fit_region = io.open(fit_region)
     
     assert fill_region.shape == data_to.shape, "fill_region and data must be same shape"
