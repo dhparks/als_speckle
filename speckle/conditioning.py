@@ -11,15 +11,13 @@ def remove_dust(data_in,dust_mask,dust_plan=None):
     """ Attempts to remove dust and burn marks from CCD images by interpolating
     in regions marked as defective in a plan file.
     
-    Requires:
-        data_ins - the data from which dust will be removed. 2d or 3d ndarray.
-        dust_mask - a binary array describing from which pixels dust must be
+    Arguments:
+        data_in -- the data from which dust will be removed. 2d or 3d ndarray.
+        dust_mask -- a binary array describing from which pixels dust must be
             removed.
-
-    Optional input:
-        plan - generated from dust_mask; this can only be supplied as an
-            argument if remove_dust has been previously run and plan returned
-            then as output.
+        plan -- (optional) generated from dust_mask; this can only be supplied
+            as an argument if remove_dust has been previously run and plan
+            returned then as output.
 
     Returns:
         data_out - the data array with the dust spots removed.
@@ -229,11 +227,10 @@ def remove_hot_pixels(data, iterations=1, threshold=2):
     assert isinstance(iterations, int) and iterations > 0, "number of iterations must be integer > 0"
     assert isinstance(threshold, (int, float)), "threshold must be float or int"
     
+    was_2d = False
     if data.ndim == 2:
         was_2d = True
         data.shape = (1,data.shape[0],data.shape[1])
-    else: # 3d
-        was_2d =False
 
     for z,frame in enumerate(data):
         for m in range(iterations):
@@ -473,13 +470,13 @@ def open_dust_mask(path):
 def find_center(data, return_type='coords'):
     """ Tries to find the center of a speckle pattern that has inversion
     symmetry where the natual center (direct beam) has been blocked.  An example
-     of this are labyrinth domains.
+    of this situation is a speckle pattern from labyrinth magnetic domains.
 
     arguments:
         data -- data whose center is to be found
-        return_type -- What type of data to return.  This can be 'data' where it
-            returns the centered data or 'coords' where it returns the
-            coordinates of the center.  The default is 'coords'.
+        return_type -- What type of data to return.  If 'data', data is returned
+            in human-centered form. If 'coords', the coordinates of the center
+            of inversion are returned. Default is 'coords'.
 
     returns:
         depending on return_type, can return various:
@@ -503,7 +500,7 @@ def find_center(data, return_type='coords'):
     if return_type == 'data': return rolls(data,int(r0),int(r1))
     if return_type == 'coords': return int(data.shape[0]/2.0-r0), int(data.shape[1]/2.0-r1)
 
-def merge(data_to, data_from, fit_region, fill_region, width=10):
+def merge(data_to, data_from, fill_region, fit_region=None, width=10):
     """ Merge together two images (data_to, data_from) into a single
     high-dynamic-range image. A primary use of this function is to stitch a pair
     of images taken in transmission: one with the blocker in, one with the
@@ -520,14 +517,14 @@ def merge(data_to, data_from, fit_region, fill_region, width=10):
             this corresponds to the image with the blocker at center.
         data_from -- data will be copied "from" this image. Experimentally,
             this corresponds to the image with the blocker out of the way.
-        fit_region -- an array or path to an array or ds9 region
-            file. fit_region describes where the counts should be compared.
-            If fit_region is None, count matching is skipped.
         fill_region -- an array or path to an array or ds9 file. fill_region
             describes which pixels in data_to will be replaced entirely by
             pixels in data_from. Outside the fill region there is a transition
             zone where the output is a weighted average of data_from and
             data_to. Often, fill_region is a binary mask of the blocker.
+        fit_region -- (optional) an array or path to an array or ds9 region
+            file. fit_region describes where the counts should be compared.
+            If fit_region is None, count matching is skipped.
         width -- (optional) Sets a width for the blending-transition region
             outside fill_region. Larger width creates a broader transition
             between data_to and data_from. Numerically, width is the standard
