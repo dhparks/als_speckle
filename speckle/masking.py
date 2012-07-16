@@ -165,3 +165,74 @@ def take_masked_pixels(data, mask):
         for i, fr in enumerate(data):
             result[i] = fr[indices]
         return result
+    
+def trace_object(data_in, start, detect_val=None, return_type='detected'):
+    """ Using a floodfill algorithm (basically, the paintbuck tool in software
+    like Photoshop), find all the elements of an array which are connected to
+    the a specified pixel.
+    
+    arguments:
+        data_in -- 2d array to be flood-filled
+        start -- a 2-tuple containing the (row,col) of the starting pixel
+        detect_val -- (optional) a 2-tuple containing the (min,max) of what is
+            considered to be connected to the start pixel. default is
+            (data_in[start], data_in[start]), which requires all the connected
+            pixels to be of exactly the same value. if not passing a previously
+            thresholded array it is wise to supply a detect_val tuple.
+        return_type -- specify the type of data returned
+            if 'detected': returns a boolean array of the object
+            if 'iterations': returns an integer array showing the algorithm
+                iteration at which each pixel was detected. this can be useful
+                for calculating the approximate length of an object.
+            default is 'detected'
+        
+    returns:
+        a 2d array of with the same shape as data_in. return type depends on
+        optional argument return_type
+    """
+    
+    # check types
+    assert isinstance(data_in,np.ndarray) and data_in.ndim == 2, "data must be a 2d array"
+    assert isinstance(start,tuple) and len(start) == 2, "start must be a 2-tuple"
+    assert isinstance(start[0],int) and isinstance(start[1],int), "start coordinates must be integer for indices"
+    assert isinstance(detect_val, (tuple,type(None))), "threshold must be 2-tuple of float or int"
+    if isinstance(detect_val,tuple):
+        assert len(detect_val) == 2 and isinstance(detect_val[0],(int,float)) and isinstance(detect_val[1],(int,float)), "threshold must be 2-tuple of float or int"
+    if return_type not in ('detected','iterations'):
+        print "return_type %s unrecognized, falling back to 'detected' default"%return_type
+        return_type = 'detected'
+    
+    # set up arrays
+    detected = np.zeros(data_in.shape,int)
+    
+    # set up the detect_val bounds and check the value of data_in at start
+    start_val = data_in[start]
+    if detect_val == None: detect_val = (start_val,start_val)
+    working = np.where(data_in >= detect_val[0],1,0)*np.where(data_in <= detect_val[1],1,0)
+    if not working[start]:
+        print "value of data_in at start is not within detect_val bounds!"
+        print "returning the input array with marked start for debugging"
+        data_in[start] = 1.1*data_in.max()
+        return data_in
+    
+    # do floodfill. the basic idea of the algorithm is as follows: for every
+    # pixel known to be in edge, look at the 8 nearest neighbors. if they pass
+    # the threshold test, add them to edge, and add the primary pixel to the
+    # detected object. when edge is exhausted, the algorithm is complete
+    iteration = 1
+    edge = [start]
+    while edge:
+        new_edge = []
+        for (y,x) in edge:
+            for neighbor in ((y+1,x-1),(y+1,x),(y+1,x+1),(y,x-1),(y,x+1),(y-1,x-1),(y-1,x),(y-1,x+1)):
+                try:
+                    if working[neighbor] and not detected[neighbor]:
+                        detected[neighbor] = iteration
+                        new_edge.append(neighbor)
+                except IndexError:
+                    pass
+        edge = new_edge
+        iteration += 1
+        
+    if return_type == 'iterations': return detected
+    if return_type == 'detected': return detected.astype(bool)
