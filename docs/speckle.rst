@@ -49,6 +49,14 @@ speckle Package
     :undoc-members:
     :show-inheritance:
 
+:mod:`masking` Module
+---------------------
+
+.. automodule:: speckle.masking
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 :mod:`phasing` Module
 ---------------------
 

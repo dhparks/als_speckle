@@ -12,7 +12,7 @@ kernel_files = glob.glob('./speckle/gpu/kernels/*.cl')
 
 setup(
     name='speckle',
-    version='0.1',
+    version='0.2',
     packages=['speckle','speckle.gpu','speckle.simulation'],
     requires = dependencies,
     data_files = [('speckle/gpu/kernels',kernel_files)],
