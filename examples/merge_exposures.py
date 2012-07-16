@@ -161,7 +161,6 @@ if not direction and args.regionstep:
     direction = 'rows'
     print("no direction for regions given, using %s." % direction)
 
-print args
 outf = args.file_into1.split("/")[-1].replace(".fits", "") + "_replaced_" + args.file_from2.split("/")[-1].replace(".fits", "") + ".fits"
 
 if direction:   
