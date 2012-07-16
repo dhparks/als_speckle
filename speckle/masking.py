@@ -165,6 +165,7 @@ def trace_object(data_in, start, detect_val=None, return_type='detected'):
     if detect_val == None: detect_val = (start_val,start_val)
     if detect_val[0] == 0: print "warning! lower bound is 0!"
     working = np.where(data_in >= detect_val[0],1,0)*np.where(data_in <= detect_val[1],1,0)
+
     if not working[start]:
         print "value of data_in at start is not within detect_val bounds!"
         print "returning the input array with marked start for debugging"
@@ -172,36 +173,28 @@ def trace_object(data_in, start, detect_val=None, return_type='detected'):
         return data_in
     
     N,M = data_in.shape
-    
-    # this helper function generates the 8 nearest neighbors for the location
-    # y,x using modulo arithmetic to avoid raising an IndexError
-    def nn8(y,x):
-        mN = lambda y: np.mod(y+N,N)
-        mM = lambda x: np.mod(x+M,M)
-        neighbors = (
-            (mN(y+1),mM(x-1)),
-            (mN(y+1),mM(x+0)),
-            (mN(y+1),mM(x+1)),
-            (mN(y+0),mM(x-1)),
-            (mN(y+0),mM(x+1)),
-            (mN(y-1),mM(x-1)),
-            (mN(y-1),mM(x+0)),
-            (mN(y-1),mM(x+1)))
-        return neighbors
+    mNM = lambda a: (np.mod(a[0]+N,N),np.mod(a[1]+M,M))
 
     # do floodfill. the basic idea of the algorithm is as follows: for every
     # pixel known to be in edge, look at the 8 nearest neighbors. if they pass
     # the threshold test, add them to edge, and add the primary pixel to the
     # detected object. when edge is exhausted, the algorithm is complete
+    def _update(n,ne):
+        if working[n] and not detected[n]:
+            detected[n] = iteration
+            ne.append(n)
+    
     iteration = 1
     edge = [start]
+    
     while edge:
         new_edge = []
         for (y,x) in edge:
-            for neighbor in nn8(y,x):
-                if working[neighbor] and not detected[neighbor]:
-                    detected[neighbor] = iteration
-                    new_edge.append(neighbor)
+            for neighbor in ((y+1,x-1),(y+1,x),(y+1,x+1),(y,x-1),(y,x+1),(y-1,x-1),(y-1,x),(y-1,x+1)):
+                try: _update(neighbor,new_edge)
+                except IndexError:
+                    neighbor = mNM(neighbor)
+                    _update(neighbor,new_edge)   
         edge = new_edge
         iteration += 1
         
