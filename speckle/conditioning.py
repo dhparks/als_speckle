@@ -201,13 +201,13 @@ def subtract_background(data, dark=None, x=20, scale=1, abs_val=True):
     else:
         return data
 
-def remove_hot_pixels(data, iterations=1, threshold=2):
+def remove_hot_pixels(data_in, iterations=1, threshold=2):
     """Uses numpy.medfilt to define hot pixels as those which exceed a certain
     multiple of the local median and remove them by replacing with the median of
     the nearest neighbors.
 
     Required:
-        data - 2d or 3d array from which hot pixels will be removed
+        data_in - 2d or 3d array from which hot pixels will be removed
         
     Optional:
         iterations - number of iterations to run the smoother. Default is 1.
@@ -227,6 +227,8 @@ def remove_hot_pixels(data, iterations=1, threshold=2):
     assert data.ndim in (2, 3), "data must be 2d or 3d"
     assert isinstance(iterations, int) and iterations > 0, "number of iterations must be integer > 0"
     assert isinstance(threshold, (int, float)), "threshold must be float or int"
+    
+    data = numpy.copy(data_in)
     
     was_2d = False
     if data.ndim == 2:
