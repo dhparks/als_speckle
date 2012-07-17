@@ -12,24 +12,25 @@ Author: Keoki Seu (kaseu@lbl.gov)
 Author: Daniel Parks (dhparks@lbl.gov)
 
 """
-__version_info__ = ('0', '1', '0')
+__version_info__ = ('0', '2', '0')
 __version__ = '.'.join(__version_info__)
 
-# if you make a new file/module name, put it here
+# if you make a new file/module name, put it here.  These are alphabetized.
 __all__ = [
+    "averaging",
+    "conditioning",
+    "crosscorr",
     "fit",
+    "gpu",
     "io",
+    "masking",
+    "phasing",
+    "propagate",
     "scattering",
     "shape",
-    "wrapping",
-    "conditioning",
-    "propagate",
-    "xpcs",
-    "averaging",
-    "crosscorr",
-    "phasing",
-    "gpu",
     "symmetries",
+    "wrapping",
+    "xpcs",
 ]
 
 for mod in __all__:
