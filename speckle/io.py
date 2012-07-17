@@ -850,7 +850,7 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
             shapedesc[1] = shapedesc[1] - 1
 
             xc, yc, rad = shapedesc
-            data += shape.circle( dim, rad, (yc,xc) )
+            data += shape.circle( dim, rad, (yc,xc), AA=False )
         elif shapetype == "box":
              # fix discrepancy between ds9 index and python idex (1 vs 0)
             shapedesc[0] = shapedesc[0] - 1
