@@ -1,6 +1,7 @@
 import unittest
 import numpy
 import speckle
+sw = speckle.wrapping
 
 class TestWrapping(unittest.TestCase):
 
@@ -11,8 +12,8 @@ class TestWrapping(unittest.TestCase):
 
     def test_unwrap_wrap(self):
         orig = speckle.shape.annulus(self.shape, (self.r, self.R), self.center, AA=False)
-        unw = speckle.wrapping.unwrap(orig, (self.r, self.R, self.center))
-        wrap = speckle.wrapping.wrap(unw, (self.r, self.R))
+        unw = sw.unwrap(orig, (self.r, self.R, self.center))
+        wrap = sw.wrap(unw, (self.r, self.R))
 
         speckle.io.writefits('orig.fits', orig, overwrite=True)
         speckle.io.writefits('wrap.fits', wrap, overwrite=True)
