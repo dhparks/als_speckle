@@ -2,6 +2,7 @@ recursive-include docs *
 prune docs/_build/doctrees
 
 recursive-include examples *.py
+recursive-include test *.py
 
 include setup.py
 include README
