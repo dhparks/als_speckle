@@ -221,15 +221,14 @@ def remove_hot_pixels(data_in, iterations=1, threshold=2):
     #  This is slow for large arrays; this operation would probably benefit a great deal from GPU acceleration.
 
     from scipy.signal import medfilt
+    data = numpy.copy(data_in)
     
     # check types
     assert isinstance(data, numpy.ndarray), "data must be ndarray"
     assert data.ndim in (2, 3), "data must be 2d or 3d"
     assert isinstance(iterations, int) and iterations > 0, "number of iterations must be integer > 0"
     assert isinstance(threshold, (int, float)), "threshold must be float or int"
-    
-    data = numpy.copy(data_in)
-    
+
     was_2d = False
     if data.ndim == 2:
         was_2d = True
