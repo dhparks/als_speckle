@@ -269,7 +269,7 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
             'data' - An aligned array of shape and dtype identical to data, or
             'sum' - the the summed array, or
             'coordinates' - the coordinates that the arrays need to be rolled
-                in order to align them.
+                in order to align them. This is a ndarray of dimension (fr, 2).
     """
     # check types
     assert isinstance(data,numpy.ndarray),                        "data to align must be an array"
@@ -292,8 +292,7 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     if data.ndim == 2:
         was_2d = True
         data.shape = (1,data.shape[0],data.shape[1])
-    else:
-        was_2d = False
+
     frames, rows, cols = data.shape
     
     # check some more assumptions
@@ -315,17 +314,28 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
         coordinates[n] = crosscorr.alignment_coordinates(prep(frame),ref,already_fft=(1,))
         
     # now return the data according to return_type
-    if return_type == 'coordinates': return coordinates
-    # align data frames by rolling
-    for n in range(frames):
-        rr, rc = coordinates[n]
-        data[n] = rolls(data[n],rr,rc)
-        
+    if return_type == 'coordinates':
+        if was_2d: data.shape = (rows, cols)
+        return coordinates
+    if return_type == 'sum':
+        # Create a new array instead of modifying data in-place. Modifying data in-place is a bad idea
+        result = numpy.zeros((rows, cols), dtype=data.dtype)
+        for n in range(frames):
+            rr, rc = coordinates[n]
+            result += rolls(data[n],rr,rc)
+            if was_2d:
+                data.shape = (rows, cols)
+        return result
     if return_type == 'data':
-        if was_2d: data.shape = (rows,cols)
-        return data
-    
-    if return_type == 'sum': return numpy.sum(data,axis=0) 
+        # Create a new array instead of modifying data in-place
+        result = numpy.zeros_like(data)
+        for n in range(frames):
+            rr, rc = coordinates[n]
+            result[n] = rolls(data[n],rr,rc)
+        if was_2d:
+            data.shape = (rows, cols)
+            result = result[0]
+        return result
 
 def match_counts(img1, img2, region=None, nparam=3):
     """ Match the counts between two images. There are options to match in a
