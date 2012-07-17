@@ -1,6 +1,7 @@
 """A library for calculating image shapes and functions
 
 Author: Daniel Parks (dparks@uoregon.edu)
+Author: Keoki Seu (kaseu@lbl.gov)
 """
 import numpy
 
@@ -8,13 +9,15 @@ def radial(size,center=None):
     """ Returns azimuthally symmetric distance function in n-dimensions
     
     arguments:
-        size: an n-tuple for the array size in format (rows,columns).
+        size: an n-tuple for the array size in format (rows, columns).
               Must be integer.
         center: an n-tuple giving origin of coordinate system (ie, where r = 0).
                 Defaults to array center in absence of supplied values.
                 Boundary conditions are NOT cyclic.
+
     returns:
-        A n-dimensioanl array where each element is the distance (in pixels) from the center.
+        A n-dimensioanl array where each element is the distance (in pixels)
+            from the center.
    """
     assert isinstance(size,tuple), "size must be a tuple"
     ndims = len(size)
@@ -28,11 +31,11 @@ def radial(size,center=None):
         
     # evaluate pythagorean theorem in n-dimensions
     indices = numpy.indices(size,float)
-    r = numpy.zeros_like(indices[0])
 
     if ndims == 2:
         return numpy.hypot(indices[0]-center[0],indices[1]-center[1])
     else:
+        r = numpy.zeros_like(indices[0])
         for d in range(ndims): r += (indices[d]-center[d])**2
         return numpy.sqrt(r)
     
@@ -40,8 +43,10 @@ def angular(size,center=None):
     """ Generate a radially symmetric angle function.
     
     arguments:
-        size: the size of the array as a tuple (rows,columns).
-        center: the center of the coordinate system as a tuple (center_row,center_column)
+        size: the size of the array as a tuple (rows, columns).
+        center: the center of the coordinate system as a tuple (center_row,
+            center_column)
+
     returns:
         A 2-dimensional array of the angular values, in radians.
     """
@@ -60,7 +65,7 @@ def square(size,length,center=None):
     """ Generate a square in a numpy array.
     
     arguments:
-        size: the size of the array as a tuple (rows,columns).
+        size: the size of the array as a tuple (rows, columns).
         length: length of the square. Must be float or int, and is casted to int
         center: the center of the coordinate system as a tuple (center_row,
             center_column)
@@ -73,16 +78,19 @@ def square(size,length,center=None):
     return rect(size, (length, length), center)
     
 def rect(size,lengths,center=None):
-    """ Generate a rectangle in a numpy array. If the recangle to be drawn is larger than the array, the rectangle is drawn to the edges of the array and will be smaller than the specified size.
+    """ Generate a rectangle in a numpy array. If the recangle to be drawn is
+        larger than the array, the rectangle is drawn to the edges of the array
+        and will be smaller than the specified size.
     
     arguments:
-        size: the size of the array as a tuple (rows,columns).
-        lengths: a 2-tuple formatted as (rows_length,col_length).
+        size: the size of the array as a tuple (rows, columns).
+        lengths: a 2-tuple formatted as (rows_length, col_length).
         center: the center of the coordinate system as a tuple (center_row,
             center_column)
 
     returns:
-        A 2-dimensional numpy array with a rectangle of (lengths) centered at (center).
+        A 2-dimensional numpy array with a rectangle of (lengths) centered at
+            (center).
     """
     if center == None: center = (size[0]/2,size[1]/2)
 
@@ -126,10 +134,12 @@ def circle(size,radius,center=None,AA=True):
     """ Generate a circle in a numpy array.
     
     arguments:
-        size: a 2-tuple formatted as (rows,columns)
+        size: a 2-tuple formatted as (rows, columns)
         radius of circle
-        center: a 2-tuple of (center_row,center_column) where the circle is centered
-        AA: if AA is True, returns an antialiased circle. AA = False gives a jagged edge and is marginally faster
+        center: a 2-tuple of (center_row, center_column) of the circle center
+        AA: if AA is True, returns an antialiased circle. AA = False gives a
+            hard edge and is marginally faster
+
     returns:
         a numpy array of size with a circle of radius centered on center.
     """
@@ -150,10 +160,12 @@ def annulus(size,radii,center=None,AA=True):
     """ Returns an annulus (ie a ring) in a numpy array.
 
     arguments:
-        size: size of array (rows,columns). tuple entries must be int.
-        radii: interior and exterior radius of the annulus as a tuple. The order is not important because smaller radius must be the interior.
-        center: a 2-tuple of (center_row,center_column) where the annulus is centered
+        size: size of array (rows, columns). tuple entries must be int.
+        radii: interior and exterior radius of the annulus as a tuple. The order
+            is not important because smaller radius must be the interior.
+        center: a 2-tuple of (center_row, center_column) of the annulus center.
         AA: if True, antialiases the annulus.
+
     returns:
         a numpy array with annuls centered on center of radius (r_in, r_out)    
     """
@@ -166,13 +178,15 @@ def ellipse(size,axes,center=None,angle=0,AA=True):
     """ Returns an ellipse in a numpy array.
     
     arguments:
-        size: size of array, 2-tuple (rows,columns)
-        axes: (vertical "radius", horizontal "radius")
-        center: 2-tuple recentering coordinate system to (row,column)
-        angle: rotation angle in degrees. this uses the standard rotation matrix, but whether that corresponds
-            to cw or ccw depends on how the y-axis is defined. check rotation direction before using!
+        size: size of array, 2-tuple (rows, columns)
+        axes: the length of the axes (vertical "radius", horizontal "radius")
+        center: 2-tuple recentering coordinate system to (row, column)
+        angle: rotation angle in degrees. this uses the standard rotation
+            matrix, but whether that corresponds to clockwise or ccw depends on
+            how the y-axis is defined. check rotation direction before using!
             (if saved as .fits, +angle is ccw and -angle is cw)
         AA: if True, anti-aliases the edge of the ellipse
+
     returns:
         numpy array with an ellipse drawn.
     """
@@ -212,8 +226,8 @@ def gaussian(size,lengths,center=None,angle=0,normalization=None):
     where x0 are the center coordinate(s) and sigma are the length(s).
     
     arguments:
-        size: size of array (rows,columns). must be int.
-        lengths: stdevs of gaussian (rows,columns). float or int.
+        size: size of array (rows, columns). must be int.
+        lengths: stdevs of gaussian (rows, columns). float or int.
         center: Coordinates to place the gaussian.  The center coordinates can
             be larger than the size, in that case the peak will be outside the
             array.
@@ -278,7 +292,16 @@ def gaussian(size,lengths,center=None,angle=0,normalization=None):
     else: return gaussian*float(normalization)/(numpy.sum(gaussian))
 
 def _make_indicies(size,center,angle):
-    """Generate array indicies for an array of size, centered on center rotated by angle.  The rotation is in a clockwise direction.
+    """Generate array indicies for an array of size, centered on center rotated
+    by angle.  The rotation is in a clockwise direction.
+
+    arguments:
+        size: The (rows, cols) size of the output array
+        center: The center of the indexed array.
+        angle: Angle to rotate the matricies. The angle is clockwise.
+
+    returns:
+        rows, cols - two numpy arrays with the rows and cols indexed.
     """
     rows,cols = numpy.indices(size).astype('float')
         
@@ -300,8 +323,8 @@ def lorentzian(size,widths,center=None,angle=0,normalization=None):
     where x0 are the center coordinate(s) and w are the half-width(s) half-max.
     
     arguments:
-        size: size of array (rows,columns). must be int.
-        lengths: HWHM of lorentzian (rows,columns). float or int.
+        size: size of array (rows, columns). must be int.
+        lengths: HWHM of lorentzian (rows, columns). float or int.
         center: Coordinates to place the lorentzian.  The center coordinates can
             be larger than the size, in that case the peak will be outside the
             array.

@@ -17,7 +17,8 @@ def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0):
     
     returns:
         bounding coordinates -- an array of (row_min, row_max, col_min, col_max)
-            which bound data
+            which bound data.  These values can be used for slicing all of the
+            data out of an array.
     """
     assert isinstance(data, np.ndarray) and data.ndim == 2, "data must be a 2d ndarray"
     assert isinstance(pad, int), "data must be an integer"

@@ -3,10 +3,6 @@ distances, Q, and energy to wavelength conversion.
 
 Author: Keoki Seu (KASeu@lbl.gov)
 """
-#scattering
-#    qmaps
-#    intensity patterns ( cl?, e?)
-#    propagation
 import numpy as np
 
 # Constants for each component between the scattering center of the chamber and camera.
