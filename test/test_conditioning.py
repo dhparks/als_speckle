@@ -30,16 +30,24 @@ class TestConditioning(unittest.TestCase):
         self.assertTrue((data - removed).sum() < nbad)
 
     def test_align(self):
-        # Roll an array and check that align_frames rolls us back
-        rollx, rolly = numpy.random.randint(-self.shape[0], self.shape[0], 2)
+        rollx, rolly = numpy.random.randint(0, self.shape[0]/2, 2)
         rolled = numpy.roll(numpy.roll(self.data, rollx, axis=1), rolly, axis=0)
-        res = sc.align_frames( rolled, self.data)
-        self.assertTrue(numpy.array_equal(res, self.data))
-        
+
         # Check we get the same coordinates back
         coords = sc.align_frames(rolled, self.data, return_type='coordinates')
 #        print "coords", coords, (rolly, rollx), coords[0]
-        self.assertEqual(tuple(coords[0]), (rolly,rollx))
+        self.assertEqual(tuple(coords[0]), (-rolly, -rollx))
+
+        # Roll an array and check that align_frames rolls us back
+        rolled = numpy.roll(numpy.roll(self.data, rollx, axis=1), rolly, axis=0)
+        res = sc.align_frames(rolled, self.data)
+        self.assertTrue(numpy.array_equal(res, self.data))
+
+        # check to make sure that the input array is unchanged. align_frames modifies the array in-place.
+        rolled = numpy.roll(numpy.roll(self.data, rollx, axis=1), rolly, axis=0)
+        rs = rolled.copy()
+        res = sc.align_frames(rolled, self.data)
+        self.assertTrue(numpy.array_equal(rs, rolled))
 
     def test_match_counts(self):
         s, d1, d2 = numpy.random.random(3)
