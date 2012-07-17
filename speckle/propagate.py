@@ -74,20 +74,21 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
     
     return IDFT(data*phase)
 
-def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=None,subarraysize=None):
+def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarraysize=None,silent=True):
     """ Propagates a complex-valued wavefield through a range of distances
     using the CPU. A GPU-accelerated version is available elsewhere.
     
     Required input:
-        data: a square numpy array, either float32 or complex64, to propagate
-        distances: an iterable set of distances (in meters!) to propagate
-        energy_or_wavelength: the energy (in eV) or wavelength (in meters) of
+        data -- a square numpy array, either float32 or complex64, to propagate
+        distances -- an iterable set of distances (in meters!) to propagate
+        energy_or_wavelength -- the energy (in eV) or wavelength (in meters) of
             the wavefield. If < 1, assume wavelength is specified.
-        pixel_pitch: the size (in meters) of each pixel in data.
+        pixel_pitch -- the size (in meters) of each pixel in data.
     
     Optional input:
-        subarraysize: because the number of files can be large a subarray
+        subarraysize -- because the number of files can be large a subarray
             cocentered with data can be specified.
+        silent -- if False, report what distance is currently being calculated.
     
     Returns: a complex-valued 3d ndarray with shape:
         (len(distances),subarraysize,subarraysize)
@@ -97,6 +98,7 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=N
     
     returned[n] is the wavefield propagated to distances[n].
     """
+
     # check types and defaults
     assert isinstance(data,numpy.ndarray),                              "data must be an array"
     assert data.dtype in (float, complex),                              "data must be float or complex"
@@ -106,6 +108,7 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=N
     assert isinstance(distances, (list, tuple, numpy.ndarray)),         "distances must be an iterable set (list or ndarray) of distances given in meters"
     assert isinstance(pixel_pitch, (int,float)),                        "pixel_pitch must be a float saying how big each pixel is in meters"
     if subarraysize == None: subarraysize = len(data)
+    if isinstance(subarraysize,float): subarraysize = int(subarraysize)
     assert isinstance(subarraysize, int) and subarraysize <= len(data), "subarray must be int smaller than supplied length of data"
 
     # convert energy_or_wavelength to wavelength.  If < 1 assume it's a wavelength.
@@ -130,6 +133,7 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,gpuinfo=N
     cpu_phase = lambda z: numpy.exp(-I*numpy.pi*wavelength*z*r/(pixel_pitch*N)**2)
     for n,z in enumerate(distances):
         if z > upperlimit: print "propagation distance (%s) exceeds accuracy upperlimit (%s)"%(z,upperlimit)
+        if not silent: print z
         phase_z = cpu_phase(z)
         back = propagate_one_distance(fourier,phase=phase_z,data_is_fourier=True)
         buffer[n] = back[N/2-subarraysize/2:N/2+subarraysize/2,N/2-subarraysize/2:N/2+subarraysize/2]
