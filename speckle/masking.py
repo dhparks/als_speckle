@@ -4,11 +4,11 @@ data that is not of interest.
 """
 import numpy as np
 
-def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0):
+def bounding_box(data_in,threshold=1e-10,force_to_square=False,pad=0):
     """ Find the minimally-bounding subarray for data.
     
     arguments:
-        data -- array to be bounded
+        data_in -- array to be bounded
         threshold -- (optional) value above which data is considered boundable
         force_to_square -- (optional) if True, forces the minimally bounding
             subarray to be square in shape. Default is False.
@@ -20,6 +20,9 @@ def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0):
             which bound data.  These values can be used for slicing all of the
             data out of an array.
     """
+    
+    data = numpy.copy(data_in)
+    
     assert isinstance(data, np.ndarray) and data.ndim == 2, "data must be a 2d ndarray"
     assert isinstance(pad, int), "data must be an integer"
     assert isinstance(force_to_square, bool), "force_to_square must be a bool"
