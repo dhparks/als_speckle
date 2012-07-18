@@ -591,6 +591,70 @@ def get_fits_dimensions(filename):
 
     return tuple(dim)
 
+def get_fits_acq_time(filename, timezone="US/Pacific"):
+    """Tries to figure out the acquisition time of a FITS file by looking for
+    the date/time via the header.  The function looks in three places for the
+    time (each acquistion program we use stores it in a different location).
+    This function requires the pytz python library.
+
+    Andor Solis camera:
+        hdu[0].header['DATE']    = '2010-01-24T18:14:49' / file creation date
+        hdu[0].header['FRAME']   = '2010-01-24T18:14:49.000' / Start of frame
+
+    Labview acquisition:
+        hdu[0].header['DATETIME']= '2010/01/24 10:26:25' / Date and time
+
+    SSI camera:
+        hdu[1].header['DATE']    = '2011-05-05'         / Date of header
+        hdu[1].header['DATE-OBS']= '2011-05-05'         / Date of data
+        hdu[1].header['TIME']    = '00:26:00'           / Time of data
+
+    arguments:
+        filename - File to find acquisition time.
+        timezone - Timezone where the data was acquired. Default is "US/Pacific"
+
+    returns:
+        datetime - a TZ localized datetime object of acquisiton time. If it
+            cannot be found, it returns False
+    """
+    import datetime
+    try:
+        import pytz
+    except ImportError:
+        print "get_acq_time: Cannot import the pytz module.  Please install it."
+        return False
+
+    assert timezone in pytz.common_timezones, "%s is not a timezone" % timezone
+    tz = pytz.timezone(timezone)
+    utc = pytz.UTC
+
+    try:
+        # SSI camera date. This is given in UTC
+        fitsdate = get_fits_key(filename, "DATE") + " " + get_fits_key(filename, "TIME")
+        parsed_date = datetime.datetime.strptime(fitsdate, "%Y-%m-%d %H:%M:%S")
+        return utc.localize(parsed_date)
+    except KeyError:
+        pass
+
+    try:
+        # Labview Date
+        fitsdate = get_fits_key(filename, "DATETIME")
+        parsed_date = datetime.datetime.strptime(fitsdate, "%Y/%m/%d %H:%M:%S")
+        return tz.localize(parsed_date)
+    except KeyError:
+        pass
+
+    try:
+        # Andor Date. This is given in UTC.
+        fitsdate = get_fits_key(filename, "DATE")
+        parsed_date = datetime.datetime.strptime(fitsdate, "%Y-%m-%dT%H:%M:%S")
+        return utc.localize(parsed_date)
+    except KeyError:
+        pass
+    
+    # We weren't able to parse the date/time.
+    return False
+
 #
 ############### pickles #####################
 #
