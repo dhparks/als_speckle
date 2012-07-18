@@ -591,14 +591,14 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
         
     # make the blender
     assert fill_region.shape == data_to.shape, "fill_region and data must be same shape"
-    blender1 = make_blender(fill_region,width)
+    blender = make_blender(fill_region,width)
     
     # scale the data to reconcile acquisition times etc
     if fit_region != None:
         assert fit_region.shape == data_to.shape, "fit_region and data must be same shape"
-        scaled = match_counts(data_to, data_from, region=fit_region)
-    if fit_region == None:
-        scaled = numpy.copy(data_from)
+        scaled_from = match_counts(data_to, data_from, region=fit_region)
+    else:
+        scaled_from = data_from
 
     # return the merged data
-    return data_to*blender1 + scaled*(1-blender1) 
+    return data_to*blender + scaled_from*(1-blender) 

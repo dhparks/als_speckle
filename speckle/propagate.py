@@ -12,13 +12,13 @@ shift = numpy.fft.fftshift
 
 I = complex(0,1)
 
-def propagate_one_distance(data_in,energy_or_wavelength=None,z=None,pixel_pitch=None,phase=None,data_is_fourier=False):
+def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=None,phase=None,data_is_fourier=False):
     """ Propagate a wavefield a single distance, by supplying either the energy
     (or wavelength) and the distance or by supplying a pre-calculated quadratic
     phase factor.
     
     Required input:
-        data_in: 2d array (nominally complex, but real valued is ok) describing
+        data: 2d array (nominally complex, but real valued is ok) describing
             the wavefield.
         
     Optional input:
@@ -41,9 +41,6 @@ def propagate_one_distance(data_in,energy_or_wavelength=None,z=None,pixel_pitch=
         
     returns: a complex array representing the propagated wavefield.
     """
-    
-    data = numpy.copy(data_in)
-    
     # check requirements regarding types of data
     assert isinstance(data,numpy.ndarray),                "data must be an array"
     assert data.shape[0] == data.shape[1],                "data must be square"
@@ -72,9 +69,12 @@ def propagate_one_distance(data_in,energy_or_wavelength=None,z=None,pixel_pitch=
         assert isinstance(phase,numpy.ndarray), "phase must be an array"
         assert phase.shape == data.shape,       "phase and data must be same shape"
         
-    if not data_is_fourier: data = DFT(data)
-    
-    return IDFT(data*phase)
+    if not data_is_fourier:
+        res = DFT(data)
+    else:
+        res = data
+
+    return IDFT(res*phase)
 
 def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarraysize=None,silent=True):
     """ Propagates a complex-valued wavefield through a range of distances
