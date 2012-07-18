@@ -6,6 +6,7 @@ tests = [
 "test_mask",
 "test_shape",
 "test_conditioning",
+"test_averaging",
 ]
 
 for t in tests:
