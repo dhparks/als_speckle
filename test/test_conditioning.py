@@ -78,7 +78,7 @@ class TestConditioning(unittest.TestCase):
         c1 = speckle.shape.circle(self.shape, 14, (yc-yw, xc-xw))
         c2 = speckle.shape.circle(self.shape, 14, (yc+yw, xc+xw))
         outc = sc.find_center(c1+c2+self.data)
-        print (yc, xc), outc
+        #print (yc, xc), outc
         # the find circle routine can be off by a pixel every now and again. Let it go.
         self.assertAlmostEqual(yc, outc[0], delta=1)
         self.assertAlmostEqual(xc, outc[1], delta=1)
