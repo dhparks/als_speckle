@@ -10,24 +10,26 @@ class TestConditioning(unittest.TestCase):
         self.center = (self.shape[0]/2, self.shape[1]/2)
         self.data = numpy.random.random((self.shape[0]*self.shape[1])).reshape(self.shape)
 
-    def test_remove_dust(self):
-        pass
+    #def test_remove_dust(self):
+    #    pass
 
-    def test_subtract_background(self):
-        pass
+    #def test_subtract_background(self):
+    #    pass
 
     def test_remove_hot_pixels(self):
         # Try to set some number of bad pixels and replace them
-        data = self.data
+        offset = 5
+        data = self.data.copy() + offset
         nbad = 10
-        badcoords = []
+        peakval = 10000
+#        badcoords = []
         for i in range(nbad):
             y,x = numpy.random.randint(self.shape[0], size=2)
-            data[y,x] = 100000
-            badcoords.append((y,x))
+            data[y,x] = peakval
+#            badcoords.append((y,x))
 
-        removed = sc.remove_hot_pixels(data)
-        self.assertTrue((data - removed).sum() < nbad)
+        removed = sc.remove_hot_pixels(data, threshold = 5)
+        self.assertAlmostEqual((data - removed).sum(), nbad*peakval, delta=offset*nbad)
 
     def test_align(self):
         rollx, rolly = numpy.random.randint(0, self.shape[0]/2, 2)
