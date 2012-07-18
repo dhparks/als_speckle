@@ -236,9 +236,9 @@ def remove_hot_pixels(data_in, iterations=1, threshold=2):
 
     for z,frame in enumerate(data):
         for m in range(iterations):
+            # the corners of a medfilt()'ered array are zero, so offset a little.
             median = medfilt(frame)+.1
-            Q = numpy.where(frame/median > threshold,1,0)
-            data[z] = frame*(1-Q)+median*Q
+            data[z] = numpy.where(frame/median > threshold, median, frame)
 
     if was_2d: data = data[0]
     return data
