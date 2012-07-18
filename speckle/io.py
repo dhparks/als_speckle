@@ -164,6 +164,90 @@ def read_text_array(filename, convert_to='float', delimiter='\t'):
     else:
         return rows
 
+def get_beamline_parameters(fitsfile, BCSLFilesDir):
+    """ Opens a fits header and tries to get extra parameters from the Beamline
+    Control System log files.
+    
+    arguments:
+        fitsfile - file to look up.
+        BCSLFilesDir - Location of BCS log files.  Should point to a directory
+            that looks like the BCS Log Files/ directory at the beamline. The
+            format of this directory is (year)/(Month)/files.txt.
+    
+    returns:
+        beamline_parameters - a dictionary of the parameter_name, value of the
+            parameters found nearest the time that the FITS file was acquired.
+    """
+#    import datetime
+    locdate = get_fits_acq_time(fitsfile)
+    if locdate is False:
+        return "no time information"
+    
+    fmt="%Y/%B/%m-%d-%Y" # Data, DIO, Motor, Status
+    BCSBase = "%s/%s" % (BCSLFilesDir, locdate.strftime(fmt))
+#    outstr = "File acquired on %s.\n" % datetime.datetime.strftime(locdate, "%Y/%m/%d %H:%M:%S %z")
+    var_dict = {}
+    for ext in ("Motor", "Data", "DIO"):
+        file = "%s %s.txt" % (BCSBase, ext)
+        var_dict.update(_get_nearest_bcs_line(file, locdate))
+    
+    return var_dict
+
+def _get_nearest_bcs_line(bcsfile, fitstime):
+    """Get info from a BCS (Data, Motor, DIO) file, grab line nearest to
+    time, and return a formatted string of parameters.
+    """
+    import re
+    import pytz
+    import datetime
+    try:
+        data = read_text_array(bcsfile, convert_to=None)
+    except IOError:
+        return {"ERROR": "_get_nearest_bcs_line: file %s not found\n" % (bcsfile)}
+    
+    def combine_logs(line, motors):
+        combined_logs = {}
+        for i in range(len(line)):
+            combined_logs[motors[i].decode('latin-1')] = line[i].decode('latin-1')
+        return combined_logs
+    
+    prog = re.compile("[0-9]{1,2}/[0-9]{1,2}/20[0-9]{2} [0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}.[0-9]{2} [AM|PM]{1}") # compile before looping
+    splitprog = re.compile("[/:.\s]{1}")
+    tz = pytz.timezone('US/Pacific')
+    
+    motor_names = data[0]
+    isFirstLine = True
+    for line in data:
+        if not re.search(prog, line[0]):
+            continue
+        
+        mo, d, y, h, mi, s, ms, ampm = re.split(splitprog, line[0])
+        
+        # convert ms to microseconds
+        us = int(ms)*1000
+        # add leading zeros if we need it
+        if len(mo) == 1:
+            mo = "0" + mo
+        if len(d) == 1:
+            d = "0" + d
+        
+        tline = "%s/%s/%s %s:%s:%s %06d %s" % (mo, d, y, h, mi, s, us, ampm)
+        mytime = datetime.datetime.strptime(tline, "%m/%d/%Y %I:%M:%S %f %p")
+        logtime = tz.localize(mytime).astimezone(tz)
+        
+        if fitstime > logtime:
+            lastline = (logtime, line)
+            isFirstLine = False
+            continue
+        else:
+            curline = (logtime, line)
+            if isFirstLine or abs((fitstime-lastline[0]).total_seconds()) > abs((fitstime-curline[0]).total_seconds()):
+                # curline is closer to our time
+                return combine_logs(curline[1], motor_names)
+            else:
+                # lastline is closer
+                return combine_logs(lastline[1], motor_names)
+
 #
 ############### FITS ########################
 #
