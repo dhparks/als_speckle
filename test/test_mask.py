@@ -30,23 +30,6 @@ class TestMasking(unittest.TestCase):
         bb = sm.bounding_box(box, pad=pad)
         self.assertEqual(tuple(bb), (ymin-pad, ymax+pad, xmin-pad, xmax+pad))
 
-        # Get bounds right for a circle
-        bb = sm.bounding_box(self.circle)
-        sc = self.center
-        sr = self.radius
-        self.assertTrue(tuple(bb), (sc[0]-sr, sc[0]+sr, sc[1]-sr, sc[1]+sr))
-
-        # correctly get bounds for a circle with some padding
-        pad = 0
-        bb = sm.bounding_box(self.circle, pad = pad)
-        sp = sr + pad
-        self.assertEqual(tuple(bb), (sc[0]-sp, sc[0]+sp, sc[1]-sp, sc[1]+sp))
-
-        # check rectangular region with 
-        bb = sm.bounding_box(self.rect)
-        srd = self.rdim
-        self.assertTrue(numpy.array_equal(bb, numpy.array([sc[0]-srd[0],sc[0]+srd[0],sc[1]-srd[1],sc[1]+srd[1]])))
-
     def test_apply_shrink_mask(self):
         # ----- Circle -----
         asm = sm.apply_shrink_mask(self.circle, self.circle)
