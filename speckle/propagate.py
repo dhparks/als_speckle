@@ -12,13 +12,13 @@ shift = numpy.fft.fftshift
 
 I = complex(0,1)
 
-def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=None,phase=None,data_is_fourier=False):
+def propagate_one_distance(data_in,energy_or_wavelength=None,z=None,pixel_pitch=None,phase=None,data_is_fourier=False):
     """ Propagate a wavefield a single distance, by supplying either the energy
     (or wavelength) and the distance or by supplying a pre-calculated quadratic
     phase factor.
     
     Required input:
-        data: 2d array (nominally complex, but real valued is ok) describing
+        data_in: 2d array (nominally complex, but real valued is ok) describing
             the wavefield.
         
     Optional input:
@@ -41,6 +41,8 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
         
     returns: a complex array representing the propagated wavefield.
     """
+    
+    data = numpy.copy(data_in)
     
     # check requirements regarding types of data
     assert isinstance(data,numpy.ndarray),                "data must be an array"
@@ -140,7 +142,7 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarrays
 
     return buffer
             
-def apodize(data,kt=.1,threshold=0.01,sigma=5,return_type='data'):
+def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     """ Apodizes a 2d array so that upon back propagation ringing from the
     aperture is at least somewhat suppressed. The steps this function follows
     are as follows:
@@ -167,6 +169,8 @@ def apodize(data,kt=.1,threshold=0.01,sigma=5,return_type='data'):
             which returns the apodized array. Other options are 'filter' or
             'all'.
     """
+    
+    data = numpy.copy(data_in)
     
     # check types
     assert isinstance(data,numpy.ndarray),    "data must be an array"

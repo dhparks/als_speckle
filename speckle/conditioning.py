@@ -201,13 +201,13 @@ def subtract_background(data, dark=None, x=20, scale=1, abs_val=True):
     else:
         return data
 
-def remove_hot_pixels(data, iterations=1, threshold=2):
+def remove_hot_pixels(data_in, iterations=1, threshold=2):
     """Uses numpy.medfilt to define hot pixels as those which exceed a certain
     multiple of the local median and remove them by replacing with the median of
     the nearest neighbors.
 
     Required:
-        data - 2d or 3d array from which hot pixels will be removed
+        data_in - 2d or 3d array from which hot pixels will be removed
         
     Optional:
         iterations - number of iterations to run the smoother. Default is 1.
@@ -221,13 +221,14 @@ def remove_hot_pixels(data, iterations=1, threshold=2):
     #  This is slow for large arrays; this operation would probably benefit a great deal from GPU acceleration.
 
     from scipy.signal import medfilt
+    data = numpy.copy(data_in)
     
     # check types
     assert isinstance(data, numpy.ndarray), "data must be ndarray"
     assert data.ndim in (2, 3), "data must be 2d or 3d"
     assert isinstance(iterations, int) and iterations > 0, "number of iterations must be integer > 0"
     assert isinstance(threshold, (int, float)), "threshold must be float or int"
-    
+
     was_2d = False
     if data.ndim == 2:
         was_2d = True
@@ -587,15 +588,17 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
         fill_region = io.open(fill_region)
     if isinstance(fit_region, str):
         fit_region = io.open(fit_region)
-    
+        
+    # make the blender
     assert fill_region.shape == data_to.shape, "fill_region and data must be same shape"
+    blender1 = make_blender(fill_region,width)
+    
+    # scale the data to reconcile acquisition times etc
     if fit_region != None:
         assert fit_region.shape == data_to.shape, "fit_region and data must be same shape"
-        # scale the data to reconcile acquisition times etc
-        data_from = match_counts(data_to, data_from, region=fit_region)
-
-    # make the blender
-    blender1 = make_blender(fill_region,width)
+        scaled = match_counts(data_to, data_from, region=fit_region)
+    if fit_region == None:
+        scaled = numpy.copy(data_from)
 
     # return the merged data
-    return data_to*blender1 + data_from*(1-blender1) 
+    return data_to*blender1 + scaled*(1-blender1) 
