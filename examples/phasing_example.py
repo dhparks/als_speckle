@@ -41,7 +41,7 @@ def reconstruct_gpu(gpuinfo):
     save_buffer = numpy.zeros((params.trials+1,rows,cols),numpy.complex64)
     
     # load the data onto the gpu using the GPUPR methods
-    if params.shrinkwrap: reconstruction.load_data(data,support,update_sigma=phasing.shrinkwrap_sigma)
+    if params.shrinkwrap: reconstruction.load_data(data,support,update_sigma=params.shrinkwrap_sigma)
     if not params.shrinkwrap: reconstruction.load_data(data,support)
     
     for trial in range(params.trials):

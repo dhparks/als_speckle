@@ -100,11 +100,9 @@ def make_samples():
     
     parameters: N, density, frames, ballradius, brownianstep"""
     
-    rw = speckle.simulation.random_walk
-    
     print "making %s sample images"%nf
     objs = int(sp.N**2*sp.density)
-    balls = rw(sp.N,objs,sp.ballradius)
+    balls = speckle.simulation.random_walk(sp.N,objs,sp.ballradius)
     for frame in range(nf):
         print "  "+str(frame)
         balls.displace(sp.brownianstep)
