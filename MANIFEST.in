@@ -7,5 +7,6 @@ recursive-include test *.py
 include setup.py
 include README
 include MANIFEST.in
+include CHANGELOG
 
 global-exclude .DS_Store
