@@ -164,6 +164,90 @@ def read_text_array(filename, convert_to='float', delimiter='\t'):
     else:
         return rows
 
+def get_beamline_parameters(fitsfile, BCSLFilesDir):
+    """ Opens a fits header and tries to get extra parameters from the Beamline
+    Control System log files.
+    
+    arguments:
+        fitsfile - file to look up.
+        BCSLFilesDir - Location of BCS log files.  Should point to a directory
+            that looks like the BCS Log Files/ directory at the beamline. The
+            format of this directory is (year)/(Month)/files.txt.
+    
+    returns:
+        beamline_parameters - a dictionary of the parameter_name, value of the
+            parameters found nearest the time that the FITS file was acquired.
+    """
+#    import datetime
+    locdate = get_fits_acq_time(fitsfile)
+    if locdate is False:
+        return "no time information"
+    
+    fmt="%Y/%B/%m-%d-%Y" # Data, DIO, Motor, Status
+    BCSBase = "%s/%s" % (BCSLFilesDir, locdate.strftime(fmt))
+#    outstr = "File acquired on %s.\n" % datetime.datetime.strftime(locdate, "%Y/%m/%d %H:%M:%S %z")
+    var_dict = {}
+    for ext in ("Motor", "Data", "DIO"):
+        file = "%s %s.txt" % (BCSBase, ext)
+        var_dict.update(_get_nearest_bcs_line(file, locdate))
+    
+    return var_dict
+
+def _get_nearest_bcs_line(bcsfile, fitstime):
+    """Get info from a BCS (Data, Motor, DIO) file, grab line nearest to
+    time, and return a formatted string of parameters.
+    """
+    import re
+    import pytz
+    import datetime
+    try:
+        data = read_text_array(bcsfile, convert_to=None)
+    except IOError:
+        return {"ERROR": "_get_nearest_bcs_line: file %s not found\n" % (bcsfile)}
+    
+    def combine_logs(line, motors):
+        combined_logs = {}
+        for i in range(len(line)):
+            combined_logs[motors[i].decode('latin-1')] = line[i].decode('latin-1')
+        return combined_logs
+    
+    prog = re.compile("[0-9]{1,2}/[0-9]{1,2}/20[0-9]{2} [0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}.[0-9]{2} [AM|PM]{1}") # compile before looping
+    splitprog = re.compile("[/:.\s]{1}")
+    tz = pytz.timezone('US/Pacific')
+    
+    motor_names = data[0]
+    isFirstLine = True
+    for line in data:
+        if not re.search(prog, line[0]):
+            continue
+        
+        mo, d, y, h, mi, s, ms, ampm = re.split(splitprog, line[0])
+        
+        # convert ms to microseconds
+        us = int(ms)*1000
+        # add leading zeros if we need it
+        if len(mo) == 1:
+            mo = "0" + mo
+        if len(d) == 1:
+            d = "0" + d
+        
+        tline = "%s/%s/%s %s:%s:%s %06d %s" % (mo, d, y, h, mi, s, us, ampm)
+        mytime = datetime.datetime.strptime(tline, "%m/%d/%Y %I:%M:%S %f %p")
+        logtime = tz.localize(mytime).astimezone(tz)
+        
+        if fitstime > logtime:
+            lastline = (logtime, line)
+            isFirstLine = False
+            continue
+        else:
+            curline = (logtime, line)
+            if isFirstLine or abs((fitstime-lastline[0]).total_seconds()) > abs((fitstime-curline[0]).total_seconds()):
+                # curline is closer to our time
+                return combine_logs(curline[1], motor_names)
+            else:
+                # lastline is closer
+                return combine_logs(lastline[1], motor_names)
+
 #
 ############### FITS ########################
 #
@@ -590,6 +674,70 @@ def get_fits_dimensions(filename):
         naxes -= 1
 
     return tuple(dim)
+
+def get_fits_acq_time(filename, timezone="US/Pacific"):
+    """Tries to figure out the acquisition time of a FITS file by looking for
+    the date/time via the header.  The function looks in three places for the
+    time (each acquistion program we use stores it in a different location).
+    This function requires the pytz python library.
+
+    Andor Solis camera:
+        hdu[0].header['DATE']    = '2010-01-24T18:14:49' / file creation date
+        hdu[0].header['FRAME']   = '2010-01-24T18:14:49.000' / Start of frame
+
+    Labview acquisition:
+        hdu[0].header['DATETIME']= '2010/01/24 10:26:25' / Date and time
+
+    SSI camera:
+        hdu[1].header['DATE']    = '2011-05-05'         / Date of header
+        hdu[1].header['DATE-OBS']= '2011-05-05'         / Date of data
+        hdu[1].header['TIME']    = '00:26:00'           / Time of data
+
+    arguments:
+        filename - File to find acquisition time.
+        timezone - Timezone where the data was acquired. Default is "US/Pacific"
+
+    returns:
+        datetime - a TZ localized datetime object of acquisiton time. If it
+            cannot be found, it returns False
+    """
+    import datetime
+    try:
+        import pytz
+    except ImportError:
+        print "get_acq_time: Cannot import the pytz module.  Please install it."
+        return False
+
+    assert timezone in pytz.common_timezones, "%s is not a timezone" % timezone
+    tz = pytz.timezone(timezone)
+    utc = pytz.UTC
+
+    try:
+        # SSI camera date. This is given in UTC
+        fitsdate = get_fits_key(filename, "DATE") + " " + get_fits_key(filename, "TIME")
+        parsed_date = datetime.datetime.strptime(fitsdate, "%Y-%m-%d %H:%M:%S")
+        return utc.localize(parsed_date)
+    except KeyError:
+        pass
+
+    try:
+        # Labview Date
+        fitsdate = get_fits_key(filename, "DATETIME")
+        parsed_date = datetime.datetime.strptime(fitsdate, "%Y/%m/%d %H:%M:%S")
+        return tz.localize(parsed_date)
+    except KeyError:
+        pass
+
+    try:
+        # Andor Date. This is given in UTC.
+        fitsdate = get_fits_key(filename, "DATE")
+        parsed_date = datetime.datetime.strptime(fitsdate, "%Y-%m-%dT%H:%M:%S")
+        return utc.localize(parsed_date)
+    except KeyError:
+        pass
+    
+    # We weren't able to parse the date/time.
+    return False
 
 #
 ############### pickles #####################

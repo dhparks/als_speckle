@@ -1,0 +1,14 @@
+0.3 - ??????date
+- Implement a testing framework to test the module
+
+
+0.2 - July 16, 2012
+- add a new library, speckle.masking, related to masking of pixels.
+- added a center-finding function, speckle.conditioning.find_center().
+- implement donut Lorentzian, Gaussian, and Lorentzian square fit functions.
+- speed up merging algorithms by rewriting them without distance_map.
+- improve documentation and readability of many modules.
+- Fix lots (~100) of bugs.
+
+0.1 - July 9, 2012
+- Initial release.

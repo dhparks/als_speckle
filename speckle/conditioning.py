@@ -236,9 +236,9 @@ def remove_hot_pixels(data_in, iterations=1, threshold=2):
 
     for z,frame in enumerate(data):
         for m in range(iterations):
+            # the corners of a medfilt()'ered array are zero, so offset a little.
             median = medfilt(frame)+.1
-            Q = numpy.where(frame/median > threshold,1,0)
-            data[z] = frame*(1-Q)+median*Q
+            data[z] = numpy.where(frame/median > threshold, median, frame)
 
     if was_2d: data = data[0]
     return data
@@ -591,14 +591,14 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
         
     # make the blender
     assert fill_region.shape == data_to.shape, "fill_region and data must be same shape"
-    blender1 = make_blender(fill_region,width)
+    blender = make_blender(fill_region,width)
     
     # scale the data to reconcile acquisition times etc
     if fit_region != None:
         assert fit_region.shape == data_to.shape, "fit_region and data must be same shape"
-        scaled = match_counts(data_to, data_from, region=fit_region)
-    if fit_region == None:
-        scaled = numpy.copy(data_from)
+        scaled_from = match_counts(data_to, data_from, region=fit_region)
+    else:
+        scaled_from = data_from
 
     # return the merged data
-    return data_to*blender1 + scaled*(1-blender1) 
+    return data_to*blender + scaled_from*(1-blender) 
