@@ -354,7 +354,7 @@ def pairwise_covariances(data, save_memory=False):
     return covars
 
 def alignment_coordinates(obj, ref, already_fft=()):
-    """ Computes the roll coordinates to align imgA and imgB. The returned
+    """ Computes the roll coordinates to align obj and ref. The returned
     values r0 and r1 are such the following numpy command will align obj to ref.
 
     aligned_to_ref = np.roll(np.roll(obj,r0,axis=0),r1,axis=1)
@@ -367,6 +367,7 @@ def alignment_coordinates(obj, ref, already_fft=()):
 
     returns:
         coords - (r0,r1) which describe how to align obj to ref using np.roll
+            see above
     """
     
     assert isinstance(ref,np.ndarray) and ref.ndim==2, "ref must be 2d array"

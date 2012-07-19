@@ -1,7 +1,6 @@
 __kernel void execute(
-    __global float* image, // image data
-    float threshold)       // data/medfiltered_data > threshold is considered "hot")   
-
+    __global float* image // image data
+)
 // take a sub array from the master domains image
 
 {
@@ -236,7 +235,5 @@ __kernel void execute(
     
     median = r4;
 
-    float q = image[j+rows*i]/median;
-    if (q >= threshold) {image[j+rows*i] = median;}
-    //image[j+rows*i] = r4;
+    image[j+rows*i] = r4;
 }

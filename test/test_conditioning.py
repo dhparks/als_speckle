@@ -6,28 +6,83 @@ sc = speckle.conditioning
 class TestConditioning(unittest.TestCase):
 
     def setUp(self):
-        self.shape = (256, 256)
+        self.shape = (1024, 1024)
         self.center = (self.shape[0]/2, self.shape[1]/2)
-        self.data = numpy.random.random((self.shape[0]*self.shape[1])).reshape(self.shape)
-
+        self.density = 1e-2
+        
+        # build a realistic speckle pattern to form the basis for testing
+        # methods in speckle.conditioning
+        make_speckle = lambda x: numpy.fft.fftshift(abs(numpy.fft.fft2(x))**2).real
+        data = numpy.where(numpy.random.rand(self.shape[0]*self.shape[1]) <= self.density,1,0).reshape(self.shape)
+        data *= speckle.shape.circle(self.shape,self.shape[0]/20.)
+        data = make_speckle(data)
+        self.data = 1e6*data/data.max()+1000
+        
     def test_remove_dust(self):
-        pass
+        convolve = lambda x,y: numpy.fft.ifft2(numpy.fft.fft2(x)*numpy.fft.fft2(y))
+        
+        speckle.io.set_overwrite(True)
+        
+        # make the dustspot shape
+        dust_spot = numpy.zeros_like(self.data)
+        x = 1
+        dust_spot[self.shape[0]/2-x:self.shape[0]/2+x,self.shape[1]/2-x:self.shape[1]/2+x] = 1
+        dust_spot = numpy.fft.fftshift(dust_spot)
+        
+        dust_spot2 = numpy.zeros_like(self.data)
+        x = 2
+        dust_spot2[self.shape[0]/2-x:self.shape[0]/2+x,self.shape[1]/2-x:self.shape[1]/2+x] = 1
+        dust_spot2 = numpy.fft.fftshift(dust_spot2)
+        
+        # make the dust locations. make them sparse
+        dust_density = 1e-4
+        dust_locations = numpy.where(numpy.random.rand(self.shape[0]*self.shape[1]) <= dust_density,1,0).reshape(self.shape)
+        dust_locations[:10,:]  = 0
+        dust_locations[-10:,:] = 0
+        dust_locations[:,:10]  = 0
+        dust_locations[:,-10:] = 0
+        
+        dust = convolve(dust_spot,dust_locations)
+        dust = numpy.clip(abs(dust).real,0,1)
+        
+        dust_markers = convolve(dust_spot2,dust_locations)
+        dust_markers = numpy.clip(abs(dust_markers).real,0,1)
+        
+        # "dust" right now is the equivalent of dust_mask, so make a plan.
+        dust_plan = sc.plan_remove_dust(dust_markers)
+        
+        # enact the effect of dust on self.data
+        dusted = self.data*(1-dust)
+        
+        # repair the dust
+        repaired = sc.remove_dust(dusted,dust,dust_plan=dust_plan)[0]
+        
+        # the success of repairing the dust spots is determined by whether the
+        # "most" of the value of the dusted pixels is restored. it should
+        # also not overshoot.
+        dust_sum = (dust*self.data).sum()
+        repaired_sum = (dust*repaired).sum()
+
+        speckle.io.save('dustq.fits',self.data/repaired*dust_markers)
+        speckle.io.save('speckles.fits',self.data)
+        speckle.io.save('repaired.fits',repaired)
+        
+        
 
     def test_subtract_background(self):
         pass
 
     def test_remove_hot_pixels(self):
         # Try to set some number of bad pixels and replace them
+        
         data = self.data
-        nbad = 10
-        badcoords = []
-        for i in range(nbad):
-            y,x = numpy.random.randint(self.shape[0], size=2)
-            data[y,x] = 100000
-            badcoords.append((y,x))
-
+        density = 1e-3
+        hot  = numpy.where(numpy.random.rand(self.shape[0]*self.shape[1]) <= density,1,0).reshape(self.shape)
+        data += 10*hot
         removed = sc.remove_hot_pixels(data)
-        self.assertTrue((data - removed).sum() < nbad)
+        
+        # how to test difference of data and removed properly?
+        #self.assertTrue((data - removed).sum() < nbad)
 
     def test_align(self):
         rollx, rolly = numpy.random.randint(0, self.shape[0]/2, 2)
