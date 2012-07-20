@@ -973,7 +973,6 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
             if file_exp.match(aline):
                 spl = file_exp.split(aline)
                 afile = spl[1]
-                print spl
                 if len(spl) == 4 and spl[3] != "\n": # we have a card
                     card = spl[3][1:-2] # looks like "[file]\n", so remove '[]\n'
                 else: # no card
@@ -981,10 +980,8 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
 
                 try:
                     dim = get_fits_dimensions(afile, card)
-                    print dim, "found file"
                 except IOError:
                     dim = (1, 2048, 2048)
-                    print dim, "no file"
 
                 aline = f.readline()
                 continue
