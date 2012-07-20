@@ -632,7 +632,7 @@ def get_fits_key(filename, key):
 
     raise KeyError(error)
 
-def get_fits_window(filename):
+def get_fits_window(filename, card=0):
     """    Gets the window or region of interest for a given image.
     
         arguments:
@@ -644,7 +644,7 @@ def get_fits_window(filename):
     """
     # returns the subimage window that was used when the image was taken.
     from string import split
-    hdr=open_fits_header(filename)
+    hdr=open_fits_header(filename, card)
     window = split(hdr['SUBRECT'], ',')
     # note out of order here, ymax comes before ymin
     (xmin, xmax, ymax, ymin) = (int(window[0]), int(window[1]), int(window[2]), int(window[3]))
@@ -656,7 +656,7 @@ def get_fits_kct(filename):
     hdr = open_fits_header(filename)
     return hdr["KCT"]
 
-def get_fits_dimensions(filename):
+def get_fits_dimensions(filename, card=0):
     """ Gets the dimenions of the FITS file from the header.
     
         arguments:
@@ -666,7 +666,7 @@ def get_fits_dimensions(filename):
             (dim) - a list of the dimensions. The format is the same as the
                 img.ndim command.
     """
-    hdr = open_fits_header(filename)
+    hdr = open_fits_header(filename, card)
     naxes = hdr["NAXIS"]
     dim = []
     while(naxes != 0):
@@ -963,18 +963,29 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
     returns:
         mask - binary mask of the regions
     """
+    import re
+    file_exp = re.compile("# Filename: ((?:\/[\w\.\-\ ]+)+)(?:(\[\w\])?)")
+
     shapes = []
     with _open(filename, "r") as f:
         aline = f.readline()
         while aline:
-            if aline[0] == "#":
-                if aline.find("Filename:") != -1:
-                    file = aline[len("# Filename:"):-1]
-                    try:
-                        dim = get_fits_dimensions(file)
-                    except IOError:
-                        dim = (1, 2048, 2048)
-    
+            if file_exp.match(aline):
+                spl = file_exp.split(aline)
+                afile = spl[1]
+                print spl
+                if len(spl) == 4 and spl[3] != "\n": # we have a card
+                    card = spl[3][1:-2] # looks like "[file]\n", so remove '[]\n'
+                else: # no card
+                    card = 0
+
+                try:
+                    dim = get_fits_dimensions(afile, card)
+                    print dim, "found file"
+                except IOError:
+                    dim = (1, 2048, 2048)
+                    print dim, "no file"
+
                 aline = f.readline()
                 continue
     
@@ -993,14 +1004,14 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
         shapeend = s.find(")")
         shapedesc = [float(val) for val in s[shapest+1:shapeend].split(",") ]
         if shapetype == "circle":
-             # fix discrepancy between ds9 index and python idex (1 vs 0)
+            # fix discrepancy between ds9 and python indices (1 vs 0)
             shapedesc[0] = shapedesc[0] - 1
             shapedesc[1] = shapedesc[1] - 1
 
             xc, yc, rad = shapedesc
             data += shape.circle( dim, rad, (yc,xc), AA=False )
         elif shapetype == "box":
-             # fix discrepancy between ds9 index and python idex (1 vs 0)
+            # fix discrepancy between ds9 and python indices (1 vs 0)
             shapedesc[0] = shapedesc[0] - 1
             shapedesc[1] = shapedesc[1] - 1
 
@@ -1014,13 +1025,13 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
                 data += shape.rect( (ys,xs), (yw, xw), (yc, xc))
 
         elif shapetype == "polygon":
-             # fix discrepancy between ds9 index and python idex (1 vs 0)
+            # fix discrepancy between ds9 and python indices (1 vs 0)
             for i in range(len(shapedesc)):
                 shapedesc[i] = shapedesc[i] - 1
 
             data += _draw_polygon(shapedesc, dim)
         elif shapetype == "ellipse":
-             # fix discrepancy between ds9 index and python idex (1 vs 0)
+            # fix discrepancy between ds9 and python indices (1 vs 0)
             shapedesc[0] = shapedesc[0] - 1
             shapedesc[1] = shapedesc[1] - 1
             if len(shapedesc) == 7:
@@ -1033,7 +1044,7 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
                 data += shape.ellipse( (ys,xs), (yw, xw), (yc, xc), angle, AA=False)
     
         elif shapetype == "annulus":
-             # fix discrepancy between ds9 index and python idex (1 vs 0)
+            # fix discrepancy between ds9 and python indices (1 vs 0)
             shapedesc[0] = shapedesc[0] - 1
             shapedesc[1] = shapedesc[1] - 1
 
