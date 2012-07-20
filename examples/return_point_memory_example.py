@@ -1,7 +1,7 @@
 import speckle
 
 # Set up a base filename.  All of the files have the same format but a different number at tne end.
-f = "/Volumes/Phaser/Work/Data/RawData/RPM/CoPd6201a/20090818/300K-pinhole0070-%03d.fits"
+f = "data/memory/300K-pinhole0070-%03d.fits"
 
 # these files are a subset of the 10 A (640 Oe) files that were used for the J. Appl. Phys. 
 darkA = speckle.io.openfits(f % 55) # -80 A
