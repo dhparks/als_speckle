@@ -464,15 +464,12 @@ def sp_bin_by_time(data, frameTime, counterTime=40.0e-9):
     assert np.isreal(frameTime), "frameTime (%s) must be real" % repr(frameTime)
     assert np.isreal(counterTime), "counterTime (%s) must be real" % repr(counterTime)
 
-    firsttime = data.min()
-    lasttime = data.max()
+    sorteddata = data[data.argsort()]
 
+    firsttime = sorteddata.min()
+    lasttime = sorteddata.max()
     nbins = int(np.ceil(float(lasttime - firsttime)*counterTime/frameTime))
-
-    bin_edges = np.linspace(firsttime, lasttime, nbins)
-    bin_edges[-1] += 1
-
-    return np.histogram(data+0.5, bin_edges)[0]
+    return np.histogram(sorteddata, nbins, (0, lasttime))
 
 def sp_sum_bin_all(data, xybin=4):
     """ Sum and bin all of the data from the single photon detector into one
@@ -529,6 +526,7 @@ def sp_autocorrelation_range(data, xr, yr, p=30, m=2):
         xr - range in y.  Must be a 2-tuple or list.
         p - number of linear points. Defaults to 30.
         m - factor that the time is changed for each correlator. Defaults to 2.    
+            The number of correlators is approx. log(max(t_delta)/p)/log(m) + 1.
 
     returns:
         corr - A (1 x bins) autocorrelation of data.
@@ -571,6 +569,7 @@ def sp_autocorrelation(data, p=30, m=2):
         data - A sorted (1xN) array of incidence times.
         p - number of linear points. Defaults to 30.
         m - factor that the time is changed for each correlator. Defaults to 2.
+            The number of correlators is approx. log(max(t_delta)/p)/log(m) + 1.
 
     returns:
         corr - A (1 x bins) autocorrelation of data.
@@ -587,6 +586,7 @@ def sp_crosscorrelation(d1, d2, p=30, m=2):
         d2 - A sorted (1xN) array of incidence times for the 2nd signal.
         p - number of linear points. Defaults to 30.
         m - factor that the time is changed for each correlator. Defaults to 2.
+            The number of correlators is approx. log(max(t_delta)/p)/log(m) + 1.
 
     returns:
         corr - A (1 x bins) crosscorrelation between (d1, d2).
