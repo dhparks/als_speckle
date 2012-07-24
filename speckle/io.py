@@ -100,7 +100,10 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
     assert ext in img_exts or ext in fits_exts or ext in txt_exts, "ext \"%s\" not recognized"%ext
     if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map)
     if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite)
-    if ext in txt_exts:  write_text_array(filename,data,header=header)
+    if ext in txt_exts:
+        if header == {}: header = ''
+        if ext == 'csv': write_text_array(filename,data,header=header,delimiter=',')
+        else: write_text_array(filename,data,header=header)
 
 #
 ############### Text ########################
