@@ -11,9 +11,11 @@ from . import averaging
 
 def _convert_to_3d(img):
     """ get image shape and reshape image to three dimensional (if necessary).
-    Most of the g2 functions require a 3d image
+    Most of the g2 functions require a 3d image.
+
     arguments:
         img - image to check shape
+
     returns:
         (fr, ys, xs) - a tuple of the image shape.
     """
@@ -36,8 +38,10 @@ def _convert_to_3d(img):
 def shift_img_up(img):
     """Check to make sure all the values in the image are > 0.  If there are
     pixels < 0, it shifts the whole image so that all of the pixels are > 0. 
-    inputs:
+
+    arguments:
         img - image to test
+
     returns:
         img - image shifted up so that all px > 0
     """
@@ -53,9 +57,13 @@ def shift_img_up(img):
 
 def normalize_intensity(img, method="maxI"):
     """Normalize each frame of an image.
+
     arguments:
         img - img to normalize.  Must be 3d.
-        method - method of normalization, either by maximum intensity (maxI) or summed intensity (sumI).  Note, sumI is the summed intensity in each frame, not the entire 3d image.
+        method - method of normalization, either by maximum intensity (maxI) or
+            summed intensity (sumI).  Note, sumI is the summed intensity in each
+            frame, not the entire 3d image.
+
     returns:
         img - normalized image.    
     """
@@ -79,16 +87,23 @@ def normalize_intensity(img, method="maxI"):
 
 def g2_symm_norm(img, numtau, qAvg = ("circle", 10)):
     """ calculate correlation function g_2 with a symmetric normalization.
+
     The symmetric normalization is defined as
+    
     g_2 (q, tau) = < I(q,t) * I(q, t+tau) >_t / (<I(q,t)>_q,left * <I(q,t)>_q,right)
-    where <>_t (<>_q) is averaging over variable t (q). The left (right) average time over frames 1:numtau (fr-numtau:fr).
+    
+    where <>_t (<>_q) is averaging over variable t (q). The left (right) average
+    time over frames 1:numtau (fr-numtau:fr).
+
     arguments:
         img - 3d array
         numtau - tau to correlate
-        qAvg - a list of the averaging type and the size. The possible types and the size parameter are:
-            "square" - the parameter size is size dimension of the square, in pixels
+        qAvg - a list of the averaging type and the size. The possible types and
+            the size parameter are:
+            "square" - the parameter size is dimension of the square, in pixels
             "circle" - the size is the radius of the circle, in pixels
             "gaussian" - size is the FWHM of the gaussian, in pixels
+
     returns:
         g2 - correlation function for numtau values
     """
@@ -123,18 +138,26 @@ def g2_symm_norm(img, numtau, qAvg = ("circle", 10)):
     return result
 
 def g2_symm_borthwick_norm(img, numtau, qAvg = ("circle", 10)):
-    """ calculate correlation function g_2 with Matt Borthwick's symmetric normalization.
-    His symmetric normalization is defined as
+    """ calculate correlation function g_2 with Matt Borthwick's symmetric
+    normalization. His symmetric normalization is pg #120 of this thesis and
+    defined as
+
     g_2 (q, tau) = < I(q,t) * I(q, t+tau) >_t / (<I(q,t)>_q,left * <I(q,t)>_q,right) * <I(q, t)>_q,t^2/<I(q, t)>_t^2
-    where <>_t (<>_q) is averaging over variable t (q). The left (right) average time over frames 1:numtau (fr-numtau:fr).
-    This varies slightly from the symmetric normalization as it added a term indended to correct for long-range trends in intensity.
+
+    where <>_t (<>_q) is averaging over variable t (q). The left (right) average
+    time over frames 1:numtau (fr-numtau:fr). This varies slightly from the
+    symmetric normalization as it added a term indended to correct for
+    long-range trends in intensity.
+
     arguments:
         img - 3d array
         numtau - tau to correlate
-        qAvg - a list of the averaging type and the size. The possible types and the size parameter are:
-            "square" - the parameter size is size dimension of the square, in pixels
+        qAvg - a list of the averaging type and the size. The possible types and
+            the size parameter are:
+            "square" - the parameter size is dimension of the square, in pixels
             "circle" - the size is the radius of the circle, in pixels
             "gaussian" - size is the FWHM of the gaussian, in pixels
+
     returns:
         g2 - correlation function for numtau values
     """
@@ -164,17 +187,22 @@ def g2_symm_borthwick_norm(img, numtau, qAvg = ("circle", 10)):
     return result
     
 def g2_standard_norm(img, numtau, qAvg = ("circle", 10)):
-    """ calculate correlation function g_2 with a standard normalization.
-    The standard normalization is defined as
+    """ calculate correlation function g_2 with a standard normalization. The
+    standard normalization is defined as
+
     g_2 (q, tau) = < I(q,t) * I(q, t+tau) / (<I(q,t)>_q * <I(q,t+tau)>_q) >_t * <I(q,t)>_q,t^2 / <I(q,t)>_t^2
+
     where <>_t (<>_q) is averaging over variable t (q).
+
     arguments:
         img - 3d array
         numtau - tau to correlate
-        qAvg - a list of the averaging type and the size. The possible types and the size parameter are:
-            "square" - the parameter size is size dimension of the square, in pixels
+        qAvg - a list of the averaging type and the size. The possible types and
+            the size parameter are:
+            "square" - the parameter size is dimension of the square, in pixels
             "circle" - the size is the radius of the circle, in pixels
             "gaussian" - size is the FWHM of the gaussian, in pixels
+
     returns:
         g2 - correlation function for numtau values
     """
@@ -196,17 +224,22 @@ def g2_standard_norm(img, numtau, qAvg = ("circle", 10)):
     return g2_no_norm(img/IQ, numtau)*IQT*IQT/(IT*IT)
     
 def g2_plain_norm(img, numtau): # formerly sujoy norm
-    """ calculate correlation function g_2 with a 'plain' normalization.
-    The 'plain' normalization is defined as
+    """ calculate correlation function g_2 with a 'plain' normalization. The
+    'plain' normalization is defined as
+
     g_2 (q, tau) = < I(q,t) * I(q, t+tau) >_t / <I(q,t)>_t^2
+
     where <>_t (<>_q) is averaging over variable t (q).
+
     arguments:
         img - 3d array
         numtau - tau to correlate
-        qAvg - a list of the averaging type and the size. The possible types and the size parameter are:
-            "square" - the parameter size is size dimension of the square, in pixels
+        qAvg - a list of the averaging type and the size. The possible types and
+            the size parameter are:
+            "square" - the parameter size is dimension of the square, in pixels
             "circle" - the size is the radius of the circle, in pixels
             "gaussian" - size is the FWHM of the gaussian, in pixels
+
     returns:
         g2 - correlation function for numtau values
     """
@@ -215,13 +248,17 @@ def g2_plain_norm(img, numtau): # formerly sujoy norm
     return g2_no_norm(img, numtau)/(IT*IT)
 
 def g2_no_norm(img, numtau):
-    """ calculate correlation function g_2 numerator without normalization.
-    The is defined as
+    """ calculate correlation function g_2 numerator without normalization. The
+    no normalization defined as
+
     g_2 (q, tau) = < I(q,t) * I(q, t+tau) >_t
+
     where <>_t is averaging over variable t.
+
     arguments:
         img - 3d array
         numtau - tau to correlate
+
     returns:
         g2 - correlation function for numtau values
     """
@@ -242,9 +279,12 @@ def g2_no_norm(img, numtau):
 
 def g2_numerator(img, onetau):
     """ Calculates <I(t) I(t + tau)>_t for a single value of tau.
+
     arguments:
         img - data to caclculate g2.  Must be 3d.
-        onetau - a single tau value.  Must be integer and less than the total frames in img.
+        onetau - a single tau value.  Must be integer and less than the total
+            frames in img.
+
     returns:
         numerator - g2 numerator calculated for one tau value.
     """
@@ -257,18 +297,22 @@ def g2_numerator(img, onetau):
     # numerator = np.average(img[0:fr-onetau] * img[onetau:fr], axis=0) # This is slower than the above implementaion.
     return numerator
 
-def g2_numerator_fft(img,taus=None):
-    """ Calculates <I(t) I(t + tau)>_t for specified values of tau via fft autocorrelation method.
-    For large N this may be significantly faster than the g2_numerator function, but for small N
-    or a small number of tau the g2_numerator function may be faster.
+def g2_numerator_fft(img, taus=None):
+    """ Calculates <I(t) I(t + tau)>_t for specified values of tau via fft
+    autocorrelation method. For large N this may be significantly faster than
+    the g2_numerator function, but for small N or a small number of tau the
+    g2_numerator function may be faster.
     
-    If data sets are very large this function may lead to malloc errors, necessitating fallback to
-    g2_numerator or more sophisticated handling of the dataset.
+    If data sets are very large this function may lead to malloc errors,
+    necessitating fallback to g2_numerator or more sophisticated handling of the
+    dataset.
     
     arguments:
         img - data to caclculate g2.  Must be 3d.
         taus - iterable set of tau values where you want g2.
-            All taus are evaluated by the fft so a limited set of taus does not provide a speed up.
+            All taus are evaluated by the fft so a limited set of taus does not
+            provide a speed up.
+
     returns:
         numerator - g2 numerator calculated for requested tau values.
     """
@@ -290,9 +334,14 @@ def g2_numerator_fft(img,taus=None):
 
 def _numtauToTauvals(numtau, maxtau=0):
     """ program to convert numtau to a list of values to iterate over.
+
     arguments:
-        numtau - tau's to correlate.  If it is a single number, it generates a list from (0, numtau), if it's a list or tuple of size 2, it will do the range between those two taus.
-        maxtau - Maximum possible tau value.  If it exists, then the function checks to see if all taus are smaller than this value.
+        numtau - tau's to correlate.  If it is a single number, it generates a
+            list from (0, numtau), if it's a list or tuple of size 2, it will do
+            the range between those two taus.
+        maxtau - Maximum possible tau value.  If it exists, then the function
+            checks to see if all taus are smaller than this value.
+
     returns:
         tauvals - list of taus to correlate.
     """
@@ -343,10 +392,13 @@ def sp_bin_by_space_and_time(data, frameTime, xybin=8, counterTime=40.0e-9):
     the data in time and xy.
 
     arguments:
-        data - data to bin.  This is an (N, 4) array where N is the number of elements.
+        data - data to bin.  This is an (N, 4) array where N is the number of
+            elements.
         frameTime - Amout of time between bins.  Measured in seconds
-        xybin - amount to bin in x and y.  defaults to 8, which is a 512x512 output.
+        xybin - amount to bin in x and y.  defaults to 8, which is a 512x512
+            output.
         counterTime - clock time of the camera. Anton Tremsin says its 40 ns.
+
     returns:
         binnedData - a 3-dimension array (frames, y, x) of the binned data.
     """
@@ -402,6 +454,7 @@ def sp_bin_by_time(data, frameTime, counterTime=40.0e-9):
         data - Data to bin.  This is a 1 dimensional array of incidence times.
         frameTime - Amount of time for each bin.  Measured in seconds
         counterTime - Clock time of the camera. Anton Tremsin says its 40 ns.
+
     returns:
         binnedData - a 3-dimension array (frames, y, x) of the binned data.
         binEdges - edges of the bins.
@@ -411,21 +464,21 @@ def sp_bin_by_time(data, frameTime, counterTime=40.0e-9):
     assert np.isreal(frameTime), "frameTime (%s) must be real" % repr(frameTime)
     assert np.isreal(counterTime), "counterTime (%s) must be real" % repr(counterTime)
 
-    firsttime = data.min()
-    lasttime = data.max()
+    sorteddata = data[data.argsort()]
 
+    firsttime = sorteddata.min()
+    lasttime = sorteddata.max()
     nbins = int(np.ceil(float(lasttime - firsttime)*counterTime/frameTime))
-
-    bin_edges = np.linspace(firsttime, lasttime, nbins)
-    bin_edges[-1] += 1
-
-    return np.histogram(data+0.5, bin_edges)[0]
+    return np.histogram(sorteddata, nbins, (0, lasttime))
 
 def sp_sum_bin_all(data, xybin=4):
-    """ Sum and bin all of the data from the single photon detector into one frame.
+    """ Sum and bin all of the data from the single photon detector into one
+    frame.
 
     arguments:
-        data - a (N, 4) sized array of the data generated by the single photon detector.
+        data - a (N, 4) sized array of the data generated by the single photon
+            detector.
+
     returns:
         img - a 2d image of the entire dataset.
     """
@@ -449,7 +502,9 @@ def intersect(a, b, assume_unique=False):
     arguments:
         a - 1st array to test
         b - 2nd array to test
-        assume_unique - If True, assumes that both input arrays are unique, which speeds up the calculation.  The default is False.
+        assume_unique - If True, assumes that both input arrays are unique,
+            which speeds up the calculation.  The default is False.
+
     returns:
         res - values common to both a and b.
         ia - indicies of a such that res = a[ia]
@@ -471,6 +526,7 @@ def sp_autocorrelation_range(data, xr, yr, p=30, m=2):
         xr - range in y.  Must be a 2-tuple or list.
         p - number of linear points. Defaults to 30.
         m - factor that the time is changed for each correlator. Defaults to 2.    
+            The number of correlators is approx. log(max(t_delta)/p)/log(m) + 1.
 
     returns:
         corr - A (1 x bins) autocorrelation of data.
@@ -507,12 +563,13 @@ def sp_select_ROI(data, xr, yr):
 
 def sp_autocorrelation(data, p=30, m=2):
     """Implements the time-to-tag correlation algorithm outlined by Wahl et al.
-        in Opt. Exp. 11 3583
+    in Opt. Exp. 11 3583
 
     arguments:
         data - A sorted (1xN) array of incidence times.
         p - number of linear points. Defaults to 30.
         m - factor that the time is changed for each correlator. Defaults to 2.
+            The number of correlators is approx. log(max(t_delta)/p)/log(m) + 1.
 
     returns:
         corr - A (1 x bins) autocorrelation of data.
@@ -522,13 +579,14 @@ def sp_autocorrelation(data, p=30, m=2):
 
 def sp_crosscorrelation(d1, d2, p=30, m=2):
     """Implements the time-to-tag correlation algorithm outlined by Wahl et al.
-        in Opt. Exp. 11 3583
+    in Opt. Exp. 11 3583
 
     arguments:
         d1 - A sorted (1xN) array of incidence times for the 1st signal.
         d2 - A sorted (1xN) array of incidence times for the 2nd signal.
         p - number of linear points. Defaults to 30.
         m - factor that the time is changed for each correlator. Defaults to 2.
+            The number of correlators is approx. log(max(t_delta)/p)/log(m) + 1.
 
     returns:
         corr - A (1 x bins) crosscorrelation between (d1, d2).
@@ -576,7 +634,8 @@ def sp_crosscorrelation(d1, d2, p=30, m=2):
     return corr, corrtime
 
 def _sort_data(data, col=3):
-    """ Helper function to sort data by increasing photon incidence value along column col.
+    """Helper function to sort data by increasing photon incidence value along
+    column col.
 
     arguments:
         data - data to process.  Must be two dimensional
@@ -588,9 +647,8 @@ def _sort_data(data, col=3):
     return data[data[:, col].argsort(),:]
 
 def _list_duplicates(seq):
-    """ 
-    helper function used by _half_data() to get a list of duplicate entries in
-    an iteratable. From http://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list
+    """Helper function used by _half_data() to get a list of duplicate entries
+    in an iteratable. From http://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list .
     """
     from collections import defaultdict
 
@@ -600,10 +658,10 @@ def _list_duplicates(seq):
     return ((key,locs) for key,locs in tally.items() if len(locs)>1)
 
 def _half_data(data, m, w):
-    """ Helper function that halves the data by dividing the incidence times in
-        data by m and finding duplicates.  The w matrix is augmented depending
-        on the number of duplicates found.  The algorithm is found in
-        Opt. Exp. 11 3583.
+    """Helper function that halves the data by dividing the incidence times in
+    data by m and finding duplicates.  The w matrix is augmented depending on
+    the number of duplicates found.  The algorithm is found in Opt. Exp. 11 
+    3583.
     """
     import sys
     halvedData = np.floor(data/float(m)).astype('int64')
