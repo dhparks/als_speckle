@@ -26,12 +26,12 @@ def _convert_to_3d(img):
         (fr, ys, xs) = img.shape
         return img, fr, ys, xs
     elif dim == 2:
-        fr = 1
-        (ys, xs) = img.shape
-    else:
-        fr =1
         ys = 1
-        (xs,) = img.shape
+        (fr, xs) = img.shape
+    else:
+        xs = 1
+        ys = 1
+        (fr,) = img.shape
 
     return img.reshape((fr, ys, xs)), fr, ys, xs
 
@@ -234,11 +234,6 @@ def g2_plain_norm(img, numtau): # formerly sujoy norm
     arguments:
         img - 3d array
         numtau - tau to correlate
-        qAvg - a list of the averaging type and the size. The possible types and
-            the size parameter are:
-            "square" - the parameter size is dimension of the square, in pixels
-            "circle" - the size is the radius of the circle, in pixels
-            "gaussian" - size is the FWHM of the gaussian, in pixels
 
     returns:
         g2 - correlation function for numtau values
@@ -290,12 +285,7 @@ def g2_numerator(img, onetau):
     """
     assert img.ndim == 3, "g2_numerator: Must be a three dimensional image."
     (fr, ys, xs) = img.shape
-    numerator = np.zeros((ys,xs), dtype='float')
-    for f in range(fr-onetau):
-        numerator += img[f]*img[f+onetau]
-    numerator = numerator/(fr-onetau)
-    # numerator = np.average(img[0:fr-onetau] * img[onetau:fr], axis=0) # This is slower than the above implementaion.
-    return numerator
+    return np.average(img[0:fr-onetau] * img[onetau:fr], axis=0)
 
 def g2_numerator_fft(img, taus=None):
     """ Calculates <I(t) I(t + tau)>_t for specified values of tau via fft
