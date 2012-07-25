@@ -430,7 +430,6 @@ def sp_bin_by_space_and_time(data, frameTime, xybin=8, counterTime=40.0e-9):
                 binnedData[:, i, j] = binned
             idx_to_delete = np.append(idx_to_delete, isect)
         data = np.delete(data, idx_to_delete, axis=0)
-#        print i, j, len(idx_to_delete)
 
     if binnedData.sum() != datalen:
         print "warning: # of binned data photons (%d) do not match original dataset (%d)" % (binnedData.sum(), datalen)
@@ -500,9 +499,9 @@ def intersect(a, b, assume_unique=False):
         ia - indicies of a such that res = a[ia]
         ib - indicies of b such that res = b[ib]
     """
-    res = np.intersect1d(a, b, assume_unique=False)
-    ai = np.nonzero(np.in1d(a, res, assume_unique=False))
-    bi = np.nonzero(np.in1d(b, res, assume_unique=False))
+    res = np.intersect1d(a, b, assume_unique=assume_unique)
+    ai = np.nonzero(np.in1d(a, res, assume_unique=assume_unique))
+    bi = np.nonzero(np.in1d(b, res, assume_unique=assume_unique))
     return res, ai, bi
 
 def sp_autocorrelation_range(data, xr, yr, p=30, m=2):
@@ -584,6 +583,9 @@ def sp_crosscorrelation(d1, d2, p=30, m=2):
     """
     import sys
     assert isinstance(d1, np.ndarray) and isinstance(d2, np.ndarray), "d1 and d2 must 1-dim be arrays"
+    assert d1.ndim == d2.ndim == 1, "d1 and d2 must be the same dimension"
+    assert len(d1) == len(set(d1)), "d1 has duplicate entries"
+    assert len(d2) == len(set(d2)), "d2 has duplicate entries"
 
     d1 = d1.astype('int64')
     d1 = d1[d1.argsort()]
@@ -591,6 +593,7 @@ def sp_crosscorrelation(d1, d2, p=30, m=2):
     d2 = d2[d2.argsort()]
 
     tmax = max(d1.max() - d1.min(), d2.max() - d2.min())
+    # Ncorr does always gives 1 if sortd1 and sortd2 are incidence times (in s) rather than clock counters. Need to fix.
     Ncorr = np.ceil(np.log(tmax/float(p) + 1)/np.log(float(m)) - 1).astype('int') + 1
 
     corrtime = np.zeros(Ncorr*p)
