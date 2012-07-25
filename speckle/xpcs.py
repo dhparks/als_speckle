@@ -587,19 +587,18 @@ def sp_crosscorrelation(d1, d2, p=30, m=2):
     assert len(d1) == len(set(d1)), "d1 has duplicate entries"
     assert len(d2) == len(set(d2)), "d2 has duplicate entries"
 
-    d1 = d1.astype('int64')
-    d1 = d1[d1.argsort()]
-    d2 = d2.astype('int64')
-    d2 = d2[d2.argsort()]
+    sortd1 = d1[d1.argsort()].astype('int64')
+    sortd2 = d2[d2.argsort()].astype('int64')
 
-    tmax = max(d1.max() - d1.min(), d2.max() - d2.min())
+    tmax = max(sortd1.max() - sortd1.min(), sortd2.max() - sortd2.min())
     # Ncorr does always gives 1 if sortd1 and sortd2 are incidence times (in s) rather than clock counters. Need to fix.
     Ncorr = np.ceil(np.log(tmax/float(p) + 1)/np.log(float(m)) - 1).astype('int') + 1
+    print tmax, Ncorr
 
     corrtime = np.zeros(Ncorr*p)
     corr = np.zeros_like(corrtime)
-    w1 = np.ones_like(d1)
-    w2 = np.ones_like(d2)
+    w1 = np.ones_like(sortd1)
+    w2 = np.ones_like(sortd2)
 
     delta = 1
     shift = 0
@@ -609,14 +608,14 @@ def sp_crosscorrelation(d1, d2, p=30, m=2):
         for j in range(p):
             shift = shift + delta
             lag = np.floor(shift/delta).astype('int')
-            (isect, ai, bi) = intersect(d1, d2 + lag, assume_unique=True)
+            (isect, ai, bi) = intersect(sortd1, sortd2 + lag, assume_unique=True)
             corr[i*p+j] = np.dot(w1[ai], w2[bi]) / float(delta)
             corrtime[i*p+j] = shift
             
         delta = delta*m
         
-        d1, w1 = _half_data(d1, m, w1)
-        d2, w2 = _half_data(d2, m, w2)
+        sortd1, w1 = _half_data(sortd1, m, w1)
+        sortd2, w2 = _half_data(sortd2, m, w2)
 
     print("")
 
