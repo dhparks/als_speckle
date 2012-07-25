@@ -593,7 +593,6 @@ def sp_crosscorrelation(d1, d2, p=30, m=2):
     tmax = max(sortd1.max() - sortd1.min(), sortd2.max() - sortd2.min())
     # Ncorr does always gives 1 if sortd1 and sortd2 are incidence times (in s) rather than clock counters. Need to fix.
     Ncorr = np.ceil(np.log(tmax/float(p) + 1)/np.log(float(m)) - 1).astype('int') + 1
-    print tmax, Ncorr
 
     corrtime = np.zeros(Ncorr*p)
     corr = np.zeros_like(corrtime)
