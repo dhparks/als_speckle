@@ -152,7 +152,7 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
         # 4. rewrap
 
     Required arguments:
-        data: 2d ndarray containing the data to be apodized. This data should
+        data_in: 2d ndarray containing the data to be apodized. This data should
         be been sliced so that the only object is the target data.
     
     Optional arguments:

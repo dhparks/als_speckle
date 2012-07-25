@@ -1,6 +1,7 @@
 __kernel void execute(
-    __global float* image // image data
-)
+    __global float* image, // image data
+    float threshold)       // data/medfiltered_data > threshold is considered "hot")   
+
 // take a sub array from the master domains image
 
 {
@@ -193,21 +194,25 @@ __kernel void execute(
     r3 = swap_min;
     r7 = swap_max;
 
+    // can kill this one
     swap_min = fmin(r0,r2);
     swap_max = fmax(r0,r2);
     r0 = swap_min;
     r2 = swap_max;
 
+    // and this one
     swap_min = fmin(r1,r3);
     swap_max = fmax(r1,r3);
     r1 = swap_min;
     r3 = swap_max;
 
+    // and this one
     swap_min = fmin(r0,r1);
     swap_max = fmax(r0,r1);
     r0 = swap_min;
     r1 = swap_max;
 
+    // and this one
     swap_min = fmin(r2,r3);
     swap_max = fmax(r2,r3);
     r2 = swap_min;
@@ -228,6 +233,7 @@ __kernel void execute(
     r4 = swap_min;
     r5 = swap_max;
 
+    // this is the last one you can kill
     swap_min = fmin(r6,r7);
     swap_max = fmax(r6,r7);
     r6 = swap_min;
@@ -235,5 +241,7 @@ __kernel void execute(
     
     median = r4;
 
-    image[j+rows*i] = r4;
+    float q = image[j+rows*i]/median;
+    if (q >= threshold) {image[j+rows*i] = median;}
+    //image[j+rows*i] = r4;
 }
