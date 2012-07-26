@@ -122,7 +122,7 @@ def g2_symm_norm(img, numtau, qAvg = ("circle", 10)):
 
     img, fr, ys, xs = _convert_to_3d(img)
 
-    tauvals = _numtauToTauvals(numtau)
+    tauvals = _numtauToTauvals(numtau, maxtau=fr)
 
     ntaus = len(tauvals)
     result = np.zeros((ntaus, ys, xs), dtype=float)
@@ -168,7 +168,7 @@ def g2_symm_borthwick_norm(img, numtau, qAvg = ("circle", 10)):
 
     img, fr, ys, xs = _convert_to_3d(img)
 
-    tauvals = _numtauToTauvals(numtau)
+    tauvals = _numtauToTauvals(numtau, maxtau=fr)
 
     ntaus = len(tauvals)
     result = np.zeros((ntaus, ys, xs), dtype=float)
@@ -260,7 +260,7 @@ def g2_no_norm(img, numtau):
     import sys
     img, fr, ys, xs = _convert_to_3d(img)
 
-    tauvals = _numtauToTauvals(numtau)
+    tauvals = _numtauToTauvals(numtau, maxtau=fr)
 
     ntaus = len(tauvals)
     numerator = np.zeros((len(tauvals), ys, xs), dtype=float)
@@ -336,20 +336,30 @@ def _numtauToTauvals(numtau, maxtau=0):
         tauvals - list of taus to correlate.
     """
     assert type(numtau) in (int, list, tuple), "_numtauToTauvals(): numtau is not recognizeable."
+    assert type(maxtau) == int and maxtau >= 0, "_numtauToTauvals(): maxtau must be non-negative int."
+
     if type(numtau) == int:
         tauvals = range(numtau)
     elif type(numtau) in (list, tuple) and len(numtau) == 2:
         tst, tend = numtau
-        tauvals = range(tst, tend)
+        assert type(tst) == int and tst >= 0, "_numtauToTauvals(): t_start must be non-negative int."
+        assert type(tend) == int and tend >= 0, "_numtauToTauvals(): t_end must be non-negative int."
+        
+        tauvals = range(min(tst, tend), max(tst, tend))
     else:
         # We must have a list of tauvals
         tauvals = list(numtau)
 
-    assert np.array(tauvals).min() >= 0, "All taus must be larger non-negative. taus: (%s)" % repr(tauvals)
+    tarray = np.array(tauvals)
+    if (tarray < 0).any():
+        print "_numtauToTauvals(): Found values < 0. Removing"
+        tarray = tarray[tarray < 0]
     if maxtau > 0:
-        assert np.array(tauvals).max() < maxtau, "All taus must be smaller than %d. taus: (%s)" % (maxtau, repr(tauvals))
+        if tarray.max() > maxtau:
+            print "_numtauToTauvals(): Found values > maxtau (%d). Removing" % maxtau
+            tarray = tarray[tarray <= maxtau]
 
-    return tauvals
+    return list(tarray)
 
 def _noAverage(img, size):
     return img
