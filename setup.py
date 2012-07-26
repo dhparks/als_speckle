@@ -12,10 +12,10 @@ kernel_files = glob.glob('./speckle/gpu/kernels/*.cl')
 
 setup(
     name='speckle',
-    version='0.2',
+    version='0.3',
     packages=['speckle','speckle.gpu','speckle.simulation'],
     requires = dependencies,
-    data_files = [('speckle/gpu/kernels',kernel_files)],
+    data_files = ['speckle/gpu/kernels', kernel_files, 'test', 'examples'],
     author = "Daniel Parks, Keoki Seu",
     author_email = "dhparks@lbl.gov, kaseu@lbl.gov",
     description = "Library for speckle analysis at Beamline 12.0.2 at the Advanced Light Source",

@@ -1,6 +1,8 @@
-0.3 - ??????date
+0.3 - 7/26/2012
 - Implement a testing framework to test the module
-
+- Add a GPU accelerated medianfilter
+- Continue to add examples.  Some have GUIs
+- Fix lots of bugs.
 
 0.2 - July 16, 2012
 - add a new library, speckle.masking, related to masking of pixels.
