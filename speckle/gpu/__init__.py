@@ -32,6 +32,6 @@ if have_pyopencl and have_pyfft:
     for mod in __all__:
         exec("import %s" % mod)
     del mod
-    print "gpu functions enabled"
+    print "speckle: gpu functions enabled"
 else:
-    print "gpu functions not enabled"
+    print "speckle: gpu functions not enabled"

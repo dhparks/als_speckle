@@ -404,8 +404,9 @@ class LorentzianSq(OneDimPeak):
         self.params[2] = self.estimate_fwhm()/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
         
 class LorentzianSqBlurred(OneDimPeak):
-    """ fit a function to a 1d squared lorentzian.  This fits the function:
-        f(x) = a/( ((x-x0)/w)^2 + 1)^2 + bg
+    """ fit a function to a 1d squared lorentzian convolved with a gaussian.  This
+    fits the function:
+        f(x) = a*convolve( 1/( ((x-x0)/w)^2 + 1)^2, exp(-(x-x0)^2/(2w^2) ) + bg
     """
 
     def __init__(self, data, mask=None):
@@ -718,10 +719,12 @@ def lorentzian_sq(data, mask=None):
     return fit
 
 def lorentzian_sq_blurred(data, mask=None):
-    """ fit a function to a squared lorentzian convolved with a gaussian.
-    This is the most physically plausible lineshape for fitting
-    copd-type speckle patterns.
+    """ fit a function to a squared lorentzian convolved with a gaussian. This is
+    the most physically plausible lineshape for fitting labyrinth-type speckle
+    patterns. This fits the function:
 
+       f(x) = a*convolve( 1/( ((x-x0)/w)^2 + 1)^2, exp(-(x-x0)^2/(2w^2) ) + bg
+    
     arguments:
         data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
         mask - binary mask that tells the program where the data should be fit.
