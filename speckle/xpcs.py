@@ -129,11 +129,9 @@ def g2_symm_norm(img, numtau, qAvg = ("circle", 10)):
 
     IQ = _averagingFunctions[avgType](img, avgSize)
 
-    i = 0 # we need I because tauvals may not be in order, linear, or start at 0.
-    for t in tauvals:
-        result[i] = g2_numerator(img, t)/(_time_average(IQ, 0, fr-t)*_time_average(IQ, t, fr))
-        i += 1
-        sys.stdout.write("\rtau %d (%d/%d)" % (t, i, ntaus))
+    for i, tau in enumerate(tauvals):
+        result[i] = g2_numerator(img, tau)/(_time_average(IQ, 0, fr-tau)*_time_average(IQ, tau, fr))
+        sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
     print("")
     return result
 
@@ -178,11 +176,9 @@ def g2_symm_borthwick_norm(img, numtau, qAvg = ("circle", 10)):
     IT = _time_average(img)
 
     IQTsqIQsq = IQT*IQT/(IT*IT)
-    i = 0 # we need I because tauvals may not be in order, linear, or start at 0.
-    for t in tauvals:
-        result[i] = IQTsqIQsq * g2_numerator(img, t)/(_time_average(IQ, 0, fr-t)*_time_average(IQ, t, fr))
-        i += 1
-        sys.stdout.write("\rtau %d (%d/%d)" % (t, i, ntaus))
+    for i, tau in enumerate(tauvals):
+        result[i] = IQTsqIQsq * g2_numerator(img, tau)/(_time_average(IQ, 0, fr-tau)*_time_average(IQ, tau, fr))
+        sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
     print("")
     return result
     
@@ -264,11 +260,9 @@ def g2_no_norm(img, numtau):
 
     ntaus = len(tauvals)
     numerator = np.zeros((len(tauvals), ys, xs), dtype=float)
-    i = 0 # we need I because tauvals may not be in order, linear, or start at 0.
-    for t in tauvals:
-        numerator[i] = g2_numerator(img, t)
-        i += 1
-        sys.stdout.write("\rtau %d (%d/%d)" % (t, i, ntaus))
+    for i, tau in enumerate(tauvals):
+        numerator[i] = g2_numerator(img, tau)
+        sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
     print("")
     return numerator
 
@@ -368,7 +362,8 @@ def _time_average(img, start='', stop=''):
     if start == '' and stop == '':
         return np.average(img,axis=0)
     else:
-        assert type(start) == int and type(stop) == int, "start and stop must be integers"
+        intlist = (int, np.int, np.int8, np.int16, np.int32, np.int64)
+        assert type(start) in intlist and type(stop) in intlist, "start and stop must be integers. Got start (%s), stop (%s)" % (type(start), type(stop))
         return np.average(img[start:stop],axis=0)
 
 # This is a dictionary of averaging functions.  They all take (img, size) as arguments.
