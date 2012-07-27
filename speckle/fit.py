@@ -402,6 +402,44 @@ class LorentzianSq(OneDimPeak):
         
         # width is always some function-dependent multiple of fwhm
         self.params[2] = self.estimate_fwhm()/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
+        
+class LorentzianSqBlurred(OneDimPeak):
+    """ fit a function to a 1d squared lorentzian.  This fits the function:
+        f(x) = a/( ((x-x0)/w)^2 + 1)^2 + bg
+    """
+
+    def __init__(self, data, mask=None):
+        OneDimPeak.__init__(self, data, mask)
+        self.functional = "a*convolve(lorentzian(x0,lw)**2,gaussian(gw))+bg"
+        self.params_map ={ 0:"a", 1:"x0", 2:"lw", 3:"bg", 4:"gw"}
+        
+    def fit_function(self):
+        a, x0, lw, bg, gw = self.params # gw is gaussian width
+        # checks to return high numbers if parameters are getting out of hand.
+        #if ( gam > 0 ): return np.ones_like(self.xvals) * self.try_again
+        if lw < 0 or gw < 0: return self.try_again
+
+        l = shape.lorentzian(self.data.shape, (lw,), center=(x0,))**2
+        g = np.fft.fftshift(shape.gaussian(self.data.shape, (gw,), normalization=1.0))
+        f = self._convolve(l,g)
+
+        return a*f+bg
+    
+    def _convolve(self,x,y):
+        return np.fft.ifft(np.fft.fft(x)*np.fft.fft(y)).real
+
+    def guess_parameters(self):
+        self.params = np.zeros(5)
+        
+        self.params[3] = abs(self.data).min()              # bg
+        self.params[0] = self.data.max() - self.params[3]  # scale
+        self.params[1] = self.xvals[self.data.argmax()]    # center x0
+        
+        # width is always some function-dependent multiple of fwhm
+        self.params[2] = self.estimate_fwhm()/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
+        
+        # hard to make a case for the convolver width! just set it to 1 and see what happens
+        self.params[4] = 4.
 
 class Gaussian2D(TwoDimPeak):
     """ fit a function to a two-dimensional Gaussian.  This fits the function:
@@ -676,6 +714,26 @@ def lorentzian_sq(data, mask=None):
             the final fitted values.
     """
     fit = LorentzianSq(data, mask)
+    fit.fit()
+    return fit
+
+def lorentzian_sq_blurred(data, mask=None):
+    """ fit a function to a squared lorentzian convolved with a gaussian.
+    This is the most physically plausible lineshape for fitting
+    copd-type speckle patterns.
+
+    arguments:
+        data - Data to fit.  This should be a (N, 2) array of (xvalues, yvalues).
+        mask - binary mask that tells the program where the data should be fit.
+            This must be the same size as the data.  The default is None.
+
+    returns:
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
+    """
+    fit = LorentzianSqBlurred(data, mask)
     fit.fit()
     return fit
 
