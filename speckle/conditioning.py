@@ -158,8 +158,8 @@ def subtract_background(data, dark=None, x=20, scale=1, abs_val=True):
 
     arguments:
         data - data to subtract.
-        dark - dark file. Defaults to None.  In this case only the DC component
-            is subtracted.
+        dark - dark file. Must be an ndarray or None.  Defaults to None.  In
+            this case only the DC component is subtracted.
         x - amount from the data edge that should be used for DC component
             averaging. The dc component is average(data[0:x, 0:x]). Defaults to
             20 pixels.
@@ -279,8 +279,7 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     assert use_mag_only in (0,1,True,False),                      "use_mag_only must be boolean-evaluable"
     assert return_type in ('data','sum','coordinates'),           "return_type must be 'data', 'sum', or 'coordinates'; 'data' is default"
     if data.ndim == 2: assert isinstance(align_to,numpy.ndarray), "data is 2d; need an explicit alignment reference"
-#    if data.ndim == 2 and return_type == 'sum': print             "summing 2d data is non-sensical" # not an assert!
-    
+
     # define some simple helper functions to improve readability
     rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
     def prep(x):
