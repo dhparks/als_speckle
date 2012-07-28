@@ -6,12 +6,6 @@ import numpy
 
 from . import shape, conditioning, scattering, wrapping
 
-DFT = numpy.fft.fft2
-IDFT = numpy.fft.ifft2
-shift = numpy.fft.fftshift
-
-I = complex(0,1)
-
 def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=None,phase=None,data_is_fourier=False):
     """ Propagate a wavefield a single distance, by supplying either the energy
     (or wavelength) and the distance or by supplying a pre-calculated quadratic
@@ -49,6 +43,7 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
     assert type(data_is_fourier) == bool,                 "data_is_fourier must be bool"
     assert isinstance(phase,(numpy.ndarray,type(None))),  "phase must be array or None"
 
+    I = complex(0,1)
     # first see if a phase is supplied. if not, make it from the supplied parameters.
     if phase == None:
     
@@ -61,7 +56,7 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
         else: wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
     
         N = len(data)
-        r = shift((shape.radial((N,N)))**2)
+        r = numpy.fft.fftshift((shape.radial((N,N)))**2)
         phase = numpy.exp(-I*numpy.pi*wavelength*z*r/(pixel_pitch*N)**2)
         
     else:
@@ -70,11 +65,11 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
         assert phase.shape == data.shape,       "phase and data must be same shape"
         
     if not data_is_fourier:
-        res = DFT(data)
+        res = numpy.fft.fft2(data)
     else:
         res = data
 
-    return IDFT(res*phase)
+    return numpy.fft.ifft2(res*phase)
 
 def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarraysize=None,silent=True):
     """ Propagates a complex-valued wavefield through a range of distances
@@ -113,6 +108,8 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarrays
     if isinstance(subarraysize,float): subarraysize = int(subarraysize)
     assert isinstance(subarraysize, int) and subarraysize <= len(data), "subarray must be int smaller than supplied length of data"
 
+    I = complex(0,1)
+
     # convert energy_or_wavelength to wavelength.  If < 1 assume it's a wavelength.
     if energy_or_wavelength < 1: wavelength = energy_or_wavelength
     else: wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
@@ -130,8 +127,8 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarrays
     # compute the distances of back propagations on the cpu.
     # precompute the fourier signal. define the phase as a lambda function. loop through the distances
     # calling phase and propagate_one_distance. save the region of interest (subarray) to the buffer.
-    fourier = DFT(data)
-    r = shift((shape.radial((N,N)))**2)
+    fourier = numpy.fft.fft2(data)
+    r = numpy.fft.fftshift((shape.radial((N,N)))**2)
     cpu_phase = lambda z: numpy.exp(-I*numpy.pi*wavelength*z*r/(pixel_pitch*N)**2)
     for n,z in enumerate(distances):
         if z > upperlimit: print "propagation distance (%s) exceeds accuracy upperlimit (%s)"%(z,upperlimit)
@@ -214,7 +211,7 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
         boundary[col] = ave
         
     # smooth the edge values by convolution with a gaussian
-    kernel = shift(shape.gaussian((ux,),(sigma,),normalization=1.0))
+    kernel = numpy.fft.fftshift(shape.gaussian((ux,),(sigma,),normalization=1.0))
     boundary = abs(convolve(boundary,kernel))-1
     
     # now that the coordinates have been smoothed, build the filter as a series of 1d filters along the column (angle) axis
