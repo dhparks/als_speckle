@@ -182,31 +182,39 @@ def andor_ccd_efficiency(energy):
 
     return np.interp(energy, Energies, QEs)
 
-def ccd_to_photons(img, energy, calc='detected', gain_readout=1e-6, guess_dark=True):
+def ccd_to_photons(data, energy, calc='detected', gain_readout=1e-6, guess_dark=False):
     """Convert a CCD image to number of photons.  This calculates the number of
         photons from an Andor CCD image.  Optionally, the number of incident
         photons can be calculated using calc='incident',
 
     arguments:
-        img - array to convert.  Can be 1d, 2d or 3d.
+        data - data to convert.  Can be 1d, 2d or 3d, float or int.
         energy - energy (in eV).
         calc - What to calculate.  Can be the 'incident', where the number of
             incident photons is calculated, or 'detected' where the number of
             detected photons are calculated.  The difference is that the
             'incident' calculation accounts for CCD efficiency, whereas
-            'detected' does not. Defaults to 'detected'
-        gain_readout -readout time of the CCD.  Defaults to 1e-6 (1us).  This
-            can be one of (1e-6, 2e-6, 16e-6, 32e-6).
+            'detected' does not. Defaults to 'detected'.
+        gain_readout - readout time of the CCD. This is specific to our Andor
+            CCD model and can be one of these values:(1e-6, 2e-6, 16e-6, 32e-6).
+            Defaults to 1e-6 (1us).
         guess_dark - weather we should try and guess the dark count from the
-            corners of the array.  If true, it subtracts this value off all of
-            the pixels.  Defaults to True.
+            corners of the array.  If true, the dark guess comes from the edges
+            of the array. This flag does nothing if the input is a single float
+            or int value. Defaults to False.
 
     returns:
         photon_array - array of photon counts that is the same size as the input
             array. The final array is casted as int and the values smaller than
             zero are removed.
     """
-    assert isinstance(img, np.ndarray) and img.ndim in (1,2,3), "img must be an 1d, 2d, or 3d, array"
+    assert isinstance(data, (np.ndarray, np.float, np.int)), "data must be an array, float or int"
+    if isinstance(data, np.ndarray):
+        assert data.ndim in (1,2,3), "data array must be dimension (1,2,3)."
+        data_is_array = True
+    else:
+        data_is_array = False
+
     assert type(energy) in (float, int), "energy must be float or int"
     # readtime and gain map from the do436 manual
     gain_readtime = {
@@ -223,14 +231,19 @@ def ccd_to_photons(img, energy, calc='detected', gain_readout=1e-6, guess_dark=T
         calc = 'detected'
 
     if guess_dark:
-        if img.ndim == 3:
-            avg = np.average(np.concatenate((img[:,0,0], img[:,-1,0], img[:,0,-1], img[:,-1,-1])))
-        elif img.ndim == 2:
-            avg = np.average(np.concatenate((img[0,0], img[-1,0], img[0,-1], img[-1,-1])))
-        elif img.ndim == 1:
-            avg = (img[0] + img[-1])/2
+        if data_is_array:
+            if data.ndim == 3:
+                avg = np.average(np.concatenate((data[:,0,0], data[:,-1,0], data[:,0,-1], data[:,-1,-1])))
+            elif data.ndim == 2:
+                avg = np.average(np.concatenate((data[0,0], data[-1,0], data[0,-1], data[-1,-1])))
+            elif data.ndim == 1:
+                avg = (data[0] + data[-1])/2
+        else: # image must be float or int
+            avg = 0.0
 
-        img = img - avg
+        datasub = data - avg
+    else:
+        datasub = data.copy()
 
     gain = gain_readtime[gain_readout]
     QE = andor_ccd_efficiency(energy)
@@ -240,9 +253,13 @@ def ccd_to_photons(img, energy, calc='detected', gain_readout=1e-6, guess_dark=T
     else: # 'incident'
         photonsPerCount = (100.0/QE) * gain/ PEconv
 
-    img = img.astype('float') * photonsPerCount
-    print "ccd_to_photons: 1 %s photon is %d counts" % (calc, int(1.0/photonsPerCount))
-    return np.where(img.astype('int') < 0, 0, img.astype('int'))
+    print "ccd_to_photons: 1 %s photon is %1.1f counts" % (calc, 1.0/photonsPerCount)
+    if data_is_array:
+        datasub = datasub.astype('float') * photonsPerCount
+        return np.where(datasub < 0, 0, datasub.astype('int'))
+    else:
+        datasub = float(datasub) * photonsPerCount
+        return 0 if datasub < 0 else int(datasub)
 
 def calculate_bragg((a, b, c), (h, k, l), energy):
     """ Calculate the bragg reflection for lattice spacing [a,b,c] and
