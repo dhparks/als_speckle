@@ -95,7 +95,7 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarrays
     
     returned[n] is the wavefield propagated to distances[n].
     """
-
+    import sys
     # check types and defaults
     assert isinstance(data,numpy.ndarray),                              "data must be an array"
     assert data.dtype in (float, complex),                              "data must be float or complex"
@@ -124,6 +124,7 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarrays
     # limits the reliability of the phase component, although the magnitude component is still useful.
     upperlimit = (pixel_pitch*N)**2/(wavelength*N)
 
+    numfr = len(distances)
     # compute the distances of back propagations on the cpu.
     # precompute the fourier signal. define the phase as a lambda function. loop through the distances
     # calling phase and propagate_one_distance. save the region of interest (subarray) to the buffer.
@@ -132,10 +133,15 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarrays
     cpu_phase = lambda z: numpy.exp(-I*numpy.pi*wavelength*z*r/(pixel_pitch*N)**2)
     for n,z in enumerate(distances):
         if z > upperlimit: print "propagation distance (%s) exceeds accuracy upperlimit (%s)"%(z,upperlimit)
-        if not silent: print z
+        if not silent:
+            sys.stdout.write("\rpropagating: %1.2e m (%02d/%02d)" % (z, n+1, numfr))
+            sys.stdout.flush()
         phase_z = cpu_phase(z)
         back = propagate_one_distance(fourier,phase=phase_z,data_is_fourier=True)
         buffer[n] = back[N/2-subarraysize/2:N/2+subarraysize/2,N/2-subarraysize/2:N/2+subarraysize/2]
+
+    if not silent:
+        print ""
 
     return buffer
             
