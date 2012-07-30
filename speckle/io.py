@@ -12,7 +12,9 @@ import numpy
 from . import shape
 
 # If you need to use the python open() function, use this!!
-_open = open
+import types as _t
+if type(open) == _t.BuiltinFunctionType:
+    _open = open
 
 # global overwrite option for FITS files
 overwrite_default = False
