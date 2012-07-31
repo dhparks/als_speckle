@@ -132,6 +132,7 @@ def g2_symm_norm(img, numtau, qAvg = ("circle", 10)):
     for i, tau in enumerate(tauvals):
         result[i] = g2_numerator(img, tau)/(_time_average(IQ, 0, fr-tau)*_time_average(IQ, tau, fr))
         sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
+        sys.stdout.flush()
     print("")
     return result
 
@@ -179,6 +180,7 @@ def g2_symm_borthwick_norm(img, numtau, qAvg = ("circle", 10)):
     for i, tau in enumerate(tauvals):
         result[i] = IQTsqIQsq * g2_numerator(img, tau)/(_time_average(IQ, 0, fr-tau)*_time_average(IQ, tau, fr))
         sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
+        sys.stdout.flush()
     print("")
     return result
     
@@ -263,6 +265,7 @@ def g2_no_norm(img, numtau):
     for i, tau in enumerate(tauvals):
         numerator[i] = g2_numerator(img, tau)
         sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
+        sys.stdout.flush()
     print("")
     return numerator
 
