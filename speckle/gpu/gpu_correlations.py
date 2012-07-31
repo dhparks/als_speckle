@@ -8,7 +8,7 @@ import time
 import string
 
 # common libs. do some ugly stuff to get the path set to the kernels directory
-from .. import wrapping,shape,crosscorr,wrapping
+from .. import wrapping,shape,crosscorr,io
 import gpu
 kp = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/'
 
@@ -26,7 +26,7 @@ class gpu_microscope():
     """Methods for running a symmetry-microscope simulation on a gpu using
     pyopencl and pyfft libraries"""
 
-    def __init__(self,device=None,object=None,unwrap=None,pinhole=None,components=None,coherence=None,returnables=('spectrum',)):
+    def __init__(self,device=None,object=None,unwrap=None,pinhole=None,components=None,coherence=None,ph_signal=False,returnables=('spectrum',)):
 
         """ Get the class running. At minimum, accept gpu information and
         compile kernels. Information about the object, pinhole, unwrap region
@@ -40,6 +40,7 @@ class gpu_microscope():
         self.make_kernels()
         self.returnables_list = returnables
         self.interpolation_order = 1
+        self.ph_signal = ph_signal
         
         self.can_has_object = False
         self.can_has_unwrap = False
@@ -91,6 +92,8 @@ class gpu_microscope():
             self.fft_signal       = cla.empty(self.queue, (self.N,self.N), np.complex64)
             self.intensity_sum_re = cla.empty(self.queue, (self.N,self.N), np.float32  )
             self.intensity_sum_im = cla.empty(self.queue, (self.N,self.N), np.float32  )
+            if not self.ph_signal:
+                self.scratch1re   = cla.empty(self.queue, (self.N,self.N), np.float32)
             
             # make fft plan for complex (interleaved); for speckle
             self.fftplan_speckle = fft_plan((self.N,self.N), queue=self.queue)
@@ -100,8 +103,7 @@ class gpu_microscope():
             assert isinstance(object,np.ndarray) and object.ndim==2, "object must be 2d array"
             assert object.shape == (self.N,self.N), "object shape differs from initialization values"
             self.master_object.set(object.astype(self.master_object.dtype))
-        
-            
+
         self.can_has_object = True
         
     def set_unwrap(self,params):
@@ -132,9 +134,6 @@ class gpu_microscope():
         # make the unwrap plan. put the buffers into gpu memory
         uy,ux = wrapping.unwrap_plan(self.ur,self.uR,(0,0),modulo=self.N)[:,:-1]
         self.unwrap_cols = len(ux)/self.rows
-        #print self.unwrap_cols
-        #exit()
-        #xTable,yTable,self.unwrap_cols = _unwrap_plan(self.N,self.ur,self.uR,self.N/2,self.N/2)
         self.unwrap_x_gpu  = cla.to_device(self.queue,ux.astype(np.float32))
         self.unwrap_y_gpu  = cla.to_device(self.queue,uy.astype(np.float32))
         self.unwrapped_gpu = cla.empty(self.queue,(self.rows,self.unwrap_cols), np.float32)
@@ -149,26 +148,10 @@ class gpu_microscope():
         self.resized512  = cla.empty(self.queue,r512_x.shape,      np.float32)  # result, also stores correlations
         self.resized360  = cla.empty(self.queue,r360_x.shape,      np.float32)  # holds data after resizing to 360 pixels in theta
         self.corr_denoms = cla.empty(self.queue,(r512_x.shape[0],),np.float32)  # correlation normalizations
-        
+
         # make fft plan for correlating rows.
-        try:
-            # this plan requires real and imaginary components to be separately specified
-            self.fftplan_correls = fft_plan((self.rows,512), dtype=np.float32, queue=self.queue, axes=(1,))
-            self.pyfft_x = True
-        except:
-            print "couldn't build axis=1 fft. instead, will build a 1d fft and loop to correlate rows, which is much slower!"
-            print "for fast 1d ffts, install plan.py and cl.py from the repo into the pyfft directory"
-            self.fftplan_correls = fft_plan((512,),dtype=np.float32,queue=self.queue)
-            self.pyfft_x = False
-            
-        # depending on presence of axis = 1 support in pyfft, set up the correct buffers
-        if self.pyfft_x:
-            self.resized512z = cla.empty(self.queue,r512_x.shape,np.float32) # an array of zeros for the xaxis-only split fft
-            self.set_zero(self.resized512z)
-        if not self.pyfft_x:
-            self.active_row  = cla.empty(self.queue,(512,),np.float32)
-            self.dummy_row   = cla.empty(self.queue,(512,),np.float32)
-                        
+        self.fftplan_correls = fft_plan((512,), dtype=np.float32, queue=self.queue)
+
         # check for the apple/nvidia problem
         if 'Apple' in str(self.platform) and 'GeForce' in str(self.device) and ispower2(self.rows): self.adjust_rows()
 
@@ -192,6 +175,7 @@ class gpu_microscope():
             assert pinhole < self.N/2, "pinhole radius must be smaller than pinhole array size"
             illumination = fftshift(shape.circle((self.N,self.N),pinhole))
             self.pr = pinhole
+            self.pinhole_area = np.sum(illumination)
 
         if isinstance(pinhole,np.ndarray):
             assert pinhole.shape == self.object.shape, "supplied pinhole must be same size as supplied object"
@@ -257,9 +241,9 @@ class gpu_microscope():
             
         # more kernels. due to their simplicity these are not put into external files
         self.illuminate_re = EK(self.context,
-            "float2 *a, " # illumination
+            "float2 *a, " # illumination (possibly complex)
             "float *b, "  # transmission/object
-            "float2 *c",  # output
+            "float2 *c",  # output (possibly complex)
             "c[i] = (float2)(a[i].x*b[i],a[i].y*b[i])",
             "illluminate_re")
         
@@ -298,6 +282,19 @@ class gpu_microscope():
             "float2 *fft",
             "fft[i] = (float2)(fft[i].x*fft[i].x+fft[i].y*fft[i].y, 0.0f)",
             "square_modulus")
+        
+        self.copy_real = EK(self.context,
+            "float2 *carray,"
+            "float *rarray",
+            "rarray[i] = carray[i].x",
+            "copy_real")
+        
+        self.subtract_pinhole = EK(self.context,
+            "float2 *scratch,"
+            "float2* illumination,"
+            "float scale",
+            "scratch[i] = (float2)(scratch[i].x-scale*illumination[i].x,scratch[i].y-scale*illumination[i].y)",
+            "sub_pin")
         
     def set_cosines(self,components):
         
@@ -416,11 +413,11 @@ class gpu_microscope():
         """
         
         self.slice_time0 = time.time()
-        self.slice_view.execute(self.queue, (self.N,self.N),             # opencl stuff
-                   self.master_object.data,                              # input: master_object
-                   self.active_object.data,                              # output: active_object
+        self.slice_view.execute(self.queue, (self.N,self.N),      # opencl stuff
+                   self.master_object.data,                       # input: master_object
+                   self.active_object.data,                       # output: active_object
                    np.int32(self.N),np.int32(self.N),             # array dimensions
-                   np.int32(top_row), np.int32(left_col)).wait()   # coords
+                   np.int32(top_row), np.int32(left_col)).wait()  # coords
         self.slice_time1 = time.time()
 
         if 'object' in self.returnables_list: self.returnables['object'] = self.master_object.get()
@@ -444,16 +441,20 @@ class gpu_microscope():
         self.make_time0 = time.time()
         
         # calculate the exit wave by multiplying the illumination
-        to_return = []
-        return_something = False
         self.illuminate_re(self.illumination_gpu, self.active_object, self.scratch1).wait()
+        
+        if self.pr != None and not self.ph_signal:
+            self.copy_real(self.scratch1,self.scratch1re)
+            object_sum = cla.sum(self.scratch1re).get()
+            self.subtract_pinhole(self.scratch1,self.illumination_gpu,np.float32(object_sum/self.pinhole_area))
+        
         if 'illuminated' in self.returnables_list:
             temp = fftshift(self.scratch1.get())
             if isinstance(self.pr, (int,float)): temp = temp[self.N/2-self.pr:self.N/2+self.pr,self.N/2-self.pr:self.N/2+self.pr]
             self.returnables['illuminated'] = temp
         
         # calculate the fft of the wavefield
-        self.fftplan_speckle.execute(self.scratch1.data, data_out=self.scratch2.data,wait_for_finish=True)
+        self.fftplan_speckle.execute(self.scratch1.data, data_out=self.scratch2.data, wait_for_finish=True)
         
         # turn the complex field (scratch2) into speckles (intensity_sum_re)
         self.add_intensity(self.scratch2, self.intensity_sum_re).wait()
@@ -498,16 +499,17 @@ class gpu_microscope():
             unwrapped: unwrapped speckle
             resized: unwrapped speckle resized to 512 pixels wide"""
             
-        # can this be combined into a single operation?
+        # can this be combined into a single operation through a new map? ie, resize the unwrap map, then do a single
+        # pass of map_coords using the hybrid plan?
         
         #unwrap
         self.unwrap_time0 = time.time()
-        self.map_coords.execute(self.queue, (self.unwrap_cols,self.rows),                                                   # opencl stuff
+        self.map_coords.execute(self.queue, (self.unwrap_cols,self.rows),                                             # opencl stuff
                    self.intensity_sum_re.data, np.int32(self.N),           np.int32(self.N),                          # input
                    self.unwrapped_gpu.data,    np.int32(self.unwrap_cols), np.int32(self.rows),                       # output
-                   self.unwrap_x_gpu.data,     self.unwrap_y_gpu.data,        np.int32(self.interpolation_order)).wait() # plan, interpolation order
+                   self.unwrap_x_gpu.data,     self.unwrap_y_gpu.data,     np.int32(self.interpolation_order)).wait() # plan, interpolation order
         self.unwrap_time1 = time.time()
-            
+        
         # resize
         self.map_coords.execute(self.queue, (512,self.rows),
                    self.unwrapped_gpu.data, np.int32(self.unwrap_cols), np.int32(self.rows),                        # input
@@ -517,22 +519,7 @@ class gpu_microscope():
         
         if 'unwrapped' in self.returnables_list: self.returnables['unwrapped'] = self.unwrapped_gpu.get()
         if 'resized' in self.returnables_list: self.returnables['resized'] = self.resized512.get()
-
-    def gpu_autocorrelation(self,fftplan,re_data,im_data,data_out=None):
-        """ A helper function which does the autocorrelation of complex data according to the supplied plan.
-         fftplan should expect split (not interleaved) data. The real data is in re_data and the imaginary
-         data is in im_data. The output, which must be real because its an autocorrelation, is stored in
-         re_data unless a separate buffer is specified by optional argument data_out. im_data is overwritten
-         with zero so be careful!"""
-         
-        fftplan.execute(re_data.data,im_data.data,wait_for_finish=True)              # forward transform
-        self.make_intensity(re_data,im_data,re_data)                                 # re**2 + im**2; store in re
-        self.set_zero(im_data)                                                       # set im to 0
-        if data_out == None:
-            fftplan.execute(re_data.data,im_data.data,inverse=True,wait_for_finish=True)
-        else:
-            fftplan.execute(re_data.data,im_data.data,data_out=data_out.data,inverse=True,wait_for_finish=True)
-            
+      
     def rotational_correlation(self,fallback='cpu'):
         """ Perform an angular correlation of a speckle pattern by doing a
         cartesian correlation of a speckle pattern unwrapped into polar
@@ -549,48 +536,23 @@ class gpu_microscope():
             pixels in the angular coordinate.
         """
         
-        # fft, square, ifft each row of the image
         self.correlation_time0 = time.time()
-
-        self.set_zero(self.corr_denoms) # have to use this function because array.set() is crashing for unknown reasons
         
-        if self.pyfft_x:
-            # zero the buffer for imaginary data
-            self.set_zero(self.resized512z)
+        # zero the buffers
+        self.set_zero(self.resized512z)
+        self.set_zero(self.corr_denoms)
             
-            # get the denominaters
-            self.sum_rows.execute(self.queue, (self.rows,),
-                              self.resized512.data, self.corr_denoms.data,np.int32(self.rows))
-            
-            self.gpu_autocorrelation(self.fftplan_correls,self.resized512,self.resized512z)
-            
-            # normalize the row_corr_re output by dividing each row by the normalization constants found in corr_denoms.
-            # output is kept in place.
-            self.row_divide.execute(self.queue, (512,self.rows), 
-                                    self.resized512.data, self.corr_denoms.data, self.resized512.data)
+        # get the denominaters
+        self.sum_rows.execute(self.queue, (self.rows,), self.resized512.data, self.corr_denoms.data,np.int32(self.rows))
         
-        if not self.pyfft_x:
-            
-            if fallback == 'cpu':
-                ac = lambda x: fftshift(abs(crosscorr.autocorr(x,axes=(1,))))
-                temp = self.resized512.get()
-                temp = ac(temp)
-                for n in range(self.rows): temp[n] = temp[n]/(temp[n].max())
-                self.resized512.set(temp.astype(np.float32))
-            
-            # get the denominaters
-            if fallback == 'gpu':
-                self.sum_rows.execute(self.queue, (self.rows,),
-                                  self.resized512.data,
-                                  self.corr_denoms.data,np.int32(1))
-                
-                for r in range(self.rows):
-                    # slice out active row. autocorrelate the row. put the autocorrelation back in.
-                    offset = np.int32(512*r)
-                    self.set_zero(self.dummy_row)
-                    self.slice_row.execute(self.queue,(512,),self.resized512.data,self.active_row.data,offset)
-                    self.gpu_autocorrelation(self.fftplan_correls,self.active_row,self.dummy_row)
-                    self.put_row.execute(self.queue,(512,),self.active_row.data,self.resized512.data,offset)
+        # calculate the autocorrelation of the rows using a 1d plan and the batch command in pyfft
+        self.fftplan_correls.execute(self.resized512.data,self.resized512z.data,wait_for_finish=True,batch=self.rows)
+        self.make_intensity(self.resized512,self.resized512z,self.resized512)
+        self.set_zero(self.resized512z)
+        self.fftplan_correls.execute(self.resized512.data,self.resized512z.data,batch=self.rows,inverse=True,wait_for_finish=True)
+        
+        # normalize the autocorrelations by dividing each row by the normalization constants found in corr_denoms.
+        self.row_divide.execute(self.queue, (512,self.rows), self.resized512.data, self.corr_denoms.data, self.resized512.data)
     
         self.map_coords.execute(self.queue, (360,self.rows),
             self.resized512.data,  np.int32(512),     np.int32(self.rows),                        # input
@@ -638,7 +600,7 @@ class gpu_microscope():
     def run_on_site(self,y,x):
         
         """ Run the symmetry microscope on the site of the object described by the roll coordinates
-        dy, dx. Steps are:
+        (y,x). Steps are:
         
         1. Roll the illumination
         2. Make the speckle
@@ -650,22 +612,22 @@ class gpu_microscope():
         This function aggregates the more atomistic methods into a single function.
         
         arguments:
-            dy, dx: roll coordinates used as follows: np.roll(np.roll(d,r0,axis=0),r1,axis=1)
-            components: (optional) decompose into these components
-            cosines: (optional) precomputed cosines for speed
+            y, x: row and column describing the center of the pinhole. for example,
+            y = x = 0 puts the pinhole in the corner. y = x = N/2 puts the pinhole
+            in the visible-center.
         """
         
-        assert self.can_has_object, "no object set"
+        assert self.can_has_object,  "no object set"
         assert self.can_has_pinhole, "no pinhole set"
-        assert self.can_has_unwrap, "no unwrap set"
+        assert self.can_has_unwrap,  "no unwrap set"
         assert self.can_has_cosines, "no cosines set"
         assert isinstance(y,int) and isinstance(x,int), "site coordinates must be integer"
         
         self.slice_object(y,x)
         self.make_speckle()
-        if self.can_has_coherence: self.blur() 
+        if self.can_has_coherence: self.blur() # in the case of full coherence, this is skipped for a speed gain
     
-        # in the cpu microscope, these are handled by symmetries.rot_sym
+        # in the cpu microscope code, the following steps are handled by symmetries.rot_sym
         self.unwrap_speckle()
         self.rotational_correlation()
         self.decompose_spectrum()

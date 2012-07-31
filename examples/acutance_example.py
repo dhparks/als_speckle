@@ -1,5 +1,16 @@
-# demonstrate use of the propagation library for focusing
-# back-propagated wavefields
+
+#### EXPLANATION OF EXAMPLE ####
+# this example demonstrates use of the speckle.propagate library, including
+# the use of apodize and acutance. The simulation proceeds along the following
+# steps:
+#
+# 0. Parameters are set
+# 1. A fictitious object is created and forward-propagated by distance z_sim
+# 2. At the aperture plane, the propagated field is multiplied by the aperture
+# 3. The filtered field is back propagated to the sample plane.
+# 4. For comparison, the filtered field is apodized and again back propagated.
+# 5. The acutance is calculated for both propagation cases.
+# 6. Output is saved
 
 import numpy, speckle, matplotlib
 DFT, IDFT, shift = numpy.fft.fft2, numpy.fft.ifft2, numpy.fft.fftshift
@@ -27,18 +38,21 @@ object[coords] = 1
 object = abs(convolve(object,ball)).real
 object = 1-numpy.clip(object,0,1)
 
+# make the aperture. you might try changing the shape to an ellipse or square
+# to see what effect that has (downstream changes might be necessary after
+# a change in aperture shape)
 aperture = speckle.shape.circle((N,N),p_radius/pitch)
 
-# propagate the object forward the distance z, then multiply by a pinhole.
-# this is ideally the solution from a phase retrieval problem (ie, step
-# one of the barker code analysis)
+# Propagate the object forward the distance z, then multiply by a pinhole.
+# This is ideally the solution from a phase retrieval problem.
 print "forward propagating"
 propagated = speckle.propagate.propagate_one_distance(object,energy,z=z_sim,pixel_pitch=pitch)
 propagated *= aperture
 
-# now let's pretend we don't know the solution to the back propagation problem
+# Now let's pretend we don't know the solution to the back propagation problem
 # and propagate the "recovered" wavefield at the aperture plane through a
-# series of trial distances.
+# series of trial distances. Propagate in both directions, as the sign of
+# "backwards" might not be known.
 print "backward propagating + acutance (not apodized)"
 step = 4
 distances = numpy.arange(-200,200,step)*1e-6
@@ -47,8 +61,9 @@ acutance1 = speckle.propagate.acutance(back1)
 
 # back propagating a hard edge can result in ringing, so apodize the aperture
 # function, then recalculate the back propagation and acutance. please
-# note that I am apodizing the pinhole/support, NOT the data. the default
-# values for apodize should be ok, but you might try setting kt=x
+# note that I am apodizing the pinhole/support, NOT the data. In analyzing the
+# result from a CDI experiment, the recovered support should be used. The
+# default values for apodize should be ok, but you might try setting kt=x
 # (where x is between 0 and 1) in apodize (default is kt=0.1)
 print "backward propagating + acutance (apodized)"
 filter = speckle.propagate.apodize(aperture)
@@ -68,6 +83,7 @@ matplotlib.pyplot.savefig('back propagation acutances.png')
 solution_frame = len(distances)/2-z_sim/1e-6/step
 solution1 = back1[solution_frame]
 solution2 = back2[solution_frame]
+
 speckle.io.save('built object.fits',object)
 speckle.io.save('propagated to pinhole.fits',propagated)
 speckle.io.save('apodized at pinhole.fits',filtered)
