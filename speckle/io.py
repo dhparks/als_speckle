@@ -957,16 +957,20 @@ def _draw_polygon(shapedesc, dim):
 
     return numpy.array(img)
 
-def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
+def open_ds9_mask(filename, individual_regions = False, remove_intersections = False):
     """ From a region file input construct a mask.
     
     arguments:
         file - region filename
-        intersectionsRemovedFromMask - Whether intersected regions should count
-            as part of the mask. Defaults to false.
+        individual_regions - weather the individual regions should be marked.
+            The mask is a region mask numbered from [1:nregions]. Defaults to
+            False.
+        remove_intersections - Whether intersected regions should count as part
+            of the mask. Defaults to False.
 
     returns:
-        mask - binary mask of the regions
+        mask - a mask of the regions. If individual_regions is False, a binary
+            mask is returned otherwise a region mask is returned.
     """
     import re
     file_exp = re.compile("# Filename: ((?:\/[\w\.\-\ ]+)+)(?:(\[\w\])?)")
@@ -998,6 +1002,8 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
     if len(dim) == 3: # cut down to 2d, ignore 3rd dimension
         dim = dim[1:]
     
+    count = 1
+    binarydata = numpy.zeros(dim)
     data = numpy.zeros(dim)
     (ys, xs) = dim
     for s in shapes:
@@ -1011,7 +1017,10 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
             shapedesc[1] = shapedesc[1] - 1
 
             xc, yc, rad = shapedesc
-            data += shape.circle( dim, rad, (yc,xc), AA=False )
+            obj = shape.circle( dim, rad, (yc,xc), AA=False )
+            data += count*obj
+            binarydata += obj
+            count += 1
         elif shapetype == "box":
             # fix discrepancy between ds9 and python indices (1 vs 0)
             shapedesc[0] = shapedesc[0] - 1
@@ -1020,18 +1029,28 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
             if len(shapedesc) == 7:
                 xc, yc, in_xw, in_yw, out_xw, out_yw, angle = shapedesc
                 angle = -angle # ds9 angles are measured in the opposite direction.
-                data += shape.rect( (ys,xs), (out_yw, out_xw), (yc, xc) ) - shape.rect( (ys,xs), (in_yw, in_xw), (yc, xc))
+                obj = shape.rect( (ys,xs), (out_yw, out_xw), (yc, xc) ) - shape.rect( (ys,xs), (in_yw, in_xw), (yc, xc))
+                data += count*obj
+                binarydata += obj
+                count += 1
             else:
                 xc, yc, xw, yw, angle = shapedesc
                 angle = -angle # ds9 angles are measured in the opposite direction.
-                data += shape.rect( (ys,xs), (yw, xw), (yc, xc))
+                obj = shape.rect( (ys,xs), (yw, xw), (yc, xc))
+                data += count*obj
+                binarydata += obj
+                count += 1
 
         elif shapetype == "polygon":
             # fix discrepancy between ds9 and python indices (1 vs 0)
             for i in range(len(shapedesc)):
                 shapedesc[i] = shapedesc[i] - 1
 
-            data += _draw_polygon(shapedesc, dim)
+            obj = _draw_polygon(shapedesc, dim)
+            data += count*obj
+            binaydata += obj
+            count += 1
+
         elif shapetype == "ellipse":
             # fix discrepancy between ds9 and python indices (1 vs 0)
             shapedesc[0] = shapedesc[0] - 1
@@ -1039,21 +1058,37 @@ def open_ds9_mask(filename, intersectionsRemovedFromMask = False):
             if len(shapedesc) == 7:
                 xc, yc, in_xw, in_yw, out_xw, out_yw, angle = shapedesc
                 angle = -angle # ds9 angles are measured in the opposite direction.
-                data += shape.ellipse( (ys,xs), (out_yw, out_xw), (yc, xc), angle, AA=False) - shape.ellipse( (ys,xs), (in_yw, in_xw), (yc, xc), angle, AA=False)
+                obj = shape.ellipse( (ys,xs), (out_yw, out_xw), (yc, xc), angle, AA=False) - shape.ellipse( (ys,xs), (in_yw, in_xw), (yc, xc), angle, AA=False)
+                data += count*obj
+                binarydata += obj
+                count += 1
+
             else:
                 xc, yc, xw, yw, angle = shapedesc
                 angle = -angle # ds9 angles are measured in the opposite direction.
-                data += shape.ellipse( (ys,xs), (yw, xw), (yc, xc), angle, AA=False)
-    
+                obj = shape.ellipse( (ys,xs), (yw, xw), (yc, xc), angle, AA=False)
+                data += count*obj
+                binarydata += obj
+                count += 1
+
         elif shapetype == "annulus":
             # fix discrepancy between ds9 and python indices (1 vs 0)
             shapedesc[0] = shapedesc[0] - 1
             shapedesc[1] = shapedesc[1] - 1
 
             (xc, yc, rin, rout) = shapedesc
-            data += shape.annulus((ys, xs), (rin, rout), (yc, xc), AA=False)
+            obj = shape.annulus((ys, xs), (rin, rout), (yc, xc), AA=False)
+            data += count*obj
+            binarydata += obj
+            count += 1
+    
 
-    if intersectionsRemovedFromMask:
-        return numpy.where( (data % 2) == 0 , 0, 1)
+    if remove_intersections:
+        mask = numpy.where( (binarydata % 2) == 0 , 0, 1)
     else:
-        return numpy.where(data >= 1, 1, 0)
+        mask =  numpy.where(binarydata >= 1, 1, 0)
+
+    if individual_regions:
+        return mask*data
+    else:
+        return mask
