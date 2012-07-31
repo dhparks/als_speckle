@@ -24,7 +24,8 @@ __all__ = [
     "gpu",
     "gpu_propagate",
     "gpu_phasing",
-    "gpu_correlations"
+    "gpu_correlations",
+    "speckle_statistics"
 ]
 
 if have_pyopencl and have_pyfft:

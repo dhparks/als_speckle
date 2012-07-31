@@ -24,7 +24,7 @@ def reconstruct_gpu(gpuinfo):
 
     # open the data specified in dataname and supportname
     data = speckle.io.openfits(params.dataname)
-    support = speckle.io.openimage(params.supportname).astype('float')
+    support = speckle.io.open(params.supportname).astype('float')
     support *= 1./support.max()
     
     # find the region which bounds the support. this will prevent having to store and save a bunch
