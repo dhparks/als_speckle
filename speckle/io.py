@@ -1048,7 +1048,7 @@ def open_ds9_mask(filename, individual_regions = False, remove_intersections = F
 
             obj = _draw_polygon(shapedesc, dim)
             data += count*obj
-            binaydata += obj
+            binarydata += obj
             count += 1
 
         elif shapetype == "ellipse":
