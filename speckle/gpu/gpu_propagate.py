@@ -2,21 +2,30 @@ from .. import scattering,shape
 import numpy,gpu,string
 
 def gpu_propagate_distance(gpuinfo,data,distances,energy_or_wavelength,pixel_pitch,subarraysize=None):
-    
-    """ Propagates a complex-valued wavefield through a range of distances using the GPU.
+    """ Propagates a complex-valued wavefield through a range of distances using
+    the GPU.
     
     Required input:
         gpuinfo: the information tuple returned by gpu.init()
-        data: a square numpy.ndarray, either float32 or complex64, to be propagated
-        distances: an iterable set of distances (in meters!) over which the propagated field is calculated
-        energy_or_wavelength: the energy (in eV) or wavelength (in meters) of the wavefield. It's assumed that if the number is < 1 it is a wavelength.
+        data: a square numpy.ndarray, either float32 or complex64, to be
+            propagated.
+        distances: an iterable set of distances (in meters) over which the
+            propagated field is calculated.
+        energy_or_wavelength: the energy (in eV) or wavelength (in meters) of
+            the wavefield. It's assumed that if the number is < 1 it is a
+            wavelength.
         pixel_pitch: the size (in meters) of each pixel in data.
     
     Optional input:
-        subarraysize: because the number of files can be large a subarray cocentered with data can be specified.
+        subarraysize: because the number of files can be large a subarray
+            co-centered with data can be specified.
     
-    Returns: a complex-valued 3d ndarray of shape (len(distances),subarraysize,subarraysize). If the subarraysize argument wasn't used the
-    size of the output array is (len(distances),len(data),len(data)). returned[n] is the wavefield propagated to distances[n]."""
+    Returns: a complex-valued 3d ndarray of shape
+        (len(distances),subarraysize,subarraysize). If the subarraysize argument
+        wasn't used the size of the output array is
+        (len(distances),len(data),len(data)). Returned[n] is the wavefield
+        propagated to distances[n].
+    """
     
     try:
         import pyopencl as cl
@@ -89,7 +98,7 @@ def gpu_propagate_distance(gpuinfo,data,distances,energy_or_wavelength,pixel_pit
 
     try:
         gpu_buffer  = cl_array.empty(queue,(len(distances),L,L),numpy.complex64) # allocate propagation buffer
-    except pyopencl.LogicError:
+    except cl.LogicError:
         print "logic error usually a malloc error, try fewer distances"
 
     # now compute the propagations

@@ -8,7 +8,7 @@ import time
 import string
 
 # common libs. do some ugly stuff to get the path set to the kernels directory
-from .. import wrapping,shape,crosscorr,io
+from .. import wrapping,shape
 import gpu
 kp = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/'
 
@@ -17,14 +17,14 @@ DFT = np.fft.fft2
 IDFT = np.fft.ifft2
 fftshift = np.fft.fftshift
 
-import matplotlib
-matplotlib.use('Agg')
-import pylab
+# import matplotlib
+# matplotlib.use('Agg')
+# import pylab
 
 class gpu_microscope():
-    
     """Methods for running a symmetry-microscope simulation on a gpu using
-    pyopencl and pyfft libraries"""
+    pyopencl and pyfft libraries.
+    """
 
     def __init__(self,device=None,object=None,unwrap=None,pinhole=None,components=None,coherence=None,ph_signal=False,returnables=('spectrum',)):
 

@@ -5,7 +5,7 @@ import pyopencl as cl
 import pyopencl.array as cla
 from pyopencl.elementwise import ElementwiseKernel as EK
 from scipy.optimize import fminbound
-import string,time
+import time
     
 # common libs. do some ugly stuff to get the path set to the kernels directory
 from .. import shape, io, wrapping
@@ -52,7 +52,6 @@ class generator():
         assert isinstance(domains,(int,np.ndarray)), "domains must be int or array"
         
         def helper_load(d):
-            x = len(d)
             self.m0 = np.sum(domains)/self.N2
             self.domains  = cla.to_device(self.queue,domains.astype(np.float32))
         
@@ -511,7 +510,6 @@ class generator():
         net_m       = cla.sum(self.domains).get()
         needed_m    = self.goal_m*self.N2-net_m
         self.target = np.sign(needed_m).astype(np.float32)
-        spa         = self.optimized_spa
         if net_m > 0: self.make_available2(self.available,self.poswalls,self.domains,self.target)
         if net_m < 0: self.make_available2(self.available,self.negwalls,self.domains,self.target)
         
@@ -525,7 +523,6 @@ class generator():
         self.ggr_promote_spins(self.domains,self.available,self.domains,self.target*self.optimized_spa)
         self.bound(self.domains,self.domains)
         m_out   = (cla.sum(self.domains).get())/self.N2
-        m_error = abs(m_out-self.goal_m)
         
         # update the whenflipped data, which records the iteration when each pixel changed sign
         self.update_whenflipped.execute(self.queue,(self.N2,),self.whenflipped.data,self.domains.data,self.incoming.data,np.int32(iteration))
@@ -620,7 +617,6 @@ class generator():
         plan = []
         plan.append(m0)
         m = m0
-        n = 1
         
         # transition is where the plan transitions from goal growth rate (exponential decay behavior)
         # to a constant drive down to 0 net magnetization. typically transition should be 0.2 or less

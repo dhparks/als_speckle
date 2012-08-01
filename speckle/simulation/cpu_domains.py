@@ -1,11 +1,8 @@
 # core
 import numpy as np
-from scipy.optimize import fminbound
-import string
 
 # common libs. do some ugly stuff to get the path set to the kernels directory
 from .. import shape, wrapping
-import speckle
 
 # cpu fft
 DFT = np.fft.fft2
@@ -57,7 +54,6 @@ class generator():
         assert isinstance(domains,(int,np.ndarray)), "domains must be int or array"
         
         def helper_load(d):
-            x = len(d)
             self.m0 = np.sum(domains)/self.N2
             self.domains  = d
         

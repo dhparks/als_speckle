@@ -1,26 +1,28 @@
 import numpy
-import pyopencl as cl
 import pyopencl.array as cla
 from pyopencl.elementwise import ElementwiseKernel as cl_kernel
-import pyfft
 
 DFT = numpy.fft.fft2
 IDFT = numpy.fft.ifft2
 shift = numpy.fft.fftshift
 
 class GPUPR:
+    """ Implement phase retrieval on the GPU to take advantage of the parallel
+    nature of the phase-retrieval algorithms. 
     
-    """ Implement phase retrieval on the GPU to take advantage of the embarassingly-parallel nature of the
-    phase-retrieval algorithms. 
-    
-    Instantiating the class requires information about the gpu (device, context, queue) obtained from
-    gpu.init(), and the simulation size (ie, 256x256, 512x512) to initialize the FFT code.
+    Instantiating the class requires information about the gpu (device, context,
+    queue) obtained from gpu.init(), and the simulation size (ie, 256x256,
+    512x512) to initialize the FFT code. Right now only square simulation sizes
+    are supported.
     
     Methods:
-        load_data: puts constraint data onto the gpu. Requires 2 arrays, the fourier modulus and the support.
-        seed: sets up an independent reconstruction by putting a new complex-random seed into GPU memory
+        load_data: puts constraint data onto the gpu. Requires 2 arrays, the
+            fourier modulus and the support.
+        seed: sets up an independent reconstruction by putting a new
+            complex-random seed into GPU memory.
         iteration: runs a single iteration of either the HIO or the ER algorithm
-        update_support: if using the shrinkwrap algorithm, this updates the support by blurring and thresholding.
+        update_support: if using the shrinkwrap algorithm, this updates the
+            support by blurring and thresholding.
     """
     
     def __init__(self,gpuinfo,N,shrinkwrap=False):
