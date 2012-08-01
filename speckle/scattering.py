@@ -33,8 +33,8 @@ def calculateQ( imgshape, center, theta, energy, camera_distance, calctype='Qr',
             Defaults to 0.0.
         rotateAngle - Rotate the image in the plane by a given angle. Sometimes
             the camera is not perfectly aligned with the scattering plane, so it
-            may be necessary to rotate Q slightly to compensate.  This is seen in
-            RPM, FeF2, HoTiO data, among others. Defaults to 0.0.
+            may be necessary to rotate Q slightly to compensate.  This is seen
+            in RPM, FeF2, HoTiO data, among others. Defaults to 0.0.
 
     returns:
         calculated q vector of dimension imgshape. The units are in is A^{-1}.
@@ -88,7 +88,7 @@ def calculateQ( imgshape, center, theta, energy, camera_distance, calctype='Qr',
     k = energy_to_wavevector(energy)
 
     # rotate to new angle. Rotate along Qy for twotheta, and rotate along Qx for rotateAngle
-#    print("calculateQ: 2theta/2 = %0.2f degrees, rotateAngle = %0.2f degrees, %s is in A^-1." % ((thetaSpecular/2)*(180/np.pi), rotateAngle, calctype))
+    # print("calculateQ: 2theta/2 = %0.2f degrees, rotateAngle = %0.2f degrees, %s is in A^-1." % ((thetaSpecular/2)*(180/np.pi), rotateAngle, calctype))
     # this rotates counter-clockwise about center of peak on CCD
     if rotateAngle != 0:
         Y, Z = _rotateX(Y, Z, rotateAngle*np.pi/180)
@@ -96,7 +96,6 @@ def calculateQ( imgshape, center, theta, energy, camera_distance, calctype='Qr',
     # in transmission the coordinates change slightly, X->Z, Z->X.
     # The reason my calculation does not work for both reflection and transmission is that I assume that sample angle = detector 2theta.  This is not true for transmission (sample angle =90, detector =0)
     if transmission:
-#        print("calculating for transmission")
         (X, Z) = (Z, X)
         (kx_i, ky_i, kz_i) = (0, 0, k)
     else:
@@ -106,6 +105,7 @@ def calculateQ( imgshape, center, theta, energy, camera_distance, calctype='Qr',
     if thetaSpecular != 0:
         X, Z = _rotateY(X, Z, thetaSpecular/2)
 
+    # just calculate everything and return the desired value
     Qx = k*X - kx_i
     Qy = k*Y - ky_i
     Qz = k*Z - kz_i
