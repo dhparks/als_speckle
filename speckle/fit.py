@@ -72,15 +72,21 @@ class OneDimFit():
         """
         if params is not None:
             self.params = params
+        # print params
         return np.nan_to_num(np.ravel((self.data - self.fit_function())*self.mask))
 
-    def fit(self):
+    def fit(self, ransac=False):
         """ Fit data using fit_function().  This calls scipy.optimize.leastsq().
         """
         try:
             if not isinstance(self.params, np.ndarray):
                 self.guess_parameters()
         except AttributeError:
+            self.guess_parameters()
+
+        if ransac:
+            #  ransac(self, n, k, t, d):
+            self._ransac(10, 500, 100, 75)
             self.guess_parameters()
 
         optimized, cov_x, infodict, mesg, ier = leastsq(self.residuals, self.params, full_output=1)
@@ -126,9 +132,6 @@ class OneDimFit():
         returns:
             the formatted results string.
         """
-#        if len(self.final_params) == len(self.final_params_errors):
-#            pass
-
         fun = "# fitting functional %s\n" % self.functional
         hdr = "# "
         hdr_e = ""
@@ -155,6 +158,107 @@ class OneDimFit():
                 f.write(out)
 
         return out
+
+    def _ransac(self, n, k, t, d):
+        """ Implements the RANdom SAmple Conesensus (RANSAC) iterative algorithm
+        for fitting data that contains outliers. The algorithm starts with a
+        small subset of data of size n (called inliers) and adds points while
+        trying to keep the error minimal.
+
+        more details: https://en.wikipedia.org/wiki/RANSAC
+
+        input:
+            n - the minimum number of data required to fit the model
+            k - the number of iterations performed by the algorithm
+            t - a threshold value for determining when a datum fits a model
+            d - the number of close data values required to assert that a model fits well to data
+        """
+        """
+        iterations := 0
+        best_model := nil
+        best_consensus_set := nil
+        best_error := infinity
+        while iterations < k 
+            maybe_inliers := n randomly selected values from data
+            maybe_model := model parameters fitted to maybe_inliers
+            consensus_set := maybe_inliers
+
+            for every point in data not in maybe_inliers 
+                if point fits maybe_model with an error smaller than t
+                    add point to consensus_set
+    
+            if the number of elements in consensus_set is > d 
+                (this implies that we may have found a good model,
+                now test how good it is)
+                this_model := model parameters fitted to all points in consensus_set
+                this_error := a measure of how well this_model fits these points
+                if this_error < best_error
+                    (we have found a model which is better than any of the previous ones,
+                    keep it until a better one is found)
+                    best_model := this_model
+                    best_consensus_set := consensus_set
+                    best_error := this_error
+     
+            increment iterations
+
+        return best_model, best_consensus_set, best_error
+        """
+        # Assume 1d to start.
+        def getrandvals(low, high=None, size=None):
+            randvals = set(np.random.randint(low, high=high, size=size))
+            while len(randvals) < size:
+                aval = np.random.randint(low)
+                # print randvals, aval
+                randvals.add(aval)
+            return randvals
+        def afit():
+            self.guess_parameters()
+            return leastsq(self.residuals, self.params)
+
+        initial_mask = self.mask.copy()
+        # print initial_mask, initial_mask.sum()
+        best_consensus_set = set()
+        iterations = 0
+        best_error = 1e30
+        while iterations < k:
+            consensus_set = getrandvals(self.ys, size=n)
+            self.mask = np.zeros_like(initial_mask)
+            self.mask[list(consensus_set)] = 1
+            self.mask *= initial_mask
+
+            consensus_error = np.sqrt(np.sum(self.residuals()**2)/self.mask.sum())
+            remaining_points = np.delete(np.arange(self.ys), list(consensus_set))
+            for candidate_point in remaining_points:
+                # print "trying cand", candidate_point
+                self.mask[candidate_point] = 1
+                a = afit()
+                # print a, "canddiate point", candidate_point
+                # print np.sqrt((self.residuals()**2).sum()/self.mask.sum()), t
+                if np.sqrt((self.residuals()**2).sum()/self.mask.sum()) < t:
+                    consensus_set.add(candidate_point)
+                self.mask[candidate_point] = 0
+
+            # print len(consensus_set), d
+
+            if len(consensus_set) > d:
+                self.mask = initial_mask
+                self.mask[list(consensus_set)] = 1
+                a = afit()
+                # print a, "consensus set large enough", iterations
+                this_error = (self.residuals()**2).sum()
+                if this_error < best_error:
+                    best_consensus_set = consensus_set
+                    best_error = this_error
+
+            iterations += 1
+
+        self.mask = initial_mask
+        if len(best_consensus_set) > 0:
+            self.mask = np.zeros_like(initial_mask)
+            self.mask[list(best_consensus_set)] = 1
+            self.mask *= initial_mask
+        else:
+            print "not able to find a good set"
 
 class OneDimPeak(OneDimFit):
     """Framework for calculating the fit for a one-dimensional (x,y) set of data
