@@ -39,6 +39,7 @@ class OneDimFit():
             self.xvals = data[:, 0]
             self.data = data[:, 1]            
             self.try_again = np.ones_like(self.data)* 1e30
+            self.have_image = False
         else:
             # We have an image.
             self.xvals = np.arange(xs)
@@ -46,6 +47,7 @@ class OneDimFit():
             self.npoints = len(self.xvals)*len(self.yvals)
             self.data = data
             self.try_again = np.ones_like(self.data) * 1e30
+            self.have_image = True
 
         if mask is None:
             self.mask = np.ones_like(self.data)
@@ -72,7 +74,6 @@ class OneDimFit():
         """
         if params is not None:
             self.params = params
-        # print params
         return np.nan_to_num(np.ravel((self.data - self.fit_function())*self.mask))
 
     def fit(self, ransac_params = None):
@@ -187,7 +188,8 @@ class OneDimFit():
             n - the minimum number of data required to fit the model
             k - the number of iterations performed by the algorithm
             t - a threshold value for determining when a datum fits a model
-            d - the number of close data values required to assert that a model fits well to data
+            d - the number of close data values required to assert that a model
+                fits well to data
         """
         """
         iterations := 0
@@ -219,63 +221,86 @@ class OneDimFit():
 
         return best_model, best_consensus_set, best_error
         """
+        # This implementation makes use of the self.mask variable to change the fitted parameters.  It does this while respecting the original mask value in the data. At the end of this routine, the mask contains the originally masked out data plus the excluded points (if a consensus is found).
+
         assert(d < len(self.data)), "d must be less than data len"
-        # Assume 1d to start.
-        def getrandvals(low, high=None, size=None):
-            randvals = set(np.random.randint(low, high=high, size=size))
-            while len(randvals) < size:
-                aval = np.random.randint(low)
-                # print randvals, aval
-                randvals.add(aval)
+
+        def get_unique_random_vals(maxval, num):
+            """ Grabs unique random values. maxval can be a 2-tuple/list/set of
+            max values along each axis. num is the number or values to draw.
+            """
+            rint = np.random.randint
+            if isinstance(maxval, (list, tuple, set)):
+                assert len(maxval) == 2, "maxval list/tuple/set must be 2"
+                (ys, xs) = maxval
+                size = len(maxval)
+                assert num <= ys*xs, "The number of unique values requested (%d) is more than the number of elements we can iterate over (%d)" % (num, ys*xs)
+            else:
+                size = None
+                assert num <= maxval, "The number of unique values requested (%d) is more than the number of elements we can iterate over (%d)" % (num, maxval)
+
+            randvals = set()
+            while len(randvals) < num:
+                remaining = num - len(randvals)
+                if size == None:
+                    randvals.update( rint(maxval, size=remaining))
+                else:
+                    randvals.update( zip( rint(ys,size=remaining), rint(xs,size=remaining) ) )
+
             return randvals
 
-        def afit():
+        def guess_and_fit():
             self.guess_parameters()
             return leastsq(self.residuals, self.params)
 
         def set_mask_with(a_set):
             self.mask = np.zeros_like(initial_mask)
-            self.mask[list(a_set)] = 1
+            if self.have_image:
+                ys = valid_coordinates[0][list(a_set)]
+                xs = valid_coordinates[1][list(a_set)]
+                self.mask[ys,xs] = 1
+            else:
+                self.mask[list(a_set)] = 1
             self.mask *= initial_mask
 
         def error():
             return np.sqrt(np.sum(self.residuals()**2)/self.mask.sum())
 
-        outidx = set([64, 27, 36, 13, 16, 52, 22, 57, 26, 59])
-
+        # keep a copy of the mask so we can replace it at the end.  This function modifies it.
         initial_mask = self.mask.copy()
-        # print initial_mask, initial_mask.sum()
+        # this contains the points that are allowed to be in the fit
+        valid_coordinates = np.where(initial_mask == 1)
+        
         best_consensus_set = set()
-        best_error = 1e30
+        best_error = 1e30 # large number
         for iterations in range(k):
-            consensus_set = getrandvals(self.ys, size=n)
-            # print iterations, set.intersection(outidx, consensus_set)
+            # consensus_set - values within valid_coordinates that are good
+            consensus_set = get_unique_random_vals(len(valid_coordinates[0]), n)
             set_mask_with(consensus_set)
-            a = afit()
+            a = guess_and_fit()
 
             self.mask = initial_mask
             residuals = self.residuals()
 
-            for candidate_point in np.delete(np.arange(self.ys), list(consensus_set)):
-                if abs(residuals[candidate_point]) < t :
+            for candidate_point in np.delete(valid_coordinates, list(consensus_set)):
+                if abs(residuals[candidate_point]) < t:
                     consensus_set.add(candidate_point)
 
             if len(consensus_set) > d:
                 set_mask_with(consensus_set)
-                a = afit()
+                a = guess_and_fit()
                 this_error = error()
-                # print "found consensus", len(consensus_set), d, this_error
                 if this_error < best_error:
                     best_consensus_set = consensus_set
                     best_error = this_error
 
-        self.mask = initial_mask
         if len(best_consensus_set) > 0:
             self.mask = np.zeros_like(initial_mask)
             self.mask[list(best_consensus_set)] = 1
             self.mask *= initial_mask
         else:
             print "ransac: not able to find a good set of points"
+            self.mask = initial_mask
 
 class OneDimPeak(OneDimFit):
     """Framework for calculating the fit for a one-dimensional (x,y) set of data
