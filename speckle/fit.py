@@ -84,13 +84,15 @@ class OneDimFit():
         detect outliers. More details of the ransac algorithm can be found here:
             https://en.wikipedia.org/wiki/RANSAC
 
-        The ransac_params is a list of four parameters (n, k, t, d) where:
-            n - Number of points to initially use in the fit.
-            k - Number of iterations of the algorithm.
-            t - How close a point must be to the initial fit to be included.
-                After fitting the first n points, if any residual from the other
-                points is less than t, that point is included into the data.
-            d - Number of points needed to be considered a 'good fit'.
+        The ransac_params is a list of four parameters (minpts, iterations,
+        include_col, min_fit_pts) where:
+            minpts - the minimum number of data required to fit the model
+            iterations - the number of iterations performed by the algorithm
+            include_tol - a threshold value for determining when a datum fits a
+                model. All points where the (model - data) < include_tol are
+                added as inliers.
+            min_fit_pts - the minimum number of data values required to assert
+                that a model fits well to data
 
         In this mode, the mask for the fit (self.mask) is modified with the
         points that are used in the fit.
@@ -102,7 +104,6 @@ class OneDimFit():
             self.guess_parameters()
 
         if ransac_params != None:
-            #  ransac(self, n_start, k-iter, t-datathreshold, d-total pts):
             self._ransac(ransac_params[0], ransac_params[1], ransac_params[2], ransac_params[3])
             self.guess_parameters()
 
@@ -176,7 +177,7 @@ class OneDimFit():
 
         return out
 
-    def _ransac(self, n, k, t, d):
+    def _ransac(self, minpts, iterations, include_tol, min_fit_pts):
         """ Implements the RANdom SAmple Conesensus (RANSAC) iterative algorithm
         for fitting data that contains outliers. The algorithm starts with a
         small subset of data of size n (called inliers) and adds points while
@@ -185,45 +186,18 @@ class OneDimFit():
         more details: https://en.wikipedia.org/wiki/RANSAC
 
         input:
-            n - the minimum number of data required to fit the model
-            k - the number of iterations performed by the algorithm
-            t - a threshold value for determining when a datum fits a model
-            d - the number of close data values required to assert that a model
-                fits well to data
+            minpts - the minimum number of data required to fit the model
+            iterations - the number of iterations performed by the algorithm
+            include_tol - a threshold value for determining when a datum fits a
+                model. All points where the (model - data) < include_tol are
+                added as inliers.
+            min_fit_pts - the minimum number of data values required to assert
+                that a model fits well to data
         """
-        """
-        iterations := 0
-        best_model := nil
-        best_consensus_set := nil
-        best_error := infinity
-        while iterations < k 
-            maybe_inliers := n randomly selected values from data
-            maybe_model := model parameters fitted to maybe_inliers
-            consensus_set := maybe_inliers
-
-            for every point in data not in maybe_inliers 
-                if point fits maybe_model with an error smaller than t
-                    add point to consensus_set
-    
-            if the number of elements in consensus_set is > d 
-                (this implies that we may have found a good model,
-                now test how good it is)
-                this_model := model parameters fitted to all points in consensus_set
-                this_error := a measure of how well this_model fits these points
-                if this_error < best_error
-                    (we have found a model which is better than any of the previous ones,
-                    keep it until a better one is found)
-                    best_model := this_model
-                    best_consensus_set := consensus_set
-                    best_error := this_error
-     
-            increment iterations
-
-        return best_model, best_consensus_set, best_error
-        """
+        import sys
         # This implementation makes use of the self.mask variable to change the fitted parameters.  It does this while respecting the original mask value in the data. At the end of this routine, the mask contains the originally masked out data plus the excluded points (if a consensus is found).
-
-        assert(d < len(self.data)), "d must be less than data len"
+        
+        assert(min_fit_pts < self.npoints), "min_fit_pts must be less than data len"
 
         def get_unique_random_vals(maxval, num):
             """ Grabs unique random values. maxval can be a 2-tuple/list/set of
@@ -273,34 +247,42 @@ class OneDimFit():
         
         best_consensus_set = set()
         best_error = 1e30 # large number
-        for iterations in range(k):
+        for i in range(iterations):
             # consensus_set - values within valid_coordinates that are good
-            consensus_set = get_unique_random_vals(len(valid_coordinates[0]), n)
+            consensus_set = get_unique_random_vals(len(valid_coordinates[0]), minpts)
             set_mask_with(consensus_set)
             a = guess_and_fit()
 
             self.mask = initial_mask
             residuals = self.residuals()
 
+
             for candidate_point in np.delete(valid_coordinates, list(consensus_set)):
-                if abs(residuals[candidate_point]) < t:
+                if abs(residuals[candidate_point]) < include_tol:
                     consensus_set.add(candidate_point)
 
-            if len(consensus_set) > d:
+            valid = "No"
+            this_error = error()
+            cs_len = len(consensus_set)
+            if cs_len > min_fit_pts:
                 set_mask_with(consensus_set)
                 a = guess_and_fit()
-                this_error = error()
                 if this_error < best_error:
                     best_consensus_set = consensus_set
                     best_error = this_error
+                    valid = "Yes"
+
+            sys.stdout.write("\riteration: {0:3d} error: {1:5e} npts: {2:3d}/{3:3d} valid: {4:3}".format(i+1, this_error, cs_len, min_fit_pts, valid))
+            sys.stdout.flush()
+
+        print ""
 
         if len(best_consensus_set) > 0:
-            self.mask = np.zeros_like(initial_mask)
-            self.mask[list(best_consensus_set)] = 1
-            self.mask *= initial_mask
+            set_mask_with(best_consensus_set)
         else:
-            print "ransac: not able to find a good set of points"
+            print "RANSAC: not able to find a good set of points, defaulting to original."
             self.mask = initial_mask
+
 
 class OneDimPeak(OneDimFit):
     """Framework for calculating the fit for a one-dimensional (x,y) set of data
