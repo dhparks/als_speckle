@@ -1,3 +1,9 @@
+0.4 - 8/9/2012
+- implement the random sampling and consensus (RANSAC) algorithm for fitting data.
+- add a fit function, lorentzian_sq that's blurred with a gaussian.  This is a reasonably good line shape for fitting labyrinth domains.
+- Remove reliance on our own `hacked' pyfft.
+- Fix bugs.
+
 0.3 - 7/26/2012
 - Implement a testing framework to test the module
 - Add a GPU accelerated medianfilter
