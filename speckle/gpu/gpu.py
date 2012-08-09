@@ -21,7 +21,6 @@ def init():
     p_success = False
     d_success = False
     c_success = False
-    q_success = False
     
     try:
         platform  = pyopencl.get_platforms()[0]
@@ -66,7 +65,6 @@ def init():
     if c_success:
         try:
             queue = pyopencl.CommandQueue(context)
-            q_success = True
         except pyopencl.LogicError:
             error_msg = 'logic error making queue'
             raise GPUInitError(error_msg,platform=platform,device=device,context=context)

@@ -278,7 +278,7 @@ class OneDimFit():
             # get unique random vals needs to respect initial_mask
             consensus_set = zipup_cond( valid_coordinates, get_unique_random_vals(len(valid_coordinates[0]), minpts))
             set_mask_with(consensus_set)
-            a = guess_and_fit()
+            guess_and_fit()
 
             # print self.mask
             self.mask = initial_mask
