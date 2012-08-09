@@ -1,5 +1,5 @@
 recursive-include docs *
-prune docs/_build/doctrees
+prune docs/build/doctrees
 
 recursive-include examples *.py
 recursive-include examples *.sh
