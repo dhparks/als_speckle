@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
     name='speckle',
-    version='0.4.beta',
+    version='0.4.0',
     packages=[ 'speckle', 'speckle.gpu', 'speckle.simulation' ],
     requires = ['scipy', 'numpy'],
     package_data = { 'speckle.gpu': ['kernels/*.cl']},
