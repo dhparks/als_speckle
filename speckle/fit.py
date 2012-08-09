@@ -196,8 +196,15 @@ class OneDimFit():
         """
         import sys
         # This implementation makes use of the self.mask variable to change the fitted parameters.  It does this while respecting the original mask value in the data. At the end of this routine, the mask contains the originally masked out data plus the excluded points (if a consensus is found).
-        
+        assert isinstance(minpts, (np.int, np.float)), "minpts must be int or float, got %s" % type(minpts)
+        assert isinstance(iterations, (np.int, np.float)), "iterations must be int or float, got %s" % type(iterations)
+        assert isinstance(include_tol, (np.int, np.float)), "include_tol must be int or float, got %s" % type(include_tol)
+        assert isinstance(min_fit_pts, (np.int, np.float)), "min_fit_pts must be int or float, got %s" % type(min_fit_pts)
         assert(min_fit_pts < self.npoints), "min_fit_pts must be less than data len"
+
+        # include_tol and min_fit_pts don't need to be int, just float/int
+        minpts = int(minpts)
+        iterations = int(iterations)
 
         def get_unique_random_vals(maxval, num):
             """ Grabs unique random values. maxval can be a 2-tuple/list/set of
@@ -230,49 +237,70 @@ class OneDimFit():
         def set_mask_with(a_set):
             self.mask = np.zeros_like(initial_mask)
             if self.have_image:
-                ys = valid_coordinates[0][list(a_set)]
-                xs = valid_coordinates[1][list(a_set)]
-                self.mask[ys,xs] = 1
+                for ys,xs in a_set:
+                    self.mask[ys,xs] = 1
             else:
-                self.mask[list(a_set)] = 1
-            self.mask *= initial_mask
+                for ys, in a_set:
+                    self.mask[ys] = 1
 
         def error():
+            # calculate the average distance between each point and our fit
             return np.sqrt(np.sum(self.residuals()**2)/self.mask.sum())
+
+        def zipup(val):
+            """ zip up a tuple of arrays of the same size into pairs """
+            # print "zipup", len(val), val
+            if len(val) == 0:
+                return []
+            if self.have_image:
+                aset = zip(val[0], val[1])
+            else:
+                aset = zip(val[0])
+            return set(aset)
+        
+        def zipup_cond(val, aset):
+            """ zipup with a condition provided by aset """
+            if self.have_image:
+                set_pairs = zip(val[0][list(aset)], val[1][list(aset)])
+            else:
+                set_pairs = zip(val[0][list(aset)])
+            return set(set_pairs)
 
         # keep a copy of the mask so we can replace it at the end.  This function modifies it.
         initial_mask = self.mask.copy()
+
         # this contains the points that are allowed to be in the fit
         valid_coordinates = np.where(initial_mask == 1)
-        
-        best_consensus_set = set()
+
         best_error = 1e30 # large number
         for i in range(iterations):
             # consensus_set - values within valid_coordinates that are good
-            consensus_set = get_unique_random_vals(len(valid_coordinates[0]), minpts)
+            # get unique random vals needs to respect initial_mask
+            consensus_set = zipup_cond( valid_coordinates, get_unique_random_vals(len(valid_coordinates[0]), minpts))
             set_mask_with(consensus_set)
             a = guess_and_fit()
 
+            # print self.mask
             self.mask = initial_mask
-            residuals = self.residuals()
 
+            # can't call self.residuals because its unravels it.
+            # set values outside the mask to arbitrary large (larger than include_tol) so they don't get picked up.
+            residuals = np.where(initial_mask, self.data - self.fit_function(), 1e30)
+            included_pts = np.where(abs(residuals) < include_tol)
 
-            for candidate_point in np.delete(valid_coordinates, list(consensus_set)):
-                if abs(residuals[candidate_point]) < include_tol:
-                    consensus_set.add(candidate_point)
-
-            valid = "No"
-            this_error = error()
-            cs_len = len(consensus_set)
-            if cs_len > min_fit_pts:
+            best = "No"
+            cs_len = len(included_pts[0]) + minpts
+            if cs_len >= min_fit_pts:
+                consensus_set.update(zipup(included_pts))
                 set_mask_with(consensus_set)
-                a = guess_and_fit()
+                this_error = error()
+
                 if this_error < best_error:
                     best_consensus_set = consensus_set
                     best_error = this_error
-                    valid = "Yes"
+                    best = "Yes"
 
-            sys.stdout.write("\riteration: {0:3d} error: {1:5e} npts: {2:3d}/{3:3d} valid: {4:3}".format(i+1, this_error, cs_len, min_fit_pts, valid))
+            sys.stdout.write("\riteration: {:3d} pts/min_fit_pts: {:3d}/{:3} best so far: {:3}".format(i+1, cs_len, int(min_fit_pts), best))
             sys.stdout.flush()
 
         print ""
