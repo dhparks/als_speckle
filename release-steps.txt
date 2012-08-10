@@ -1,0 +1,11 @@
+These are the steps I use to make a release:
+-update the version number to the correct number.  Right now, there are 3 places to do that:
+speckle/__init__.py
+docs/conf.py
+setup.py
+
+- make sure you have a clean tree (ie: no uncommitted stuff), or clone a new copy of the tree.
+- install the library
+- go to docs/, run `make html`
+- copy these docs to phaser and keoki.org
+- run `python setup.py sdist --format=zip
