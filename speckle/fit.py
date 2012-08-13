@@ -139,6 +139,8 @@ class OneDimFit():
         self.final_params_errors = {}
         for k, v in self.params_map.iteritems():
             self.final_params_errors[v] = (optimized[k], self.final_errors[k])
+            
+        self.final_evaluated = self.fit_function()*self.mask
 
     def format_results(self, header=True, outfile=None):
         """ Format the final, fitting data for printing or writing to disk.
