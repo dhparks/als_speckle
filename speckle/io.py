@@ -122,6 +122,9 @@ def write_text_array(filename, array, header='', delimiter='\t'):
         nothing.  It will throw an IOError if it cannot write the file
     """
     import csv
+    
+    if array.ndim == 1: array = [array] # this works around a bug in csv for 1d data
+    
     with _open(filename, "w") as f:
         f.write(header)
         writer = csv.writer(f, delimiter=delimiter)
