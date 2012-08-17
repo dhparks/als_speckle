@@ -54,6 +54,7 @@ class OneDimFit():
         else:
             assert mask.shape == self.data.shape, "mask and data are different shapes"
             if not weighted: self.mask = np.where(mask, 1, 0)
+            if weighted: self.mask = mask
 
         self.ys, self.xs = data.shape
 
@@ -403,7 +404,7 @@ class Linear(OneDimFit):
         f(x) = a * x + b
     """
     def __init__(self, data, mask=None, weighted=False):
-        OneDimFit.__init__(self, data, mask)
+        OneDimFit.__init__(self, data, mask, weighted)
         self.functional = "a*x + b"
         self.params_map ={ 0:"a", 1:"b"}
 
@@ -421,7 +422,7 @@ class DecayExpBetaSq(OneDimFit):
         f(x) = a + b exp(-(x/tf)^beta)^2
     """
     def __init__(self, data, mask=None, weighted=False):
-        OneDimFit.__init__(self, data, mask)
+        OneDimFit.__init__(self, data, mask, weighted)
         self.functional = "a + b exp(-(t/tf)^beta)^2"
         self.params_map ={ 0:"a", 1:"b", 2:"tf", 3:"beta" }
 
@@ -444,7 +445,7 @@ class DecayExpBeta(OneDimFit):
         f(x) = a + b exp(-(x/tf)^beta)
     """
     def __init__(self, data, mask=None, weighted=False):
-        OneDimFit.__init__(self, data, mask)
+        OneDimFit.__init__(self, data, mask, weighted)
         self.functional = "a + b exp(-1*(x/tf)**beta)"
         self.params_map ={ 0:"a", 1:"b", 2:"tf", 3:"beta" }
 
@@ -467,7 +468,7 @@ class DecayExp(OneDimFit):
         f(x) = a + b exp(-(x/tf))
     """
     def __init__(self, data, mask=None, weighted=False):
-        OneDimFit.__init__(self, data, mask)
+        OneDimFit.__init__(self, data, mask, weighted)
         self.functional = "a + b exp(-1*(x/tf))"
         self.params_map ={ 0:"a", 1:"b", 2:"tf" }
 
@@ -489,7 +490,7 @@ class Gaussian(OneDimPeak):
         f(x) = a exp(-(x-x0)^2/(2w^2)) + shift
     """
     def __init__(self, data, mask=None, weighted=False):
-        OneDimPeak.__init__(self, data, mask)
+        OneDimPeak.__init__(self, data, mask, weighted)
         self.functional = "a exp(-(x-x0)^2/(2*w^2)) + shift"
         self.params_map ={ 0:"a", 1:"x0", 2:"w" , 3:"shift"}
 
@@ -514,7 +515,7 @@ class Lorentzian(OneDimPeak):
     """
     # from http://mathworld.wolfram.com/LorentzianFunction.html
     def __init__(self, data, mask=None, weighted=False):
-        OneDimPeak.__init__(self, data, mask)
+        OneDimPeak.__init__(self, data, mask, weighted)
         self.functional = "a/( ((x-x0)/w)^2 + 1) + shift"
         self.params_map ={ 0:"a", 1:"x0", 2:"w", 3:"shift"}
 
@@ -539,7 +540,7 @@ class LorentzianSq(OneDimPeak):
         f(x) = a/( ((x-x0)/w)^2 + 1)^2 + bg
     """
     def __init__(self, data, mask=None, weighted=False):
-        OneDimPeak.__init__(self, data, mask)
+        OneDimPeak.__init__(self, data, mask, weighted)
         self.functional = "a/((x-x0)^2 + w^2)^2 + bg"
         self.params_map ={ 0:"a", 1:"x0", 2:"w", 3:"bg"}
 
@@ -567,7 +568,7 @@ class LorentzianSqBlurred(OneDimPeak):
     """
 
     def __init__(self, data, mask=None, weighted=False):
-        OneDimPeak.__init__(self, data, mask)
+        OneDimPeak.__init__(self, data, mask, weighted)
         self.functional = "a*convolve(lorentzian(x0,lw)**2,gaussian(gw))+bg"
         self.params_map ={ 0:"a", 1:"x0", 2:"lw", 3:"bg", 4:"gw"}
         
@@ -604,7 +605,7 @@ class Gaussian2D(TwoDimPeak):
         f(x) = a exp(-(x-x0)^2/(2*sigma_x^2) - (y-y0)^2/(2*sigma_y^2)) + shift
     """
     def __init__(self, data, mask=None, weighted=False):
-        TwoDimPeak.__init__(self, data, mask)
+        TwoDimPeak.__init__(self, data, mask, weighted)
         self.functional = "a exp(-(x-x0)^2/(2*sigmay^2) - (y-y0)^2/(2*sigmay^2)) + shift"
         self.params_map ={ 0:"a", 1:"x0", 2:"sigmax", 3:"y0", 4:"sigmay", 5:"shift"}
 
@@ -630,7 +631,7 @@ class Lorentzian2D(TwoDimPeak):
         f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1) + bg
     """
     def __init__(self, data, mask=None, weighted=False):
-        TwoDimPeak.__init__(self, data, mask)
+        TwoDimPeak.__init__(self, data, mask, weighted)
         self.functional = "a / ( ((x-x0)/xw)**2 + ((y-y0)/yw)**2 + 1) + shift "
         self.params_map ={ 0:"a", 1:"x0", 2:"xw", 3:"y0", 4:"yw", 5:"shift"}
 
@@ -656,7 +657,7 @@ class Lorentzian2DSq(Lorentzian2D):
         f(x) = a/(((x-x0)/wx)^2 + ((y-y0)/wy)^2 + 1)^2 + bg
     """
     def __init__(self, data, mask=None, weighted=False):
-        Lorentzian2D.__init__(self, data, mask)
+        Lorentzian2D.__init__(self, data, mask, weighted)
         self.functional = "a / ( ((x-x0)/xw)**2 + ((y-y0)/yw)**2 + 1)**2 + shift"
         self.params_map ={ 0:"a", 1:"x0", 2:"xw", 3:"y0", 4:"yw", 5:"shift"}
 
@@ -673,7 +674,7 @@ class GaussianDonut2D(TwoDimDonutPeak):
     deviation.
     """
     def __init__(self, data, mask=None, weighted=False):
-        TwoDimDonutPeak.__init__(self, data, mask)
+        TwoDimDonutPeak.__init__(self, data, mask, weighted)
         self.functional = "f(r) = a exp(-(r-R)^2/(2*sigma_r^2) + shift"
         self.params_map ={ 0:"a", 1:"r_x", 2:"r_y", 3:"R", 4:"sigma_r", 5:"shift"}
 
@@ -703,7 +704,7 @@ class LorentzianDonut2D(TwoDimDonutPeak):
     where r is an (yc, xc) center, R is a radius, and rw is the std. dev.
     """
     def __init__(self, data, mask=None, weighted=False):
-        TwoDimDonutPeak.__init__(self, data, mask)
+        TwoDimDonutPeak.__init__(self, data, mask, weighted)
         self.functional = "f(r) = a/(((r-R)/rw)^2 + 1) + bg"
         self.params_map ={ 0:"a", 1:"r_x", 2:"r_y", 3:"R", 4:"rw", 5:"bg"}
 
@@ -733,7 +734,7 @@ class LorentzianDonut2DSq(LorentzianDonut2D):
     where r is an (yc, xc) center, R is a radius, and wr is the std. dev.
     """
     def __init__(self, data, mask=None, weighted=False):
-        LorentzianDonut2D.__init__(self, data, mask)
+        LorentzianDonut2D.__init__(self, data, mask, weighted)
         self.functional = "f(r) = a/(((r-R)/rw)^2 + 1)^2 + bg"
         self.params_map ={ 0:"a", 1:"r_x", 2:"r_y", 3:"R", 4:"rw", 5:"bg"}
 
@@ -760,7 +761,7 @@ def linear(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Linear(data, mask)
+    fit = Linear(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -782,7 +783,7 @@ def decay_exp_beta_sq(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = DecayExpBetaSq(data, mask)
+    fit = DecayExpBetaSq(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -804,7 +805,7 @@ def decay_exp_beta(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = DecayExpBeta(data, mask)
+    fit = DecayExpBeta(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -826,7 +827,7 @@ def decay_exp(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = DecayExp(data, mask)
+    fit = DecayExp(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -848,7 +849,7 @@ def gaussian(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Gaussian(data, mask)
+    fit = Gaussian(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -870,7 +871,7 @@ def lorentzian(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Lorentzian(data, mask)
+    fit = Lorentzian(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -892,7 +893,7 @@ def lorentzian_sq(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = LorentzianSq(data, mask)
+    fit = LorentzianSq(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -917,7 +918,7 @@ def lorentzian_sq_blurred(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = LorentzianSqBlurred(data, mask)
+    fit = LorentzianSqBlurred(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -939,7 +940,7 @@ def gaussian_2d(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Gaussian2D(data, mask)
+    fit = Gaussian2D(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -964,7 +965,7 @@ def gaussian_donut_2d(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = GaussianDonut2D(data, mask)
+    fit = GaussianDonut2D(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -988,7 +989,7 @@ def lorentzian_donut_2d(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = LorentzianDonut2D(data, mask)
+    fit = LorentzianDonut2D(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -1012,7 +1013,7 @@ def lorentzian_donut_2d_sq(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = LorentzianDonut2DSq(data, mask)
+    fit = LorentzianDonut2DSq(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -1034,7 +1035,7 @@ def lorentzian_2d(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Lorentzian2D(data, mask)
+    fit = Lorentzian2D(data, mask, weighted)
     fit.fit()
     return fit
 
@@ -1056,7 +1057,7 @@ def lorentzian_2d_sq(data, mask=None, weighted=False):
             result.final_params_errors, which contains a parameter+fit map of
             the final fitted values.
     """
-    fit = Lorentzian2DSq(data, mask)
+    fit = Lorentzian2DSq(data, mask, weighted)
     fit.fit()
     return fit
 
