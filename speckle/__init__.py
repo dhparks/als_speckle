@@ -24,6 +24,7 @@ __all__ = [
     "gpu",
     "io",
     "masking",
+    "permutelists",
     "phasing",
     "propagate",
     "scattering",
