@@ -21,8 +21,14 @@ class OneDimFit():
         self.params_map ={ 0:"a", 1:"b"}
 
         # prepare the data
-        assert isinstance(data, np.ndarray), "data must be an array"
-        assert data.ndim == 2, "data must be two-dimensional"
+        assert isinstance(data, (np.ndarray, list, tuple)), "data must be an array or list"
+        if isinstance(data,np.ndarray): assert data.ndim == 2, "data must be two-dimensional"
+        if isinstance(data,(list,tuple)):
+            assert len(data) == 2, "data must be two-dimensional"
+            new_data = np.zeros((2,len(data[0])))
+            new_data[0] = data[0]
+            new_data[1] = data[1]
+            data = new_data
         assert not np.iscomplexobj(data), "data must not be complex"
 
         ys, xs = data.shape
