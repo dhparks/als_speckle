@@ -558,7 +558,7 @@ def sp_select_ROI(data, xr, yr):
     print("sp_select_ROI: found %d elements" % len(idx))
     return data[idx, :]
 
-def sp_autocorrelation(data, p=30, m=2):
+def sp_autocorrelation(data, p=30, m=2, removeZeros=False):
     """Implements the time-to-tag correlation algorithm outlined by Wahl et al.
     in Opt. Exp. 11 3583
 
@@ -567,14 +567,18 @@ def sp_autocorrelation(data, p=30, m=2):
         p - number of linear points. Defaults to 30.
         m - factor that the time is changed for each correlator. Defaults to 2.
             The number of correlators is approx. log(max(t_delta)/p)/log(m) + 1.
+        removeZeros - Remove zeros from the correlation function. Zeros in the
+            correlation function mean that there aren't any photon pairs with a
+            given delay time and don't make any physical sense. Defaults to
+            False (leave them in the result).
 
     returns:
         corr - A (1 x bins) autocorrelation of data.
         corrtime - A (1 x bins ) list of time ranges.
     """
-    return sp_crosscorrelation(data, data, p, m)
+    return sp_crosscorrelation(data, data, p, m, removeZeros)
 
-def sp_crosscorrelation(d1, d2, p=30, m=2):
+def sp_crosscorrelation(d1, d2, p=30, m=2, removeZeros=False):
     """Implements the time-to-tag correlation algorithm outlined by Wahl et al.
     in Opt. Exp. 11 3583
 
@@ -584,6 +588,10 @@ def sp_crosscorrelation(d1, d2, p=30, m=2):
         p - number of linear points. Defaults to 30.
         m - factor that the time is changed for each correlator. Defaults to 2.
             The number of correlators is approx. log(max(t_delta)/p)/log(m) + 1.
+        removeZeros - Remove zeros from the correlation function. Zeros in the
+            correlation function mean that there aren't any photon pairs with a
+            given delay time and don't make any physical sense. Defaults to
+            False (leave them in the result).
 
     returns:
         corr - A (1 x bins) crosscorrelation between (d1, d2).
@@ -594,6 +602,7 @@ def sp_crosscorrelation(d1, d2, p=30, m=2):
     assert d1.ndim == d2.ndim == 1, "d1 and d2 must be the same dimension"
     assert len(d1) == len(set(d1)), "d1 has duplicate entries"
     assert len(d2) == len(set(d2)), "d2 has duplicate entries"
+    assert isinstance(removeZeros, (bool, int)), "removeZeros must be boolean or int"
 
     sortd1 = d1[d1.argsort()].astype('int64')
     sortd2 = d2[d2.argsort()].astype('int64')
@@ -630,7 +639,11 @@ def sp_crosscorrelation(d1, d2, p=30, m=2):
     for i in range(Ncorr*p):
         corr[i] = corr[i]*tmax/(tmax - corrtime[i])
 
-    return corr, corrtime
+    if removeZeros:
+        val = corr != 0
+        return corr[val], corrtime[val]
+    else:
+        return corr, corrtime
 
 def _sort_data(data, col=3):
     """Helper function to sort data by increasing photon incidence value along
