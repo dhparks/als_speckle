@@ -302,14 +302,13 @@ def rot_sym(speckles,plan=None,components=None,cosines=None,get_back=()):
         cosine series.
 
     arguments:
-        speckle: the speckle pattern to be analyzed. Should be human-centered
-            (ie, center of speckle is at center of array) rather than
-            machine-centered (ie, center of speckle is at corner of array).
+        speckle: the speckle pattern to be analyzed.
 
-        plan: either an unwrap plan from wrapping.unwrap_plan or a tuple of form
-            (r,R) or (r,R,(center)) describing the range of radii to be
-            analyzed. If nothing is supplied, the unwrapping will by default be
-            as extensive as possible: (r,R) = (0,N/2).
+        plan: (optional) either an unwrap plan from wrapping.unwrap_plan or a
+            tuple of form (r,R) or (r,R,(center)) describing the range of radii
+            to be analyzed. If center is not supplied, it uses (row/2, col/2).
+            If nothing is supplied, the unwrapping will by centered at
+            (row/2, col/2) and range from (0, min(row/2,col/2)).
             
         components: (optional) an iterable set of integers describing which
             cosine components to analyze. If nothing is supplied, this will be
