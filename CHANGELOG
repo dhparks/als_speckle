@@ -1,3 +1,9 @@
+0.5 - 10/2/2012
+- support for fitting with weighted values in all fit functions
+- support for fitting lists of data as well as arrays
+- new module for permuting lists
+- Make the documentation better overall
+
 0.4 - 8/9/2012
 - implement the random sampling and consensus (RANSAC) algorithm for fitting data.
 - add a fit function, lorentzian_sq that's blurred with a gaussian.  This is a reasonably good line shape for fitting labyrinth domains.

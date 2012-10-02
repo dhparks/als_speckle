@@ -1,1 +1,4 @@
 *.pyc
+dist
+build
+speckle.egg-info

@@ -5,7 +5,7 @@ docs/conf.py
 setup.py
 
 - make sure you have a clean tree (ie: no uncommitted stuff), or clone a new copy of the tree.
-- install the library
-- go to docs/, run `make html`
+- install the library (python setup.py build; sudo python setup.py install)
+- go to docs/, run `make html` (This needs to be done on a system with GPU support, such as phaser or magnon)
 - copy these docs to phaser and keoki.org
 - run `python setup.py sdist --format=zip
