@@ -15,7 +15,7 @@ kp = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/'
 # cpu fft
 DFT = np.fft.fft2
 IDFT = np.fft.ifft2
-fs = fftshift
+fs = np.fft.fftshift
 
 import matplotlib
 matplotlib.use('Agg')

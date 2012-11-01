@@ -94,7 +94,27 @@ def align_global_phase(data):
     return data
 
 def prtf(estimates,N):
-
+    """Implements the PRTF which measures the reproducibility of the
+    reconstructed phases. On the basis of this function claims
+    of the resolution are often made.
+    
+    Inputs:
+        estimates - an iterable set of aligned independent reconstructions
+        N - the size of the array each estimate should be embedded in (this
+        exists because the phasing library typically does not store the range
+        of the image outside the support, as it is all zeros)
+        
+    Returns
+        prtf: a 2d array of the PRTF at each reciprocal space value
+        prtf_q: a 1d array of the PRTF averaged in annuli using the wrapping lib
+    """
+    
+    assert isinstance(estimates,(numpy.ndarray,list,tuple)), "must be iterable"
+    if isinstance(estimates,numpy.ndarray):
+        assert estimates.ndim == 3, "must be 3d"
+    if isinstance(estimates,(list,tuple)):
+        assert len(estimates) > 1, "must be 3d"
+    
     # compute the prtf by averaging the phase of all the trials
     phase_average = numpy.zeros((N,N),complex)
     estimate      = numpy.zeros((N,N),complex)
@@ -107,7 +127,7 @@ def prtf(estimates,N):
         fourier = numpy.fft.fft2(estimate)
         phase = fourier/abs(fourier)
         phase_average += phase
-    prtf = numpy.fft.fftshift(abs(phase_average/len(estimates)))
+    prtf = shift(abs(phase_average/len(estimates)))
     
     # unwrap and do the angular average
     import wrapping
@@ -115,9 +135,60 @@ def prtf(estimates,N):
     prtf_q    = numpy.average(unwrapped,axis=1)
     
     return prtf, prtf_q
-        
-        
-        
+
+def rftf(estimate,goal_modulus,hot_pixels=False):
+    """ Calculates the RTRF in coherent imaging which in analogy to
+    crystallography attempts to quantify the Fourier error to determine
+    the correctness of a reconstructed image. In contrast to the PRTF,
+    this function measures deviations from the fourier goal modulus, whereas
+    the PRTF measures the reproducibility of the phase.
     
+    From Marchesini et al "Phase Aberrations in Diffraction Microscopy"
+    arXiv:physics/0510033v2"
     
+    Inputs:
+        estimate: the averaged reconstruction
+        goal_modulus: the fourier modulus of the speckles being reconstructed
+        
+    Returns:
+        rtrf: a 2d array of the RTRF at each reciprocal space value
+        rtrf_q : a 1d array of rtrf averaged in annuli using unwrap
+    """
+    
+    assert isinstance(estimate,numpy.ndarray), "estimate must be ndarray"
+    assert isinstance(goal_modulus,numpy.ndarray), "goal_modulus must be ndarray"
+    assert estimate.shape <= goal_modulus.shape, "estimate must be smaller than goal_modulus"
+    
+    # form the speckle pattern
+    new = numpy.zeros(goal_modulus.shape,estimate.dtype)
+    new[0:estimate.shape[0],0:estimate.shape[1]] = estimate
+    fourier = abs(numpy.fft.fft2(new))
+    N = goal_modulus.shape[0]
+    
+    # line up with goal_modulus. based on the operation of the phasing
+    # library, the goal_modulus will be centered either at (0,0) or (N/2,N/2).
+    # aligning using align_frames is a bad idea because the reconstruction might
+    # give a bad speckle pattern, throwing off alignment.
+    diff1 = numpy.sum(abs(fourier-goal_modulus))          # goal modulus at (0,0)
+    diff2 = numpy.sum(abs(shift(fourier)-goal_modulus))   # goal modulus at N/2
+    
+    if diff1 > diff2:
+        fourier = shift(fourier)
+        error   = (fourier-goal_modulus)**2/goal_modulus**2
+        
+    if diff1 < diff2:
+        error = shift((fourier-goal_modulus)**2/goal_modulus**2)
+        
+    if hot_pixels:
+        import conditioning
+        error = conditioning.remove_hot_pixels(error)
+        
+    # calculate the rtrf from the error
+    import wrapping
+    rtrf      = numpy.sqrt(1./(1+error))
+    if hot_pixels: rtrf = conditioning.remove_hot_pixels(rtrf,threshold=1.1)
+    unwrapped = wrapping.unwrap(rtrf,(0,N/2,(N/2,N/2)))
+    rtrf_q    = numpy.average(unwrapped,axis=1)
+    
+    return rtrf, rtrf_q
     
