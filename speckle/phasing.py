@@ -91,7 +91,30 @@ def align_global_phase(data):
     
     if was2d: data = data[0]
     
-    return data     
+    return data
+
+def prtf(estimates,N):
+
+    # compute the prtf by averaging the phase of all the trials
+    phase_average = numpy.zeros((N,N),complex)
+    estimate      = numpy.zeros((N,N),complex)
+    
+    print "averaging phases"
+    for n in range(len(estimates)):
+        print "  %s"%n
+        sample = estimates[n]
+        estimate[0:len(sample),0:len(sample[0])] = sample
+        fourier = numpy.fft.fft2(estimate)
+        phase = fourier/abs(fourier)
+        phase_average += phase
+    prtf = numpy.fft.fftshift(abs(phase_average/len(estimates)))
+    
+    # unwrap and do the angular average
+    import wrapping
+    unwrapped = wrapping.unwrap(prtf,(0,N/2,(N/2,N/2)))
+    prtf_q    = numpy.average(unwrapped,axis=1)
+    
+    return prtf, prtf_q
         
         
         

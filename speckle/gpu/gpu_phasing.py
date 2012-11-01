@@ -242,46 +242,6 @@ class GPUPR:
         
         return cla.sum(self.scratch_f).get()
         
-    def prtf(self,data=None):
-
-        # 1: make fourier abs
-        if isinstance(data,cl.array.Array):
-            touw = data
-        if isinstance(data,numpy.ndarray):
-            print data.dtype
-            print data.shape
-            touw = cla.to_device(self.queue,data.astype(numpy.complex64))
-        if data == None:
-            touw = self.psi_in
-            self.realspace_constraint_er(self.support,touw,self.scratch_c)
-        
-        self.fftplan.execute(self.scratch_c.data,data_out=self.psi_fourier.data)
-        self.make_abs_f(self.psi_fourier,self.scratch_f)
-        
-        # 2: unwrap using map_coords
-        # inputs:
-        # queue, size of output
-        # input, size of input
-        # output, size of output
-        # plan_x, plan_y, interpolation order
-        self.map_coords.execute(self.queue, (self.unwrap_cols,self.N/2),                                   
-                   self.scratch_f.data,     numpy.int32(self.N),           numpy.int32(self.N),           
-                   self.unwrapped_gpu.data, numpy.int32(self.unwrap_cols), numpy.int32(self.N/2),                
-                   self.unwrap_x_gpu.data,  self.unwrap_y_gpu.data,        numpy.int32(3)).wait()
-        temp1 = self.unwrapped_gpu.get()
-        
-        self.map_coords.execute(self.queue, (self.unwrap_cols,self.N/2),                                   
-                   self.modulus.data,     numpy.int32(self.N),           numpy.int32(self.N),           
-                   self.unwrapped_gpu.data, numpy.int32(self.unwrap_cols), numpy.int32(self.N/2),                
-                   self.unwrap_x_gpu.data,  self.unwrap_y_gpu.data,        numpy.int32(3)).wait()
-        temp2 = self.unwrapped_gpu.get()
-
-        # calculate power ratios as a function of radius
-        s1 = numpy.sum(temp1**2,axis=1)*(numpy.arange(0,self.N/2)+1) # reconstruction
-        s2 = numpy.sum(temp2**2,axis=1)*(numpy.arange(0,self.N/2)+1) # modulus; this could be precomputed...
-
-        return s1/s2,s1,s2
-        
 
 def covar_results(gpuinfo,data,threshold=0.85):
     
