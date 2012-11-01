@@ -6,7 +6,7 @@ import numpy
 
 from . import shape, conditioning, scattering, wrapping
 
-def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=None,phase=None,data_is_fourier=False):
+def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=None,phase=None,data_is_fourier=False,band_limit=False):
     """ Propagate a wavefield a single distance, by supplying either the energy
     (or wavelength) and the distance or by supplying a pre-calculated quadratic
     phase factor.
@@ -42,6 +42,7 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
     assert data.ndim == 2,                                "supplied wavefront data must be 2-dimensional"
     assert type(data_is_fourier) == bool,                 "data_is_fourier must be bool"
     assert isinstance(phase,(numpy.ndarray,type(None))),  "phase must be array or None"
+    assert type(band_limit) == bool,                      "band_limit must be bool"
 
     I = complex(0,1)
     # first see if a phase is supplied. if not, make it from the supplied parameters.
@@ -59,19 +60,27 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
         r = numpy.fft.fftshift((shape.radial((N,N)))**2)
         phase = numpy.exp(-I*numpy.pi*wavelength*z*r/(pixel_pitch*N)**2)
         
+        upper_limit = N*pixel_pitch**2/wavelength # this is the nyquist limit on the far-field quadratic phase factor
+
+                
     else:
         # phase has been supplied, so check its types for correctness. if phase-generating parameters are supplied they are ignored.
         assert isinstance(phase,numpy.ndarray), "phase must be an array"
         assert phase.shape == data.shape,       "phase and data must be same shape"
+        upper_limit = -1
         
     if not data_is_fourier:
         res = numpy.fft.fft2(data)
     else:
         res = data
+        
+    if z > upper_limit and z > 0:
+        #print "warning! z (%s) exceeds upper limit (%s)"%(z,upper_limit)
+        if band_limit: res *= numpy.fft.fftshift(shape.circle((N,N),N/2*upper_limit/z))
 
     return numpy.fft.ifft2(res*phase)
 
-def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarraysize=None,silent=True):
+def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarraysize=None,silent=True,band_limit=False):
     """ Propagates a complex-valued wavefield through a range of distances
     using the CPU. A GPU-accelerated version is available elsewhere.
     
@@ -144,6 +153,77 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarrays
         print ""
 
     return buffer
+
+def exact_diffraction(data,distance,energy_or_wavelength,pixel_pitch):
+    """ Propagates a complex-valued wavefield a single given distance by direct evaluation
+    of the exact Kirchoff diffraction integral.
+
+    Required input:
+        gpuinfo: the information tuple returned by gpu.init()
+        data: a square numpy.ndarray. Will be recast to numpy.complex64
+            regardless of incoming dtype
+        distance: the propagation distance in meters
+        energy_or_wavelength: the energy (in eV) or wavelength (in meters) of
+            the wavefield. It's assumed that if the number is < 1 it is a
+            wavelength.
+        pixel_pitch: the size (in meters) of each pixel in data.
+    """
+    
+    # check types and defaults
+    assert isinstance(data,numpy.ndarray),                 "data must be an array"
+    assert data.ndim == 2,                                 "supplied wavefront data must be 2-dimensional"
+    assert data.shape[0] == data.shape[1],                 "data must be square"
+    assert isinstance(energy_or_wavelength, (float, int)), "must supply either wavelength in meters or energy in eV"
+    assert isinstance(pixel_pitch, (int,float)),           "pixel_pitch must be a float saying how big each pixel is in meters"
+    
+    import time
+
+    # convert energy_or_wavelength to wavelength.  If < 1 assume it's a wavelength.
+    if energy_or_wavelength < 1: wavelength = energy_or_wavelength
+    else: wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
+    
+    # set up constants
+    pp = pixel_pitch
+    k  = 2*numpy.pi/wavelength
+    z2 = distance**2
+    
+    N = len(data)
+    f = data.astype(numpy.complex64)
+    integrated = numpy.zeros_like(f)
+    
+    integrand_time = 0
+    sum_time = 0
+    i, j = numpy.indices((N,N),numpy.float32)
+    u, v = j*pp, i*pp
+
+    def _make_integrand():
+        r2  = (x*pp-u)**2+(y*pp-v)**2+z2
+        r   = numpy.sqrt(r2)
+        ir2 = 1./r2
+        ex  = numpy.exp(complex(0,1)*k*r)
+        return ir2*f*ex
+
+    
+    for y in range(N):
+        for x in range(N):
+
+            time0 = time.time()
+            
+            integrand = _make_integrand()
+            time1 = time.time()
+            
+            summed = numpy.sum(integrand)
+            time2 = time.time()
+            
+            integrated[y,x] = summed
+            
+            integrand_time += time1-time0
+            sum_time += time2-time1
+            
+        print y, integrand_time, sum_time
+            
+    # move the data back to host memory and return. this is the only memory transfer coming back.
+    return -complex(0,1)*distance/wavelength*integrated.get()
             
 def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     """ Apodizes a 2d array so that upon back propagation ringing from the
@@ -281,7 +361,8 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
 
     # calculate the acutance
     acutance_list = []
-    for frame in data:
+    for n,frame in enumerate(data):
+        a = _acutance_calc(abs(frame).real,method,normalized,mask,exponent)
         acutance_list.append(_acutance_calc(abs(frame).real,method,normalized,mask,exponent))
         
     # return the calculation

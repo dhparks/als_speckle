@@ -380,3 +380,7 @@ def lorentzian(size,widths,center=None,angle=0,normalization=None):
     else:
         return lorentzian*float(normalization)/lorentzian.sum()
 
+
+def radial_fermi_dirac(size,r,kt,center=None):
+    rad = radial(size,center)
+    return 1/(1+numpy.exp((rad-r)/kt))

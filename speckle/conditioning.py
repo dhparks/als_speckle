@@ -485,8 +485,7 @@ def find_center(data, return_type='coords'):
 
     returns:
         depending on return_type, can return various:
-            'coords' -- returns center coordinates in (row, col) format. This is
-                the default.
+            'coords' (dflt) -- returns center coordinates in (row, col) format.
             'data' -- returns centered data.
     """
     assert isinstance(data, numpy.ndarray) and data.ndim == 2, "data must be a 2-dimensional ndarrray"

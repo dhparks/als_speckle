@@ -21,7 +21,7 @@ class generator():
     
     """ GPU-accelerated copd-type domain generation. """
     
-    def __init__(self,device=None,domains=None,alpha=0.5,converged_at=0.002,ggr=None,returnables=('converged',)):
+    def __init__(self,device=None,domains=None,alpha=1,converged_at=0.002,ggr=None,returnables=('converged',)):
         
         if device != None:
             self.context, self.device, self.queue, self.platform = device
@@ -46,6 +46,9 @@ class generator():
         self.converged_at = converged_at
         self.spa_max   = 0.4
         self.powerlist = [] # for convergence tracking
+        self.goal_m    = 0  # set to 0 just as initial value; can be changed
+        self.extrastop = False # for sending a stop signal during a trajectory
+        self.only_walls = False
          
     def set_domains(self,domains):
         
@@ -133,14 +136,19 @@ class generator():
             self.transitions   = 0
         
         temp_envelope = np.zeros((self.N,self.N),float)
+        self.envelope_label = ''
+        unwrap_etc = False
 
         for element in parameters_list:
             
-            assert element[0] in ('isotropic','modulation','supplied','goal_m'), "command type %s unrecognized in set_envelope; command: %s"%(element[0],element)
+            assert element[0] in ('isotropic','modulation','supplied','goal_m','reseed'), "command type %s unrecognized in set_envelope; command: %s"%(element[0],element)
 
             if element[0] == 'isotropic':
                 parameters = element[1:]
-                temp_envelope  += function_eval(self.r_array,parameters)
+                form, name = function_eval(self.r_array,parameters)
+                temp_envelope += form
+                self.envelope_label += 'iso_%s '%name
+                unwrap_etc = True
                 
             if element[0] == 'modulation':
                 strength   = element[1]
@@ -150,49 +158,57 @@ class generator():
      
                 # make the angular and radial parts of the modulation           
                 redbundled = ['sinusoid', strength, symmetry, phase]
-                angular    = function_eval(self.phi_array,redbundled)
-                radial     = function_eval(self.r_array,parameters)
+                aform, aname = function_eval(self.phi_array,redbundled)
+                rform, rname = function_eval(self.r_array,parameters)
                 
                 # modulate the envelope
-                temp_envelope = temp_envelope*(1-radial)+temp_envelope*radial*angular
+                temp_envelope = temp_envelope*(1-rform)+temp_envelope*rform*aform
+                
+                self.envelope_label += 'mod_a_%s_r_%s '%(aname,rname)
                 
             if element[0] == 'supplied':
                 path = element[1]
                 supplied = io.openfits(path).astype('float')
                 assert supplied.shape == temp_envelope.shape, "supplied envelope and simulation size aren't the same"
                 temp_envelope += supplied
+                self.envelope_label = 'supplied'
 
             if element[0] == 'goal_m':
                 
                 # this sets the goal net magnetization
                 # (a separate idea from the self.goal_m which happens with goal growth rate simulations)
                 self.goal_m = element[1]*self.N*self.N
+                
+            if element[0] == 'reseed':
+                new = 2*np.random.rand(self.N,self.N)-1
+                self.set_domains(new)
 
         # find the intensity center of the envelope. based on how far it is from the center,
         # make the blur kernel. sigma is a function of intensity center to avoid too much
         # blurring for scattering centered near q=0.
-        unwrapped = np.sum(wrapping.unwrap(temp_envelope,(0,self.N/2,(self.N/2,self.N/2))),axis=1)
-        center    = unwrapped.argmax()
+        if unwrap_etc:
+            unwrapped = np.sum(wrapping.unwrap(temp_envelope,(0,self.N/2,(self.N/2,self.N/2))),axis=1)
+            center    = unwrapped.argmax()
+            
+            # find the fwhm. the amount of blurring depends on the width of the speckle ring in order
+            # to avoid the envelope collapsing
+            hm    = (unwrapped.max()-unwrapped.min())/2.+unwrapped.min()
+            left  = abs(unwrapped[:center]-hm).argmin()
+            right = abs(unwrapped[center:]-hm).argmin()+center
+            fwhm  = abs(left-right)
+            
+            self.sigma = fwhm/8.
+            self.set_coherence(self.sigma,self.sigma)
         
-        # find the fwhm. the amount of blurring depends on the width of the speckle ring in order
-        # to avoid the envelope collapsing
-        hm    = (unwrapped.max()-unwrapped.min())/2.+unwrapped.min()
-        left  = abs(unwrapped[:center]-hm).argmin()
-        right = abs(unwrapped[center:]-hm).argmin()+center
-        fwhm  = abs(left-right)
-        
-        self.sigma = fwhm/8.
-        self.set_coherence(self.sigma,self.sigma)
-    
-        temp_envelope += -temp_envelope.min()
-        temp_envelope *= 1./temp_envelope.max()
-                
-        self.goal_envelope.set(shift(temp_envelope.astype(np.float32)))
-        self.can_has_envelope = True
-        self.converged = False
-        self.transitions += 1
-        
-        if 'envelope' in self.returnables_list: self.returnables['envelope'] = temp_envelope
+            temp_envelope += -temp_envelope.min()
+            temp_envelope *= 1./temp_envelope.max()
+                    
+            self.goal_envelope.set(shift(temp_envelope.astype(np.float32)))
+            self.can_has_envelope = True
+            self.converged = False
+            self.transitions += 1
+            
+            if 'envelope' in self.returnables_list: self.returnables['envelope'] = temp_envelope
          
     def set_ggr(self,ggr):
         
@@ -273,7 +289,7 @@ class generator():
         
         available = ('converged','domains','rescaled','rescaler','blurred',
                      'walls1','walls2','pos_walls1','pos_walls2','neg_walls1',
-                     'neg_walls2','bounded','promoted')
+                     'neg_walls2','bounded','promoted','envelope','speckle_in')
         
         # check types
         assert isinstance(returnables,(list,tuple)), "returnables must be list or tuple"
@@ -419,7 +435,7 @@ class generator():
         # now find the domain walls. modifications to the domain pattern due to rescaling only take place in the walls
         self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,np.int32(self.N))
         
-        if 'walls1' in self.returnables_list: self.returnables['walls1'] = self.allwalls.get()
+        if 'walls1'     in self.returnables_list: self.returnables['walls1']     = self.allwalls.get()
         if 'pos_walls1' in self.returnables_list: self.returnables['pos_walls1'] = self.poswalls.get()
         if 'neg_walls1' in self.returnables_list: self.returnables['neg_walls1'] = self.negwalls.get()
         
@@ -437,15 +453,17 @@ class generator():
         
         # so now we have self.incoming (old domains) and self.domains (rescaled domains). we want to use self.walls to enforce changes to the domain pattern
         # from rescaling only within the walls. because updating can change wall location, also refind the walls.
-        #self.update_domains(self.domains,self.incoming,self.allwalls)
+        if self.only_walls:
+            self.update_domains(self.domains,self.incoming,self.allwalls)
+            self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,np.int32(self.N))
         
         if iteration > self.m_turnon:
             self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,np.int32(self.N))
             
-            if 'walls2' in self.returnables_list: self.returnables['walls2'] = self.allwalls.get()
+            if 'walls2'     in self.returnables_list: self.returnables['walls2']     = self.allwalls.get()
             if 'pos_walls2' in self.returnables_list: self.returnables['pos_walls2'] = self.poswalls.get()
             if 'neg_walls2' in self.returnables_list: self.returnables['neg_walls2'] = self.negwalls.get()
-            
+
             # now attempt to adjust the net magnetization in real space to achieve the target magnetization.
             net_m = cla.sum(self.domains).get()
             needed_m = self.goal_m-net_m
@@ -560,6 +578,9 @@ class generator():
         self.fftplan_split.execute(data_in_re  = self.domains.data,        data_in_im  = self.dummy_zeros.data,
                                    data_out_re = self.domains_dft_re.data, data_out_im = self.domains_dft_im.data,
                                    wait_for_finish = True)
+        if 'speckle_in' in self.returnables_list:
+            self.make_speckle(self.domains_dft_re,self.domains_dft_im, self.speckles)
+            self.returnables['speckle_in'] = shift(abs(self.speckles.get()))
 
         self._preserve_power(self.domains_dft_re, self.domains_dft_im, self.speckles, 'in')
 
@@ -588,7 +609,7 @@ class generator():
         assert stage in ('in','out'), "unrecognized _preserve_power stage %s"%stage
 
         if stage == 'in':
-            # make the components into speckle. get m0 and the speckle power.
+            # make the components into  get m0 and the speckle power.
             # m0 is a float2 which stores the (0,0) of re and im
             # replace the (0,0) component with the average of the surrounding neighbors to prevent envelope distortion due to non-zero average magnetization
             
@@ -696,34 +717,43 @@ def function_eval(x,Parameters):
     Type = Parameters[0]
     
     assert Type in ('linear','lorentzian','lorentzian_sq','gaussian','tophat','sinusoid','uniform'), "function type %s unrecognized in make_envelope->function_eval"%Type
-    
+
     if Type == 'linear':
         Slope,yIntercept = Parameters[1:]
-        return Slope*x+yIntercept
+        form = Slope*x+yIntercept
+        name = 'lin_%s_%s'%(Slope,Intercept)
         
     if Type == 'lorentzian':
         Scale,Center,Width = Parameters[1:]
-        return float(Scale)/(1+(1/float(Width)**2)*(x-float(Center))**2)
+        form = float(Scale)/(1+(1/float(Width)**2)*(x-float(Center))**2)
+        name = 'l_w%s_c%s'%(Width,Center)
         
     if Type == 'lorentzian_sq':
         Scale,Center,Width = Parameters[1:]
-        return float(Scale)/(1+(1/float(Width)**2)*(x-float(Center))**2)**2
+        name = 'ls_w%.1f_c%s'%(Width,Center)
+        form = float(Scale)/(1+(1/float(Width)**2)*(x-float(Center))**2)**2
         
     if Type == 'gaussian':
         Scale,Center,Sigma = Parameters[1:]
-        return Scale*np.exp(-((x-Center)**2)/(2*Sigma**2))
+        name = 'g_%s_%s'%(Width,Center)
+        form = Scale*np.exp(-((x-Center)**2)/(2*Sigma**2))
         
     if Type == 'tophat':
         Scale,Center,Width = Parameters[1:]
         Hat = np.where(x < Center+Width/2.,1,0)*np.where(x >= Center-Width/2.,1,0)
-        return Hat
+        form = Hat
+        name = 'th_%s_%s'%(Center,Width)
         
     if Type == 'sinusoid':
         Strength,Symmetry,Rotation = Parameters[1:]
-        return 1+Strength*0.5*(np.cos(Symmetry*(x+Rotation))-1)
+        form = 1+Strength*0.5*(np.cos(Symmetry*(x+Rotation))-1)
+        name = 'cos_%s_%s_%s'%(Strength,Symmetry,Rotation)
         
     if Type == 'uniform':
-        return np.ones_like(x)
+        form = np.ones_like(x)
+        name = 'uniform'
+        
+    return form,name 
         
 def make_speckle(array):
     return shift(abs(DFT(array))**2)
