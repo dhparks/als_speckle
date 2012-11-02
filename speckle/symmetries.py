@@ -327,38 +327,56 @@ def rot_sym(speckles,plan=None,components=None,cosines=None,get_back=()):
             values of the decomposition.
     """
     # check types
-    assert isinstance(speckles,np.ndarray) and speckles.ndim == 2, "input data must be 2d array"
-    assert isinstance(plan,(np.ndarray,tuple,list,type(None))), "plan type is unrecognized"
-    assert isinstance(components,(np.ndarray,tuple,list,type(None))), "components are non-iterable"
+    assert isinstance(speckles,np.ndarray) and speckles.ndim in (2,3), "input data must be 2d array"
+    assert isinstance(plan,(np.ndarray,tuple,list,type(None))),        "plan type is unrecognized"
+    assert isinstance(components,(np.ndarray,tuple,list,type(None))),  "components are non-iterable"
     
-    N,M = speckles.shape
-    R = min([N,M])
+    was_2d = False
+    if speckles.ndim == 2:
+        speckles.shape = (1,speckles.shape[0],speckles.shape[1])
+        was_2d = True
     
-    # do the unwrapping. behavior depends on what comes in as plan
-    if isinstance(plan,np.ndarray):
-        unwrapped = wrapping.unwrap(speckles,plan)
+    L,N,M = speckles.shape #N probably = M but dont assume it
+    R     = min([N,M])
+    
+    spectra      = []
+    unwrappeds   = []
+    correlations = []
+    
+    # if plan comes in as a tuple, make the unwrap plan
     if isinstance(plan,tuple):
-        if len(plan) == 2: unwrapped = wrapping.unwrap(speckles,(plan[0],plan[1],(N/2,M/2)))
-        if len(plan) == 3: unwrapped = wrapping.unwrap(speckles,plan)
-    if plan == None: unwrapped = wrapping.unwrap(speckles,(0,R/2,(N/2,M/2)))
-
-    # autocorrelate the unwrapped speckle. normalize each row individually.
-    autocorrelation = crosscorr.crosscorr(unwrapped,unwrapped,axes=(1,),shift=False)
-    for row,row_data in enumerate(autocorrelation):
-        autocorrelation[row] = row_data*(1./abs(row_data).max())
+        if len(plan) == 2: plan = wrapping.unwrap_plan(plan[0],plan[1],(N/2,M/2))
+        if len(plan) == 3: plan = wrapping.unwrap_plan(plan[0],plan[1],plan[2])
+    if plan == None:       plan = wrapping.unwrap_plan(0,R/2,(N/2,M/2))
     
-    # generate components and cosines if necessary
+    # make the cosine components
+    R,r = plan[:,-1]
+    uw_cols = (len(plan[0])-1)/abs(R-r)
     if components == None: components = np.arange(2,20,2).astype('float')
-    if cosines == None: cosines = make_cosines(components,len(autocorrelation[0]))
+    if cosines    == None: cosines    = make_cosines(components,uw_cols)
     
-    # run cosine decomposition
-    spectrum = decompose(autocorrelation.real,cosines)
+    # each frame is analyzed in the same sequence:
+    # 1. unwrap
+    # 2. correlate/normalize
+    # 3. decompose
+    for f,frame in enumerate(speckles):
+        unwrapped = wrapping.unwrap(frame,plan)
+        i0        = np.outer(np.average(unwrapped,axis=1)**2,np.ones(uw_cols)) # this is the denominator (<I>)^2
+        autocorr  = abs(crosscorr.crosscorr(unwrapped,unwrapped,axes=(1,),shift=False))/uw_cols
+        autocorr  = (autocorr-i0)/i0
+        spectrum  = decompose(autocorr.real,cosines)
+        
+        unwrappeds.append(unwrapped)
+        correlations.append(autocorr)
+        spectra.append(spectrum)
+    
+    if was_2d: speckles.shape = (speckles.shape[1],speckles.shape[2])
     
     if get_back == ():
-        return spectrum
+        return spectra
     if get_back != ():
         to_return = {}
-        to_return['spectrum'] = spectrum
-        if 'unwrapped'  in get_back: to_return['unwrapped']  = unwrapped
-        if 'correlated' in get_back: to_return['correlated'] = autocorrelation
+        to_return['spectra'] = spectra
+        if 'unwrapped'  in get_back: to_return['unwrapped']  = unwrappeds
+        if 'correlations' in get_back: to_return['correlations'] = correlations
         return to_return
