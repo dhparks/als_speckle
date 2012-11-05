@@ -318,13 +318,17 @@ def rot_sym(speckles,plan=None,components=None,cosines=None,get_back=()):
         cosines: (optional) an ndarray containing precomputed cosines. for
             speed. if cosines is supplied, components is ignored.
 
-        get_back: a tuple of keywords allowing a dictionary of intermediates to
+        get_back (optional): a tuple of keywords allowing a dictionary of intermediates to
             be returned. mainly for use with cpu_microscope in order to unify
             output syntax with gpu_microscope
+            allowed kwords: 'spectra', 'unwrapped', 'correlation'.
+            if specified, you get a dictionary back that you call like: output['spectra']
 
     returns:
         an ndarray of shape (R-r,len(components)) giving the cosine component
             values of the decomposition.
+            
+        others come back if get_back is specified but this is not the default behavior
     """
     # check types
     assert isinstance(speckles,np.ndarray) and speckles.ndim in (2,3), "input data must be 2d array"

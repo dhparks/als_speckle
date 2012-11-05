@@ -91,6 +91,8 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
         nothing. Will throw an exception if something wrong happens.
     """
     
+    assert isinstance(data,numpy.ndarray), "data must be a numpy array"
+    
     # define extension types to control switching
     img_exts  = ('jpg','jpeg','gif','png','bmp')
     fits_exts = ('fits',)
@@ -960,7 +962,7 @@ def _draw_polygon(shapedesc, dim):
 
     return numpy.array(img)
 
-def open_ds9_mask(filename, individual_regions = False, remove_intersections = False):
+def open_ds9_mask(filename, individual_regions = False, remove_intersections = False, force_size=None):
     """ From a region file input construct a mask.
     
     arguments:
@@ -975,6 +977,11 @@ def open_ds9_mask(filename, individual_regions = False, remove_intersections = F
         mask - a mask of the regions. If individual_regions is False, a binary
             mask is returned otherwise a region mask is returned.
     """
+    
+    assert isinstance(individual_regions,(bool,int)), "individual_regions must be boolean-evaluable"
+    assert isinstance(remove_intersections,(bool,int)), "remove_intersections must be boolean-evaluable"
+    assert isinstance(force_size,(type(None),int)), "force_size must be None or an integer size"
+    
     import re
     file_exp = re.compile("# Filename: ((?:\/[\w\.\-\ ]+)+)(?:(\[\w\])?)")
 
@@ -993,7 +1000,10 @@ def open_ds9_mask(filename, individual_regions = False, remove_intersections = F
                 try:
                     dim = get_fits_dimensions(afile, card)
                 except IOError:
-                    dim = (1, 2048, 2048)
+                    if force_size == None:
+                        dim = (1, 2048, 2048)
+                    else:
+                        dim = (1,force_size,force_size)
 
                 aline = f.readline()
                 continue
