@@ -201,3 +201,53 @@ def trace_object(data_in, start, detect_val=None, return_type='detected'):
         
     if return_type == 'iterations': return detected
     if return_type == 'detected': return detected.astype(bool)
+    
+def find_all_objects(data,detect_val=(.95,1.05),return_type='objects'):
+    """ Find all the objects in an array. This is intended for finding all the
+    components of a multi-partite support, but could also be used for finding
+    all the domains in an image. Works by iteratively applying the trace_object
+    function when a new object is encountered.
+    
+    input:
+        data -- array with objects. best if binary or nearly binary.
+        detect_val -- (optional) a 2-tuple containing the (min,max) of what is
+            considered to be connected to the start pixel. default is
+            (.95,1.05), which assumes a nearly binary object. if not passing a
+            previously thresholded array it is wise to supply this tuple.
+        return_type -- specify the returned output (see below)
+            
+    returns: depends on return_type
+        if return_type = 'objects': get back a 3d array, each array frame has
+            an isolated object. this can get VERY LARGE if there are many
+            objects!
+        if return_type = 'coordinates': get back a list of tuples. each tuple
+            is a coordinate in the object (specifically: the first pixel).
+            from this information the objects can be found using trace_object.
+    """
+    
+    assert isinstance(data,np.ndarray), "input data must be an array"
+    assert data.ndim == 2, "for now data must be 2d"
+    assert isinstance(detect_val,(tuple,list,np.ndarray,int,float)), "detect_val type (is: %s) not recognized"%(type(detect_val))
+    assert return_type in ('objects','coordinates'), "return_type string (is: %s) not recognized"%(return_type)
+    
+    objects = [] # make this into an array at return
+    starts  = []
+    
+    for r in range(data.shape[0]):
+        if data[r].any(): # scan all the pixels until we find a starting point
+            for c in range(data.shape[1]):
+                
+                if data[r,c] >= detect_val[0] and data[r,c] <= detect_val[1]:
+                    # found an object! trace it!
+                    
+                    found_object = trace_object(data,(r,c),detect_val=detect_val)
+                    if return_type == 'objects':     objects.append(found_object.astype(int))
+                    if return_type == 'coordinates': starts.append((r,c))
+                    data[found_object == 1] = 0 # zero out the object we just find so we don't find it again
+                    
+    if return_type == 'coordinates': return starts
+    if return_type == 'objects': return np.array(objects).astype(int)
+                    
+    
+    
+            

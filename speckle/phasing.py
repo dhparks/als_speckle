@@ -192,3 +192,68 @@ def rftf(estimate,goal_modulus,hot_pixels=False):
     
     return rtrf, rtrf_q
     
+def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshold=0,kill_weakest=False):
+    """ Given an average reconstruction and its support, refine the support
+    by blurring and thresholding. This is the Marchesini approach (PRB 2003)
+    for shrinkwrap.
+    
+    Inputs:
+        support - the current support
+        average_mag - the magnitude component of the average reconstruction
+        blur - the stdev of the blurring kernel, in pixels
+        threshold - the amount of the blurred max which is considered the object
+        kill_weakest - if True, eliminate the weakest object in the support. this is
+            for the initial refine of a multipartite holographic support as in the barker
+            code experiment; one of the reference guesses may have nothing in it, and it
+            should be eliminated.
+        
+    Output:
+        the refined support
+        
+    """
+    
+    assert isinstance(support,numpy.ndarray),        "support must be array"
+    assert support.ndim == 2,                        "support must be 2d"
+    assert isinstance(average_mag,numpy.ndarray),    "average_mag must be array"
+    assert average_mag.ndim == 2,                    "average_mag must be 2d"
+    assert isinstance(blur,(float,int)),             "blur must be a number (is %s)"%type(blur)
+    assert isinstance(global_threshold,(float,int)), "global_threshold must be a number (is %s)"%type(global_threshold)
+    assert isinstance(local_threshold,(float,int)),  "lobal_threshold must be a number (is %s)"%type(local_threshold)
+    
+    refined   = numpy.zeros_like(support)
+    
+    from . import shape,masking
+    kernel  = numpy.fft.fftshift(shape.gaussian(support.shape,(blur,blur)))
+    kernel *= 1./kernel.sum()
+    kernel  = numpy.fft.fft2(kernel)
+    blurred = numpy.fft.ifft2(kernel*numpy.fft.fft2(average_mag)).real
+    
+    # find all the places where the blurred image passes the global threshold test
+    global_passed = numpy.where(blurred > blurred.max()*global_threshold,1,0)
+    
+    # now find all the local parts of the support, and conduct local thresholding on each
+    parts = masking.find_all_objects(support)
+    print "refining"
+    print parts.shape
+    part_sums = numpy.ndarray(len(parts),float)
+    for n,part in enumerate(parts):
+        current      = blurred*part
+        local_passed = numpy.where(current > current.max()*local_threshold, 1, 0)
+        refined     += local_passed
+        
+        if kill_weakest: part_sums[n] = numpy.sum(average_mag*part)
+        
+    refined *= global_passed
+    
+    if kill_weakest:
+        weak_part = parts[part_sums.argmin()]
+        refined  *= 1-weak_part
+    
+    return refined
+        
+        
+        
+    
+    
+    
+    

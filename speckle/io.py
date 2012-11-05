@@ -33,7 +33,7 @@ def set_overwrite(val):
 #
 ############### Primary Wrappers ################
 #
-def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimiter='\t'):
+def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimiter='\t', force_reg_size=None):
     """Open a data file listed in filename. This function looks at the filename
     extension and passes the necessary arguments to the correct function:
     openfits, openimage, read_text_array, load_pickle, and open_ds9_mask.
@@ -67,7 +67,7 @@ def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimite
     if ext in fits_exts: return openfits(filename,quiet=quiet,orientImageHDU=True)
     if ext in txt_exts:  return read_text_array(filename,convert_to=convert_to,delimiter=delimiter)
     if ext in pck_exts:  return load_pickle(filename)
-    if ext in ds9mask_exts: return open_ds9_mask(filename)
+    if ext in ds9mask_exts: return open_ds9_mask(filename,force_reg_size=force_reg_size)
 
 def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None):
     """ Save components of an array as desired filetype specified by file
@@ -962,7 +962,7 @@ def _draw_polygon(shapedesc, dim):
 
     return numpy.array(img)
 
-def open_ds9_mask(filename, individual_regions = False, remove_intersections = False, force_size=None):
+def open_ds9_mask(filename, individual_regions = False, remove_intersections = False, force_reg_size=None):
     """ From a region file input construct a mask.
     
     arguments:
@@ -978,9 +978,9 @@ def open_ds9_mask(filename, individual_regions = False, remove_intersections = F
             mask is returned otherwise a region mask is returned.
     """
     
-    assert isinstance(individual_regions,(bool,int)), "individual_regions must be boolean-evaluable"
+    assert isinstance(individual_regions,(bool,int)),   "individual_regions must be boolean-evaluable"
     assert isinstance(remove_intersections,(bool,int)), "remove_intersections must be boolean-evaluable"
-    assert isinstance(force_size,(type(None),int)), "force_size must be None or an integer size"
+    assert isinstance(force_reg_size,(type(None),int)), "force_size must be None or an integer size"
     
     import re
     file_exp = re.compile("# Filename: ((?:\/[\w\.\-\ ]+)+)(?:(\[\w\])?)")
@@ -1000,10 +1000,10 @@ def open_ds9_mask(filename, individual_regions = False, remove_intersections = F
                 try:
                     dim = get_fits_dimensions(afile, card)
                 except IOError:
-                    if force_size == None:
+                    if force_reg_size == None:
                         dim = (1, 2048, 2048)
                     else:
-                        dim = (1,force_size,force_size)
+                        dim = (1,force_reg_size,force_reg_size)
 
                 aline = f.readline()
                 continue
