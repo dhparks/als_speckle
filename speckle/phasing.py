@@ -183,14 +183,15 @@ def rftf(estimate,goal_modulus,hot_pixels=False):
         import conditioning
         error = conditioning.remove_hot_pixels(error)
         
-    # calculate the rtrf from the error
+    # calculate the rftf from the error
     import wrapping
-    rtrf      = numpy.sqrt(1./(1+error))
-    if hot_pixels: rtrf = conditioning.remove_hot_pixels(rtrf,threshold=1.1)
-    unwrapped = wrapping.unwrap(rtrf,(0,N/2,(N/2,N/2)))
-    rtrf_q    = numpy.average(unwrapped,axis=1)
+    rftf      = numpy.sqrt(1./(1+error))
+    if hot_pixels:
+        rftf  = conditioning.remove_hot_pixels(rftf,threshold=1.1)
+    unwrapped = wrapping.unwrap(rftf,(0,N/2,(N/2,N/2)))
+    rftf_q    = numpy.average(unwrapped,axis=1)
     
-    return rtrf, rtrf_q
+    return rftf, rftf_q
     
 def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshold=0,kill_weakest=False):
     """ Given an average reconstruction and its support, refine the support
