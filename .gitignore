@@ -1,21 +1,4 @@
 *.pyc
-examples/phasing/data/bcmo holo conditioned tb 163 512_mag.fits
-examples/phasing/data/bcmo holo conditioned tb 191 512_mag.fits
-examples/phasing/data/bcmo holo conditioned tb 218 512_mag.fits
-examples/phasing/data/bcmo holo conditioned tb 246 512_mag.fits
-examples/phasing/data/bcmo holo conditioned tb 274 512_mag.fits
-examples/phasing/data/bcmo holo conditioned tb 309 512_mag.fits
-examples/phasing/out/bcmo tb218 june29e 512 i500 n10 summed sqrt_mag.png
-examples/phasing/out/bcmo tb218 june29e 512 i500 n10 summed_imag.fits
-examples/phasing/out/bcmo tb218 june29e 512 i500 n10 summed_real.fits
-examples/phasing/supports/bcmo_june_10e.png
-examples/phasing/supports/bcmo_june_18d.png
-examples/phasing/supports/bcmo_june_22d.png
-examples/phasing/supports/bcmo_june_29e.png
-examples/phasing/supports/bcmo_june_35e.png
-examples/phasing/supports/bcmo_june_38d.png
-test/dustq_mag.fits
-test/repaired_mag.fits
-test/speckles_mag.fits
-examples/angular average.png
-examples/colloid speckle size and contrast.csv
+dist
+build
+speckle.egg-info
