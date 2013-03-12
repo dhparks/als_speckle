@@ -86,8 +86,14 @@ def align_global_phase(data):
         x = frame.ravel()
         e = lambda p: numpy.sum(abs((x*numpy.exp(complex(0,1)*p)).imag))
         opt, val, conv, num = fminbound(e,0,2*numpy.pi,full_output=1)
-        print opt
+        print abs(x.imag).sum(),opt,abs((x*numpy.exp(complex(0,1)*opt)).imag).sum()
         frame *= numpy.exp(complex(0,1)*opt)
+        
+        # minimizing the imaginary component can give a degenerate solution (ie, 0, pi)
+        # now check the value of the real.sum() against -real.sum()
+        s1 = frame.real.sum()
+        s2 = (-1*frame).real.sum()
+        if s2 > s1: frame *= -1
     
     if was2d: data = data[0]
     
@@ -183,15 +189,14 @@ def rftf(estimate,goal_modulus,hot_pixels=False):
         import conditioning
         error = conditioning.remove_hot_pixels(error)
         
-    # calculate the rftf from the error
+    # calculate the rtrf from the error
     import wrapping
-    rftf      = numpy.sqrt(1./(1+error))
-    if hot_pixels:
-        rftf  = conditioning.remove_hot_pixels(rftf,threshold=1.1)
-    unwrapped = wrapping.unwrap(rftf,(0,N/2,(N/2,N/2)))
-    rftf_q    = numpy.average(unwrapped,axis=1)
+    rtrf      = numpy.sqrt(1./(1+error))
+    if hot_pixels: rtrf = conditioning.remove_hot_pixels(rtrf,threshold=1.1)
+    unwrapped = wrapping.unwrap(rtrf,(0,N/2,(N/2,N/2)))
+    rtrf_q    = numpy.average(unwrapped,axis=1)
     
-    return rftf, rftf_q
+    return rtrf, rtrf_q
     
 def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshold=0,kill_weakest=False):
     """ Given an average reconstruction and its support, refine the support
@@ -250,7 +255,7 @@ def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshol
         weak_part = parts[part_sums.argmin()]
         refined  *= 1-weak_part
     
-    return refined
+    return refined,blurred
         
         
         

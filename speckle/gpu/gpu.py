@@ -1,4 +1,3 @@
-
 class GPUInitError(Exception):
     def __init__(self, msg, platform=None, device=None, context=None, queue=None):
         self.msg = msg
@@ -14,6 +13,59 @@ try: import pyopencl
 except ImportError:
     raise GPUInitError("importing speckle.gpu failed; presumably no pyopencl install\nfalling back to cpu-python generator code")
 
+def init_cpu_cl():
+    """ Initialize the CPU with all the pyopencl magic words. Runs slower than GPU, but should use all cores"""
+
+    p_success = False
+    d_success = False
+    c_success = False
+    q_success = False
+    
+    try:
+        platform  = pyopencl.get_platforms()[1]
+        p_success = True
+    except (pyopencl.LogicError,IndexError):
+        error_msg = 'no platform'
+        raise GPUInitError(error_msg)
+        
+    if p_success:
+        
+        try:
+            # now that we found the platform, get the device
+            try:
+                CPUs = platform.get_devices(pyopencl.device_type.CPU)
+            except: 
+                CPUs = []
+            if len(CPUs) > 0:
+                if 'Apple' in str(platform) and 'Intel(R)' in str(CPUs[0]):
+                    raise GPUInitError('no gpu and apple+intel crashes fft')
+                else:
+                    device = CPUs[0]
+            if len(CPUs) == 0: raise GPUInitError('platform exists but no devices?!')
+            d_success = True
+            
+        except pyopencl.LogicError:
+            error_msg = 'logic error getting devices'
+            raise GPUInitError(error_msg,platform=platform)
+            
+    if d_success:
+        try:
+            context = pyopencl.Context([device])
+            c_success = True
+        except pyopencl.LogicError:
+            error_msg = 'logic error getting context'
+            raise GPUInitError(error_msg,platform=platform,device=device)
+            
+    if c_success:
+        try:
+            queue = pyopencl.CommandQueue(context)
+            q_success = True
+        except pyopencl.LogicError:
+            error_msg = 'logic error making queue'
+            raise GPUInitError(error_msg,platform=platform,device=device,context=context)
+            
+    return context,device,queue,platform
+
 def init():
     """ Initialize the GPU with all the pyopencl magic words. By default, takes the first
     GPU in the list. Multi-GPU computers is too esoteric to consider."""
@@ -21,6 +73,9 @@ def init():
     p_success = False
     d_success = False
     c_success = False
+    q_success = False
+    
+    import time
     
     try:
         platform  = pyopencl.get_platforms()[0]
@@ -28,7 +83,7 @@ def init():
     except (pyopencl.LogicError,IndexError):
         error_msg = 'no platform'
         raise GPUInitError(error_msg)
-        
+
     if p_success:
         
         try:
@@ -53,7 +108,7 @@ def init():
         except pyopencl.LogicError:
             error_msg = 'logic error getting devices'
             raise GPUInitError(error_msg,platform=platform)
-            
+        
     if d_success:
         try:
             context = pyopencl.Context([device])
@@ -61,14 +116,19 @@ def init():
         except pyopencl.LogicError:
             error_msg = 'logic error getting context'
             raise GPUInitError(error_msg,platform=platform,device=device)
+        
+    # Beginning 1 March 2013 this sleep command is necessary to prevent the GPU driver
+    # from hanging. The underlying cause is unknown.
+    time.sleep(0.5)
             
     if c_success:
         try:
             queue = pyopencl.CommandQueue(context)
+            q_success = True
         except pyopencl.LogicError:
             error_msg = 'logic error making queue'
             raise GPUInitError(error_msg,platform=platform,device=device,context=context)
-            
+
     return context,device,queue,platform
 
 def build_kernel(c,d,kernel):

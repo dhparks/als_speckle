@@ -168,4 +168,4 @@ __kernel void execute( __global float* input, int width_in, int height_in,
 		output[i] = out_val;
 		
 	}
-}"""
+}

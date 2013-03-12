@@ -17,7 +17,7 @@ class cpu_microscope():
         are simulated at the same size as the object.
     """
     
-    def __init__(self,device=None,object=None,unwrap=None,pinhole=None,coherence=None,components=None,returnables=('spectrum')):
+    def __init__(self,device=None,object=None,unwrap=None,pinhole=None,ph_signal=None,coherence=None,components=None,specklesize=None,fb=10,corrwidth=360,returnables=('spectrum')):
         
         # the class is structured in such a way that its parts can all be inited right now
         # or later on in the main script. the example will show both.
@@ -31,17 +31,19 @@ class cpu_microscope():
         self.can_has_unwrap = False
         self.can_has_pinhole = False
         self.can_has_coherence = False
+        self.can_has_specklesize = False
         self.cosines = None
         self.returnables_list = returnables
+        self.fb = fb # fakeblocker size
         
         # if simulation information is supplied to __init__, set up those parts of the simulation.
         # otherwise, they will have to be done later from the main script.
         
         if object != None: self.set_object(object)
+        if pinhole != None: self.set_pinhole(pinhole,specklesize)
         if unwrap != None: self.set_unwrap(unwrap)
-        if pinhole != None: self.set_pinhole(pinhole)
         if coherence != None: self.set_coherence(coherence)
-        if components != None: self.set_cosines(components=components)
+        if components != None: self.set_cosines(corrwidth=corrwidth,components=components)
         
         self.returnables = {}
         
@@ -68,8 +70,8 @@ class cpu_microscope():
             # strictly speaking the former is all that is needed to set the rest of
             # the class variables.
             if isinstance(object,int):
-                self.N = object
-                self.object = np.zeros((self.N,self.N),complex)
+                self.obj_N = object
+                self.object = np.zeros((self.obj_N,self.obj_N),complex)
             if isinstance(object,np.ndarray):
                 assert object.ndim == 2, "object must be 2d"
                 assert object.shape[0] == object.shape[1], "object must be square"
@@ -98,13 +100,13 @@ class cpu_microscope():
         self.ur, self.uR = min([ur,uR]), max([ur,uR])
         self.rows = (self.uR-self.ur)
         assert ur > 0, "unwrap_r must be > 0"
-        assert uR < self.N/2, "unwrap_R exceeds simulated speckle bounds"
+        assert uR < self.speckle_N/2, "unwrap_R exceeds simulated speckle bounds"
         
-        self.unwrap_plan = wrapping.unwrap_plan(self.ur,self.uR,(self.N/2,self.N/2))
+        self.unwrap_plan = wrapping.unwrap_plan(self.ur,self.uR,(self.speckle_N/2,self.speckle_N/2))
         
         self.can_has_unwrap = True
         
-    def set_pinhole(self,pinhole):
+    def set_pinhole(self,pinhole,specklesize):
         
         """Set the pinhole function. Can be reset during the simulation if it is
         the same size as the old pinhole (the array size, not the radius).
@@ -113,22 +115,36 @@ class cpu_microscope():
             pinhole: Either a number, in which case a circle is generated as the
             pinhole, or an array, in which case the array is set as the pinhole.
             The latter option allows custom illuminations to be supplied."""
-        
+
         assert self.can_has_object, "need to init object before pinhole"
-        assert isinstance(pinhole,(int,float,np.ndarray)), "pinhole must be number or array"
+        assert isinstance(pinhole,np.ndarray), "pinhole must be array"
+        assert pinhole.ndim == 2, "pinhole must be 2d array"
+        assert pinhole.shape[0] == pinhole.shape[1], "pinhole must be square"
+        assert len(pinhole) <= self.obj_N, "pinhole size must be leq than object size"
+        
+        if not self.can_has_pinhole:
+             self.pin_N = len(pinhole)
+             self.illumination = pinhole
 
-        if isinstance(pinhole,(int,float)):
-            assert pinhole < self.N/2, "pinhole radius must be smaller than pinhole array size"
-            circle = shape.circle((self.N,self.N),pinhole)
-            self.pr = pinhole
-            self.illumination = shift(circle) # this makes coordinates (0,0) be the array corners
+        # if the speckle will be resized, make the plan and put it on the gpu
+        if not self.can_has_specklesize:
+            if specklesize != None: self.speckle_N = specklesize
+            if specklesize == None: self.speckle_N = self.pin_N
+            self.can_has_specklesize = True
             
-        if isinstance(pinhole,np.ndarray):
-            # if the pinhole is custom, all bets are off about the simulation's coordinates system...
-            assert pinhole.shape == self.object.shape, "supplied pinhole must be same size as supplied object"
-            self.illumination = pinhole
-            self.pr = None
+        if self.pin_N < self.obj_N:
+            self.object = shift(self.object) # this makes the slicing easier
+        
+        # make the blocker: ball + stick
+        #self.blocker = fs(io.open('../../jobs/symmetry microscope/images/blocker_mask.png').astype(np.float32))
+        #self.blocker *= 1./self.blocker.max()
+        
+        #self.blocker = shape.circle((self.speckle_N,self.speckle_N),55)
+        self.blocker = shape.rect((self.speckle_N,self.speckle_N),(self.fb,512),center=(512-self.fb/2,512+256))
+        self.blocker = shift(np.clip(1-self.blocker,0,1))
 
+        assert self.blocker.shape == (self.speckle_N,self.speckle_N), "blocker is wrong shape"
+        
         self.can_has_pinhole = True
         
     def set_coherence(self,coherence):
@@ -140,21 +156,22 @@ class cpu_microscope():
         if isinstance(coherence,(list,tuple)):
             assert len(coherence) == 2, "coherence must have len 2"
             clx,cly = coherence[0],coherence[1]
-            self.coherence = shift(shape.gaussian((self.N,self.N),(cly,clx)))
+            self.coherence = shift(shape.gaussian((self.speckle_N,self.speckle_N),(cly,clx)))
         
         if isinstance(coherence,np.ndarray):
-            assert coherence.shape == self.object.shape, "coherence must be NxN"
+            assert coherence.shape == (self.speckle_N,self.speckle_N), "coherence must be NxN"
             self.coherence = coherence
             
         self.can_has_coherence = True
      
-    def set_cosines(self,components=None,cosines=None):
+    def set_cosines(self,corrwidth=None,components=None,cosines=None):
         assert self.can_has_unwrap, "must set unwrap before cosines"
         
         if components != None:
             assert isinstance(components,(tuple,list,np.ndarray)), "components must be iterable"
-            uL = (self.unwrap_plan.shape[1]-1)/self.rows
-            self.cosines = make_cosines(components,uL)
+            
+            if corrwidth == None: corrwidth = (self.unwrap_plan.shape[1]-1)/self.rows
+            self.cosines = make_cosines(components,corrwidth)
             
         if cosines != None:
             # trust the user here...
@@ -227,22 +244,39 @@ class cpu_microscope():
         
         # some helper functions
         rolls = lambda d,r0,r1: np.roll(np.roll(d,r0,axis=0),r1,axis=1)
-        make_speckles = lambda x: shift(abs(DFT(x))**2)
         blur_speckle = lambda x: abs(DFT(IDFT(x)*self.coherence))
         
+        def make_speckles(x):
+            # first, make the speckles by fft.
+            # the, resize if necessary for the unwrap.
+            speckles = shift(abs(DFT(x))**2)
+            if self.speckle_N != self.pin_N:
+                import scipy.misc.pilutil as smp
+                import Image
+                print "resizing"
+                speckles = smp.fromimage(smp.toimage(speckles,mode='F').resize((self.speckle_N,self.speckle_N),Image.BILINEAR))
+            return speckles
+        
+        def illuminate(dy,dx):
+            if self.pin_N < self.obj_N:
+                return rolls(self.object,dy,dx)[self.obj_N/2-self.pin_N/2:self.obj_N/2+self.pin_N/2,self.obj_N/2-self.pin_N/2:self.obj_N/2+self.pin_N/2]*self.illumination
+            else:
+                return rolls(self.illumination,dy,dx)*self.object
+
         # go through the analysis. use the rot_sym function to do the unwrapping and decomposing.
         # if nothing is supplied for components or cosines, the defaults of rot_sym become active.
-        self.illuminated = rolls(self.illumination,dy,dx)*self.object
+        self.illuminated = illuminate(dy,dx)
         self.speckles = make_speckles(self.illuminated)
         
         if cosines == None: cosines = self.cosines
         if not self.can_has_coherence:
-            returned_rs = rot_sym(self.speckles,self.unwrap_plan,cosines=cosines,get_back=self.returnables_list)
-        
+            to_rotsym = self.speckles
         if self.can_has_coherence:
             self.blurred = blur_speckle(self.speckles)
-            returned_rs = rot_sym(self.blurred,self.unwrap_plan,cosines=cosines,get_back=self.returnables_list)
-            
+            to_rotsym = self.blurred
+    
+        returned_rs = rot_sym(to_rotsym,plan=self.unwrap_plan,cosines=self.cosines,get_back=self.returnables_list) # dont need to pass components, only cosines
+
         # build the output dictionary
         if 'illuminated' in self.returnables_list:
             temp = shift(self.illuminated)
@@ -254,7 +288,8 @@ class cpu_microscope():
         if 'blurred_blocker' in self.returnables_list and self.can_has_coherence: self.returnables['blurred_blocker'] = self.blurred*self.blocker
         if 'unwrapped' in self.returnables_list: self.returnables['unwrapped'] = returned_rs['unwrapped']
         if 'correlated' in self.returnables_list: self.returnables['correlated'] = returned_rs['correlated']
-        if 'spectrum' in self.returnables_list: self.returnables['spectrum'] = returned_rs['spectrum']
+        if 'spectrum' in self.returnables_list:self.returnables['spectrum'] = returned_rs['spectra'][0]
+        if 'spectrum_ds' in self.returnables_list:self.returnables['spectrum_ds'] = returned_rs['spectra_ds'][0]
 
 def make_cosines(components,N):
     """ Generates cosines to use in cosine decompsition of an autocorrelation.
@@ -267,7 +302,7 @@ def make_cosines(components,N):
         ndarray of shape (len(components),N) containing cosine values
     """
     assert isinstance(components,(tuple,list,np.ndarray)), "components must be iterable"
-    assert isinstance(N,int), "N must be int"
+    assert isinstance(N,int), "N must be int, is %s"%N
 
     x = (np.arange(N).astype(float))*(2*np.pi/N)
     cosines = np.zeros((len(components),N),float)
@@ -294,10 +329,39 @@ def decompose(ac,cosines):
     decomposition = np.zeros((len(ac),len(cosines)),float)
     for y,row in enumerate(ac):
         for x, cosine in enumerate(cosines):
+            d = np.sum(row*cosine)
             decomposition[y,x] = np.sum(row*cosine)
     return decomposition/float(N)
 
-def rot_sym(speckles,plan=None,components=None,cosines=None,get_back=()):
+def despike(ac,width=4):
+    
+    print ac.shape
+    
+    def _do(x,w):
+        # cubic -> quadratic interpolation
+        v0 = x[:,180-2*w]
+        v1 = x[:,180-1*w]
+        v2 = x[:,180+1*w]
+        v3 = x[:,180+2*w]
+        d1 = (v3-v2)/w
+        d0 = (v1-v0)/w
+        b  = (d1-d0)/(4*w)
+        d  = (2*(v2+v1)-w*(d1-d0))/4
+        col_start = 180-w
+        for n in range(2*w): x[:,col_start+n] = b*(n-w)*(n-w)+d
+        return x
+        
+    ac = _do(ac,width)
+    ac = np.roll(ac,180,axis=1)
+    ac = _do(ac,width)
+    return np.roll(ac,90,axis=1)
+
+def resize(data,shape):
+    import scipy.misc.pilutil as smp
+    import Image
+    return smp.fromimage(smp.toimage(data,mode='F').resize(shape,Image.ANTIALIAS))
+
+def rot_sym(speckles,plan=None,components=None,cosines=None,resize_to=360,get_back=()):
     """ Given a speckle pattern, decompose its angular autocorrelation into a
         cosine series.
 
@@ -343,8 +407,10 @@ def rot_sym(speckles,plan=None,components=None,cosines=None,get_back=()):
     R     = min([N,M])
     
     spectra      = []
+    spectra_ds   = []
     unwrappeds   = []
     correlations = []
+    correlations_ds = []
     
     # if plan comes in as a tuple, make the unwrap plan
     if isinstance(plan,tuple):
@@ -356,7 +422,7 @@ def rot_sym(speckles,plan=None,components=None,cosines=None,get_back=()):
     R,r = plan[:,-1]
     uw_cols = (len(plan[0])-1)/abs(R-r)
     if components == None: components = np.arange(2,20,2).astype('float')
-    if cosines    == None: cosines    = make_cosines(components,uw_cols)
+    if cosines    == None: cosines    = make_cosines(components,int(uw_cols))
     
     # each frame is analyzed in the same sequence:
     # 1. unwrap
@@ -365,13 +431,19 @@ def rot_sym(speckles,plan=None,components=None,cosines=None,get_back=()):
     for f,frame in enumerate(speckles):
         unwrapped = wrapping.unwrap(frame,plan)
         i0        = np.outer(np.average(unwrapped,axis=1)**2,np.ones(uw_cols)) # this is the denominator (<I>)^2
-        autocorr  = abs(crosscorr.crosscorr(unwrapped,unwrapped,axes=(1,),shift=False))/uw_cols
+        autocorr  = crosscorr.crosscorr(unwrapped,unwrapped,axes=(1,),shift=False).real/uw_cols
         autocorr  = (autocorr-i0)/i0
+        if resize_to != None:
+            autocorr  = resize(autocorr,(resize_to,autocorr.shape[0]))
+        despiked  = despike(autocorr.real,width=4)
         spectrum  = decompose(autocorr.real,cosines)
-        
+        spectrum_ds = decompose(despiked,cosines) # remove the spikes at 0 and pi
+
         unwrappeds.append(unwrapped)
-        correlations.append(autocorr)
+        correlations.append(autocorr.real)
+        correlations_ds.append(despiked.real)
         spectra.append(spectrum)
+        spectra_ds.append(spectrum_ds)
     
     if was_2d: speckles.shape = (speckles.shape[1],speckles.shape[2])
     
@@ -380,6 +452,8 @@ def rot_sym(speckles,plan=None,components=None,cosines=None,get_back=()):
     if get_back != ():
         to_return = {}
         to_return['spectra'] = spectra
-        if 'unwrapped'  in get_back: to_return['unwrapped']  = unwrappeds
-        if 'correlations' in get_back: to_return['correlations'] = correlations
+        to_return['spectra_ds'] = spectra_ds
+        if 'unwrapped'     in get_back: to_return['unwrapped'] = unwrappeds
+        if 'correlated'  in get_back: to_return['correlated'] = correlations
+        if 'correlated_ds' in get_back: to_return['correlated_ds'] = correlations_ds
         return to_return

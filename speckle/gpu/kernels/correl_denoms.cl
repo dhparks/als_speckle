@@ -1,12 +1,10 @@
 __kernel void execute(
     __global float* in,
     __global float* out,
-    float rows,
+    int angles,
     int mode) 
 {   
-	
-	int angles = 512;
-	
+
 	int j = get_global_id(0);
 	float current = 0.0f;
 	

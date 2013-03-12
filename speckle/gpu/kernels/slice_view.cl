@@ -5,6 +5,7 @@ __kernel void execute(
 // take a sub array from the master domains image
 
 {
+
 	// i_out and j_out are the x and y coordinate of the output image
 	int i_out = get_global_id(0);
 	int j_out = get_global_id(1);
@@ -17,5 +18,9 @@ __kernel void execute(
 	if (i_in >= N_in || i_in < 0) {i_in = (i_in+N_in)%N_in;}
 	if (j_in >= N_in || j_in < 0) {j_in = (j_in+N_in)%N_in;}
 	
-	output[i_out+N_out*j_out] = input[i_in+N_in*j_in];
+	int out_index = i_out+N_out*j_out;
+	int in_index  = i_in+N_in*j_in;
+	
+	output[out_index] = input[in_index];
+	//output[out_index] = i_in;
 }
