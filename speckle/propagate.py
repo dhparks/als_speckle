@@ -80,7 +80,7 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
 
     return numpy.fft.ifft2(res*phase)
 
-def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarraysize=None,silent=True,band_limit=False):
+def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subregion=None,silent=True,band_limit=False):
     """ Propagates a complex-valued wavefield through a range of distances
     using the CPU. A GPU-accelerated version is available elsewhere.
     
@@ -113,9 +113,35 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarrays
     assert isinstance(energy_or_wavelength, (float, int)),              "must supply either wavelength in meters or energy in eV"
     assert isinstance(distances, (list, tuple, numpy.ndarray)),         "distances must be an iterable set (list or ndarray) of distances given in meters"
     assert isinstance(pixel_pitch, (int,float)),                        "pixel_pitch must be a float saying how big each pixel is in meters"
-    if subarraysize == None: subarraysize = len(data)
-    if isinstance(subarraysize,float): subarraysize = int(subarraysize)
-    assert isinstance(subarraysize, int) and subarraysize <= len(data), "subarray must be int smaller than supplied length of data"
+
+    # do checking on subregion specification
+    # subregion can be any of the following:
+    # 1. an integer, in which case the subregion is a square cocentered with data
+    # 2. a 2 element iterable, in which case the subregion is a rectangle cocentered with data
+    # 3. a 4 element iterable, in which case the subregion is a rectangle specified by (rmin, rmax, cmin, cmax)
+    iterable_types = (tuple,list,numpy.ndarray)
+    coord_types = (int,float,numpy.int32,numpy.float32,numpy.float64)
+    N = data.shape[0]
+    if subregion == None: subregion = N
+    
+    assert isinstance(subregion,coord_types) or isinstance(subregion,iterable_types), "subregion type must be integer or iterable"
+    if isinstance(subregion,(int,numpy.int32)):
+        sr = (N/2-subregion/2,N/2+subregion/2,N/2-subregion/2,N/2+subregion/2)
+    if isinstance(subregion,(float,numpy.float32,numpy.float64)):
+        subregion = int(subregion)
+        sr = (N/2-subregion/2,N/2+subregion/2,N/2-subregion/2,N/2+subregion/2)
+    
+    if isinstance(subregion, iterable_types):
+        assert len(subregion) in (2,4), "subregion length must be 2 or 4, is %s"%len(subregion)
+        for x in subregion:
+            assert isinstance(x,coord_types), ""
+            assert x <= data.shape[0] and x >= 0, "coords in subregion must be between 0 and size of data"
+        if len(subregion) == 2:
+            h = int(subregion[0])/2
+            w = int(subregion[1])/2
+            sr = (N/2-h,N/2+h,N/2-w,N/2+w)
+        if len(subregion) == 4:
+            sr = (int(subregion[0]),int(subregion[1]),int(subregion[2]),int(subregion[3]))
 
     I = complex(0,1)
 
@@ -125,9 +151,9 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarrays
         
     N = len(data)
     
-    try: buffer = numpy.zeros((len(distances),subarraysize,subarraysize),'complex64')
+    try: store = numpy.zeros((len(distances),subarraysize,subarraysize),'complex64')
     except MemoryError:
-        print "save buffer was too large. either use a smaller distances or a smaller subarraylength"
+        print "save buffer was too large. either use a smaller set of distances or a smaller subregion"
    
     # this is the upper limit of the propagation distance. after this point nysquist sampling
     # limits the reliability of the phase component, although the magnitude component is still useful.
@@ -147,12 +173,12 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subarrays
             sys.stdout.flush()
         phase_z = cpu_phase(z)
         back = propagate_one_distance(fourier,phase=phase_z,data_is_fourier=True)
-        buffer[n] = back[N/2-subarraysize/2:N/2+subarraysize/2,N/2-subarraysize/2:N/2+subarraysize/2]
+        store[n] = back[sr[0]:sr[1],sr[2]:sr[3]]
 
     if not silent:
         print ""
 
-    return buffer
+    return store
 
 def exact_diffraction(data,distance,energy_or_wavelength,pixel_pitch):
     """ Propagates a complex-valued wavefield a single given distance by direct evaluation

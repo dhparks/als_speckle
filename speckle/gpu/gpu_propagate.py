@@ -59,7 +59,8 @@ def gpu_propagate_distance(gpuinfo,data,distances,energy_or_wavelength,pixel_pit
     # 3. a 4 element iterable, in which case the subregion is a rectangle specified by (rmin, rmax, cmin, cmax)
     iterable_types = (tuple,list,numpy.ndarray)
     coord_types = (int,float,numpy.int32,numpy.float32,numpy.float64)
-    N = len(data)
+    N = data.shape[0]
+    if subregion == None: subregion = N
     
     assert isinstance(subregion,coord_types) or isinstance(subregion,iterable_types), "subregion type must be integer or iterable"
     if isinstance(subregion,(int,numpy.int32)):
