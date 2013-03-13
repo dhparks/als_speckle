@@ -3,29 +3,30 @@ import numpy
 
 from . import shape
 
-DFT = numpy.fft.fft2
-IDFT = numpy.fft.ifft2
-shift = numpy.fft.fftshift
-
 class CPUPR:
     
     # Implement phase retrieval as a class. An instance of this class is a reconstruction, and methods in the class are operations on the reconstruction.
     # For example, calling instance.hio() will advance the reconstruction by one iteration of the HIO algorithm; calling instance.update_support() will
     # update the support being used in the reconstruction in the manner of Marchesini's shrinkwrap.
 
-    def __init__(self,N):
+    def __init__(self,device=None,N=None,shrinkwrap=False):
         self.N = N
+        
+        self.f = numpy.fft.fft2
+        self.g = numpy.fft.ifft2
+        self.s = numpy.fft.fftshift
         
     def load_data(self,modulus,support,update_sigma=None):
 
-        
         # get the supplied data into the reconstruction namespace
         self.modulus  = modulus
-        self.support  = support  # this is the active support, it can be updated
+        self.support  = support # this is the active support, it can be updated
         self.support0 = support # this is the original support, it is read-only
         
-        # generate some necessary files
-        self.estimate   = ((numpy.random.rand(self.N,self.N)+complex(0,1)*numpy.random.rand(self.N,self.N))*self.support)
+        self.psi_in       = numpy.zeros((self.N,self.N),numpy.complex64) # holds the estimate of the wavefield
+        self.psi_out      = numpy.zeros((self.N,self.N),numpy.complex64) # need both in and out for hio algorithm
+        self.psi_fourier  = numpy.zeros((self.N,self.N),numpy.complex64) # to store fourier transforms of psi
+        self.psi_fourier2 = numpy.zeros((self.N,self.N),numpy.complex64) # to store fourier transforms of psi
         
         if update_sigma != None:
             assert isinstance(update_sigma, (int,float)), "update_sigma must be float or int"
@@ -33,15 +34,16 @@ class CPUPR:
         
     def iteration(self,algorithm,beta=0.8):
         
-        assert algorithm in ['hio','er'], "real space enforcement algorithm %s is unknown"%algorithm
+        assert algorithm in ('hio','er'), "real space enforcement algorithm %s is unknown"%algorithm
         
-        psi = DFT(self.estimate)
-        psi = self.modulus*psi/abs(psi)
-        inverse = IDFT(psi)
+        # enforce the fourier-space constraint
+        self.psi_fourier  = self.f(self.psi_in)
+        self.psi_fourier2 = self.modulus*self.psi_fourier/self.abs(psi_fourier)
+        self.psi_out      = self.g(psi)
         
         # enforce the real-space constraint
-        if algorithm == 'hio': self.estimate = (1-self.support)*(self.estimate-beta*inverse)+self.support*inverse # hio support algorithm
-        if algorithm == 'er': self.estimate = self.support*self.estimate
+        if algorithm == 'hio': self.psi_in = (1-self.support)*(self.psi_in-beta*self.psi_out)+self.support*self.psi_out # hio support algorithm
+        if algorithm == 'er':  self.psi_in = self.support*self.psi_in
         
     def update_support(self,threshold = 0.25,retain_bounds=True):
         
@@ -51,21 +53,43 @@ class CPUPR:
         # the retain_bounds flag is intended to keep the updated support from growing outside of the support boundaries supplied with
         # the first support estimate, the assumption being that that support was much too loose and updates should only get tighter.
         
-        blur = lambda a,b: IDFT(DFT(a)*b)
+        blur = lambda a,b: g(f(a)*b)
         
         mag     = abs(self.estimate)  
         blurred = blur(mag,self.blurkernel)
         update  = numpy.where(blurred > blurred.max()*threshold,1,0)
         if retain_bounds: update *= self.support0
         self.support = update
+        
+    def seed(self,supplied=None):
+        """ Replaces self.psi_in with random numbers. Use this method to restart
+        the simulation without having to copy a whole bunch of extra data like
+        the support and the speckle modulus.
+        
+        arguments:
+            supplied - (optional) can set the seed with a precomputed array.
+        """
+        
+        if supplied != None:
+            self.psi_in = supplied.astype(numpy.complex64)
+        if supplied == None:
+            x = numpy.random.rand(self.N,self.N)
+            y = numpy.random.rand(self.N,self.N)
+            z = (x+complex(0,1)*y)
+            self.psi_in = z.astype(numpy.complex64)
+            
+    def get(self,array):
+        # dummy function to unify cpu/gpu api
+        return array
 
 def align_global_phase(data):
-    """ Phase retrieval is degenerate to a global phase factor. This function tries to align the global phase rotation
-    by minimizing the amount of power in the imag component. Real component could also be minimized with no effect
-    on the outcome.
+    """ Phase retrieval is degenerate to a global phase factor. This function
+    tries to align the global phase rotation by minimizing the sum of the abs of
+    the imag component.
     
     arguments:
-        data: 2d or 3d ndarray whose phase is to be aligned. Each frame of data is aligned independently.
+        data: 2d or 3d ndarray whose phase is to be aligned. Each frame of data
+            is aligned independently.
         
     returns:
         complex ndarray of same shape as data"""
@@ -208,10 +232,10 @@ def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshol
         average_mag - the magnitude component of the average reconstruction
         blur - the stdev of the blurring kernel, in pixels
         threshold - the amount of the blurred max which is considered the object
-        kill_weakest - if True, eliminate the weakest object in the support. this is
-            for the initial refine of a multipartite holographic support as in the barker
-            code experiment; one of the reference guesses may have nothing in it, and it
-            should be eliminated.
+        kill_weakest - if True, eliminate the weakest object in the support.
+            This is for the initial refine of a multipartite holographic support
+            as in the barker code experiment; one of the reference guesses may
+            have nothing in it, and should therefore be eliminated.
         
     Output:
         the refined support
@@ -256,6 +280,40 @@ def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshol
         refined  *= 1-weak_part
     
     return refined,blurred
+
+    def _do_iterations(gpupr,n,shrinkwrap):
+        # conduct phase retrieval iterations by calling GPUPR methods.
+        k = 0
+        interval = 100
+        for iteration in range(iterations):
+            if shrinkwrap:
+                if iteration%update_period == 0 and iteration > 0:
+                    gpupr.update_support()
+                    gpupr.iteration('er')
+            if not shrinkwrap:
+                if (iteration+1)%interval != 0: gpupr.iteration('hio',iter=n)
+                else: gpupr.iteration('er')
+            if iteration%interval == 0: print "  iteration ",iteration
+
+def iterate(phasing_instance,iterations,shrinkwrap=False,update_period=0):
+    
+    """ Run iterations on the phasing instance.
+    Arguments:
+        phasing_instance - an instance of either the GPUPR or CPUPR class.
+        iterations       - how many iterations to run total
+        shrinkwrap       - whether to run the shrinkwrap functions
+        update_period    - (optional) if using shrinkwrap, how many iterations
+            between running the update functions
+    """
+    
+    for iteration in range(iterations):
+        if shrinkwrap and iteration%update_period == 0 and iteration > 0:
+            phasing_instance.update_support()
+            phasing_instance.iteration('er')
+        else:
+            if (iteration+1)%100 != 0: phasing_instance.iteration('hio')
+            else: phasing_instance.iteration('er')
+        if iteration%100 == 0: print "  iteration ",iteration
         
         
         

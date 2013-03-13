@@ -67,7 +67,7 @@ def reconstruct(device_info):
         # is iterated to a solution, then the solution is copied back to host memory from the GPU.
         print "trial ",trial
         reconstruction.seed() # seed the simulation with random numbers.
-        phasing.iterate(reconstruction,params.iterations) # iterate
+        reconstruction.iterate(params.iterations) # iterate
         save_buffer[trial] = reconstruction.get(reconstruction.psi_in)[r0:r0+rows,c0:c0+cols] # copy solution to host
 
     # roll the phase for global phase alignment. executes on cpu.
