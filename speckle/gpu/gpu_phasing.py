@@ -46,6 +46,8 @@ class GPUPR:
         self.can_has_estimate = False # for rl deconvolution
         
         self._make_kernels()
+        
+        self.array_dtypes = ('float32','complex64')
 
     def _make_kernels(self):
 
@@ -81,6 +83,7 @@ class GPUPR:
         self.phasing_er      = self.mult_f_f2
         self.phasing_hio     = gpu.build_kernel_file(self.context, self.device, kp+'phasing_hio.cl')
         self.phasing_fourier = gpu.build_kernel_file(self.context, self.device, kp+'phasing_fourier.cl')
+        
 
         # 4. make unwrapping and resizing plans for computing the prtf on the gpu
         #uy, ux = wrapping.unwrap_plan(0, self.N/2, (0,0), modulo=self.N)[:,:-1]
@@ -88,6 +91,105 @@ class GPUPR:
         #self.unwrap_x_gpu  = cla.to_device(self.queue,ux.astype(numpy.float32))
         #self.unwrap_y_gpu  = cla.to_device(self.queue,uy.astype(numpy.float32))
         #self.unwrapped_gpu = cla.empty(self.queue,(self.N/2,self.unwrap_cols), numpy.float32)
+
+    def _cl_mult(self,in1,in2,out):
+        """ Wrapper function to the various array-multiplication kernels. Every
+        combination of input requires a different kernel. This function checks
+        dtypes and automatically selects the appropriate kernel.
+        
+        in1, in2 are the input arrays being multiplied
+        out is the output array where the result is stored
+        
+        All passed arguments should be the pyopencl array, NOT the data attribute.
+        """
+        
+        d1, d2, d3 = in1.dtype, in2.dtype, out.dtype
+        assert d1 in self.array_dtypes, "in1 dtype not recognized; is %s"%d1
+        assert d2 in self.array_dtypes, "in2 dtype not recognized; is %s"%d2
+        assert d3 in self.array_dtypes, "out dtype not recognized; is %s"%d3
+        assert in1.shape == in2.shape and in1.shape == out.shape, "all arrays must have same shape"
+        N = in1.size
+        
+        if d1 == 'float32':
+            if d2 == 'float32':
+                func = self.mult_f_f
+                assert d3 == 'float32', "float * float = float"
+                arg1 = in1
+                arg2 = in2
+                
+            if d2 == 'complex64':
+                func = self.mult_f_f2
+                assert d3 == 'complex64', "float * complex = complex"
+                arg1 = in1
+                arg2 = in2
+                
+        if d2 == 'complex64':
+            if d2 == 'float32':
+                func = self.mult.f_f2
+                assert d3 == 'complex64', "float * complex = complex"
+                arg1 = in2
+                arg2 = in1
+                
+            if d2 == 'complex64':
+                func = self.mult_f2_f2
+                assert d3 == 'complex64', "complex * complex = complex"
+                arg1 = in1
+                arg2 = in2
+                
+        func.execute(self.queue,(N,), arg1.data, arg2.data, out.data)
+        
+    def _cl_abs(self,in1,out):
+        """ Wrapper func to the various abs kernels. Checks types of in1 and out
+        to select appropriate kernel. """
+        
+        d1, d2 = in1.dtype, out.dtype
+        assert d1 in self.array_dtypes, "in1 dtype not recognized"
+        assert d2 in self.array_dtypes, "out dtype not recognized"
+        assert in1.shape == out.shape,  "in1 and out must have same shape"
+        N = in1.size
+    
+        assert d1 == 'complex64', "no abs func for in1 dtype float"
+        if d2 == 'float32': func = self.abs_f2_f
+        if d2 == 'complex64': func = self.abs_f2_f2
+        
+        func.execute(self.queue,(N,),in1.data,out.data)
+        
+    def _cl_div(self,in1,in2,out):
+        """ Wrapper func to various division kernels. Checks type of in1, in2,
+        and out to select the appropriate kernels.
+        
+        in1, in2 are the numerator and denominator so ORDER MATTERS
+        out is the output
+        
+        All arguments should be the pyopencl array, NOT the data attribute.
+        """
+        
+        d1, d2, d3 = in1.dtype, in2.dtype, out.dtype
+        assert d1 in self.array_dtypes, "in1 dtype not recognized; is %s"%d1
+        assert d2 in self.array_dtypes, "in2 dtype not recognized; is %s"%d2
+        assert d3 in self.array_dtypes, "out dtype not recognized; is %s"%d3
+        assert in1.shape == in2.shape and in1.shape == out.shape, "all arrays must have same shape"
+        N = in1.size
+            
+        if d1 == 'float32':
+            if d2 == 'float32':
+                func = self.div_f_f
+                assert d3 == 'float32', "float / float = float"
+                
+            if d2 == 'complex64':
+                func = self.div_f_f2
+                assert d3 == 'complex64', "float / complex = complex"
+
+        if d2 == 'complex64':
+            if d2 == 'float32':
+                func = self.div_f2_f
+                assert d3 == 'complex64', "complex / float = complex"
+                
+            if d2 == 'complex64':
+                func = self.div_f2_f2
+                assert d3 == 'complex64', "complex / complex = complex"
+                
+        func.execute(self.queue,(N,),in1.data,in2.data,out.data)
 
     def load_data(self,modulus=None,support=None,update_sigma=None,psf=None):
         """ Load objects into the GPU memory. This is all handled through one
@@ -217,9 +319,9 @@ class GPUPR:
     
         for i in range(iterations):
             _convolvef(self.rl_est,self.psff,self.rl_blur1)
-            self.div_f2_f2.execute(self.queue,(self.N*self.N,),self.rl_pc.data,self.rl_blur1.data,self.rl_div.data)
+            self._cl_div(self.rl_pc,self.rl_blur1,self.rl_div)
             _convolvef(self.rl_div,self.psffr,self.rl_blur2)
-            self.mult_f2_f2(self.rl_est,self.rl_blur2,self.rl_est)
+            self._cl_mult(self.rl_est,self.rl_blur2,self.rl_est)
     
     def _convolvef(self,d1,d2,out):
         # calculate a convolution when d1 must be transformed but d2 is already
@@ -228,10 +330,9 @@ class GPUPR:
         assert d1.dtype == 'complex64',  "in _convolvef, input d1 has wrong dtype for fftplan"
         assert out.dtype == 'complex64', "in _convolvef, output has wrong dtype"
         
-        self.fftplan.execute(data_in=d1.data,data_out=out.data,wait_for_finish=True)
-        if d2.dtype == 'float32':   self.mult_f2_f.execute(self.queue,(self.N2,), out.data,d2.data,out.data)
-        if d2.dtype == 'complex64': self.mult_f2_f2.execute(self.queue,(self.N2,),out.data,d2.data,out.data)
-        self.fftplan.execute(out.data,wait_for_finish=True,inverse=True)
+        self._cl_fft(in1=data,out1=out)
+        self._cl_mult(out,d2,out)
+        self._cl_fft(in1=out,out1=out,inverse=True)
     
     def seed(self,supplied=None):
         """ Replaces self.psi_in with random numbers. Use this method to restart
@@ -294,25 +395,25 @@ class GPUPR:
         # 2. from the data in psi_fourier, build the divisor. depending on whether self.psff has
         # been defined, this will be differently executed. _build_divisor_2 implements clark2011 (apl)
         def _build_divisor_1(self,psi,div):
-            self.abs_f2_f2.execute(self.queue,(self.N*self.N,),psi,div)
+            self._cl_abs.execute(psi,div)
         def _build_divisor_2(self,psi,div,psf):
             assert psi.dtype == 'complex64', "in _build_divisor_2, psi is wrong dtype"
             assert div.dtype == 'complex64', "in _build_divisor_2, div is wrong dtype"
             assert psf.dtype == 'float32'  , "in _build_divisor_2, psf is wrong dtype"
-            self.abs_f2_f2.execute(self.queue,(self.N2,), psi,div)      # copy the abs of psi to div
-            self.mult_f2_f2.execute(self.queue,(self.N2,),div,div,div)  # square div in place by self-multiplying
+            self._cl_abs(psi,div)      # put the abs of psi in div
+            self._cl_mult(div,div,div) # square div in place
             
             # start convolution
-            self.fftplan.execute(div,wait_for_finish=True)              # fft div in place, div must be COMPLEX
-            self.mult_f2_f.execute(self.queue,(self.N2,), div,psf,div)  # multiply by psff
-            self.fftplan.execute(div,inverse=True,wait_for_finish=True) # ifft in place
+            self._cl_fft(div.data,wait_for_finish=True)              # fft div in place, div must be COMPLEX
+            self._cl_mult(div,psf,div)                                       # multiply by psff
+            self.fftplan.execute(div.data,inverse=True,wait_for_finish=True) # ifft in place
             # end convolution
             
             # sqrt makes the pc modulus from intensity
             self.complex_sqrt.execute(self.queue,(self.N2,),div,div)    # sqrt div in place
             
-        if not self.can_has_psff: _build_divisor_1(self,self.psi_fourier.data,self.fourier_div.data) # fully coherent, no psf
-        if self.can_has_psff:     _build_divisor_2(self,self.psi_fourier.data,self.fourier_div.data,self.psff.data) # partially coherent, has a psf
+        if not self.can_has_psff: _build_divisor_1(self,self.psi_fourier,self.fourier_div) # fully coherent, no psf
+        if self.can_has_psff:     _build_divisor_2(self,self.psi_fourier,self.fourier_div,self.psff) # partially coherent, has a psf
 
         # 3. enforce the fourier constraint
         self.phasing_fourier.execute(self.queue,(self.N2,), self.psi_fourier.data,self.fourier_div.data,self.modulus.data,self.psi_fourier.data)

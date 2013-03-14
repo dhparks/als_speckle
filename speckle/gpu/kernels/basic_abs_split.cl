@@ -1,5 +1,6 @@
 __kernel void execute(
-    __global float2* in,
+    __global float* in1,
+    __global float* in2
     __global float2* out)
 
     {	
@@ -8,5 +9,5 @@ __kernel void execute(
 	// pull the components into registers
 	float a = in[i].x;
 	float b = in[i].y;
-	out[i] = native_sqrt(a*a+b*b);
+	out[i] = (float2)(native_sqrt(a*a+b*b),0);
     }

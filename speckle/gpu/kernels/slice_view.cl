@@ -1,5 +1,5 @@
 __kernel void execute(
-        __global float* input, __global float* output,
+        __global float2* input, __global float2* output,
         int N_in, int N_out,  int row, int col)  // row and col are start coords, N is output array size
 
 // take a sub array from the master domains image

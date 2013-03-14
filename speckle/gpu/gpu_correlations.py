@@ -18,294 +18,321 @@ IDFT = np.fft.ifft2
 fftshift = np.fft.fftshift
 fs = fftshift
 
-#import matplotlib
-#matplotlib.use('Agg')
-#import pylab
-
 class gpu_microscope():
     
     """Methods for running a symmetry-microscope simulation on a gpu using
     pyopencl and pyfft libraries"""
-
-    def __init__(self,device=None,object=None,specklesize=None,unwrap=None,pinhole=None,components=None,coherence=None,ph_signal=False,returnables=('spectrum',),fb=10):
-
-        """ Get the class running. At minimum, accept gpu information and
-        compile kernels. Information about the object, pinhole, unwrap region
-        coherence properties of the illumination, and cosine components for the
-        decomposition may also be supplied to __init__ or later on to the
-        methods called within __init__."""
-
-        assert isinstance(device,tuple) and len(device) == 4, "device information improperly formed"
-
-        self.context, self.device, self.queue, self.platform = device
-        self.make_kernels()
-        self.returnables_list = returnables
-        self.interp_order     = 1
-        self.ph_signal        = ph_signal
-        self.fb               = fb # this is the size of the blocker's stick
+    
+    def __init__(self,device):
+        """ Get the class running with gpu info. Acceptance of input has now
+        been moved into a separate function, as that is how it was used in
+        all my usage code anyways."""
         
-        # these turn to true in the various set_xyz functions
+        assert isinstance(device,tuple) and len(device) == 4, "device information improperly formed"
+        self.context, self.device, self.queue, self.platform = device
+        
+        # these turn to true in the load function. based on what has been
+        # loaded, execution may be disallowed (ie, need an object and illumination function)
         self.can_has_object      = False
         self.can_has_unwrap      = False
         self.can_has_pinhole     = False
         self.can_has_coherence   = False
         self.can_has_cosines     = False
-        self.can_has_specklesize = False
-        self.cosines             = None
+        self.resize_speckles     = False
+        self.can_has_blocker     = False
+        self.can_has_psff        = False
+        self.can_run_scan        = False
         
-        if object     != None: self.set_object(object)
-        if pinhole    != None: self.set_pinhole(pinhole,specklesize)
-        if unwrap     != None: self.set_unwrap(unwrap)
-        if components != None: self.set_cosines(components)
-        if coherence  != None: self.set_coherence(coherence)
+        # these must all be set for execution to proceed
+        self.obj_N = None
+        self.pin_N = None
+        self.psf_N = None
         
+        self._make_kernels()
+        
+        # returnables. self.keywords gives all the outputs that can be generated,
+        # usually for debugging purposes.
         self.returnables = {}
+        self.keywords = ('object','sliced','illuminated','speckle','speckle_blocker',
+                        'blurred','blurred_blocker','unwrapped','resized','correlated',
+                        'spectrum','spectrum_ds','correlated_ds','rspeckle')
+        
         self.norm_mode = 0
-    
-    def set_object(self,object):
+        self.interp_order = 1
         
-        """ Set the object on which the symmetry microscope is run. Can be
-        changed without restarting the class but the new object size has to be
-        the old object size.
+        # set up timings
+        self.speckle_time = 0
+        self.resize_time1 = 0
+        self.blur_time    = 0
+        self.unwrap_time  = 0
+        self.resize_time2 = 0
+        self.decomp_time  = 0
+        self.despike_time = 0
+        self.correl_time  = 0
+        self.resize_time3 = 0
+        self.decomp_time  = 0
+        self.despike_time = 0
         
-        arguments:
-            object: an integer or numpy array. if an integer, memory is
-            allocated on the gpu for an upcoming NxN float array if an array,
-            the array is put onto the gpu.
-            
-            The reason to accept a number is just to allow instantiation of all
-            the buffers before an actual object is passed in.
-            
-            speckle_size: if supplied, the speckle will be downsized to this
-            dimension. For example, a (2048x2048) object will produce (2048x2048)
-            speckle, but maybe we actually want speckle that is (1024x1024). In this
-            case we do self.set_object(self,object,speckle_size=1024).
-            Optional argumnet.
-
+    def load(self,object=None,pinhole=None,psf=None,unwrap=None,components=None,returnables=None,blocker=None):
+        """ This function is the recommended way to set simulation parameters, as
+        it does type and consistency checking.
+        
+        Fields which must be set:
+        1. object  - the scattering object. must be a 2d array.
+        2. pinhole - the illumination function. must be a 2d square array.
+        3. psf     - the point spread function which simulates partial spatial
+            coherence. must be a 2d array. should be corner-centered and real
+            positive, although only real-valued is checked. THE SIZE OF PSF SETS
+            THE SIZE OF THE SPECKLE PATTERN.
+        4. unwrap  - the range of unwrapping the speckle pattern.
+            format is (inner_radius, outer_radius). cannot be changed later.
+        5. cosines - a list of components ie (4,6,8,10,12,14,16). the cosine
+            values will be generated in this function.
+        6. returnables - the desired output keywords
+        7. blocker - width of the blocker stick in pixels. not yet implemented.
         """
-
-        assert isinstance(object,(int,np.ndarray)), "object spec must be size or array"
-        #assert isinstance(speckle_size,(int,type(None))), "speckle_size must be integer if supplied"
         
-        if not self.can_has_object:
-            if isinstance(object,np.ndarray):
-                assert object.ndim == 2, "object must be 2d"
-                assert object.shape[0] == object.shape[1], "object must be square"
-                self.obj_N = len(object)
-                self.master_object = cla.to_device(self.queue,object.astype(np.float32))
-                #self.set_zero(self.master_object)
-            if isinstance(object,int):
-                self.obj_N = object
-                self.master_object = cla.empty(self.queue,(self.obj_N,self.obj_N),np.float32)
+        # on the first pass, require that object, pinhole, psf, unwrap, and cosines ALL be specified.
+        if self.can_has_object == False:
+            assert object != None, "must load an object"
+            assert pinhole != None, "must load a pinhole"
+            assert psf != None, "must load a psf"
+            assert components != None, "must load cosine components"
+            assert unwrap != None, "must specify unwrap"
+        
+        # load the object
+        if object != None:
+            assert isinstance(object,np.ndarray), "object must be numpy array"
+            assert object.ndim == 2, "object must be 2d"
+            assert object.shape[0] == object.shape[1], "object must be square (for now?)"
             
-            # make fft plan for complex (interleaved); for speckle
-            self.fftplan_speckle = fft_plan((self.obj_N,self.obj_N), queue=self.queue)
+            if self.can_has_object:
+                assert object.shape == self.master_object.shape, "new object must be same shape as old object"
+                self.master_object.set(object.astype(self.master_object.dtype))
+                
+            if not self.can_has_object:
+                self.obj_N = object.shape[0]
+                self.master_object = cla.to_device(self.queue,object.astype(np.complex64))
+                self.can_has_object = True
+                
+        # load the pinhole
+        if pinhole != None:
+            assert isinstance(pinhole,np.ndarray), "pinhole must be a numpy array"
+            assert pinhole.ndim == 2, "pinhole must be 2d"
+            assert pinhole.shape[0] == pinhole.shape[1], "pinhole must be square"
             
-        if self.can_has_object:
-            # this means an object has already been set and now we're just updating it
-            assert isinstance(object,np.ndarray) and object.ndim==2, "object must be 2d array"
-            assert object.shape == (self.obj_N,self.obj_N), "object shape %s differs from initialization values %s"%(object.shape,self.obj_N)
-            self.master_object.set(object.astype(self.master_object.dtype))
+            if self.can_has_pinhole:
+                assert pinhole.shape == self.pinhole.shape, "new pinhole must have same shape as old pinhole"
+                self.pinhole.set(pinhole.astype(self.pinhole.dtype))
+                
+            if not self.can_has_pinhole:
+                self.pin_N = pinhole.shape[0]
+                self.pinhole = cla.to_device(self.queue,pinhole.astype(np.complex64))
+                
+                # allocate memory for intermediate results in the speckle calculation. these all need to be (pin_N x pin_N) 
+                self.active_object = cla.empty(self.queue, (self.pin_N,self.pin_N), np.complex64)
+                self.illuminated   = cla.empty(self.queue, (self.pin_N,self.pin_N), np.complex64)
+                self.far_field     = cla.empty(self.queue, (self.pin_N,self.pin_N), np.complex64)
+                self.speckles      = cla.empty(self.queue, (self.pin_N,self.pin_N), np.complex64)
+                self.speckles_f   = cla.empty(self.queue, (self.pin_N,self.pin_N), np.float32)
+                self.can_has_pinhole = True
+                
+            assert ispower2(self.pin_N), "pinhole size must be a power of 2"
+                
+        # load the psf
+        if psf != None:
+            assert isinstance(psf,np.ndarray), "psf must be a numpy array"
+            assert psf.ndim == 2,                 "psf must be 2 dimensional"
+            assert psf.shape[0] == psf.shape[1],  "psf must be square"
             
-        if self.can_has_pinhole:
-            self.set_zero(self.speckle_sum)
-            self.set_zero(self.correl_sum)
+            if np.iscomplexobj(psf):
+                print "warning, casting complex psf to float!"
+                psf = psf.astype(np.float32)
 
-        self.can_has_object = True
-
-    def set_unwrap(self,params):
-        """ Build and name the unwrap plan. Cannot be changed without restarting
-        the class.
-        
-        arguments:
-            params: (unwrap_r, unwrap_R). no support or need to provide support
-            for user-supplied center."""
-        
-        if self.can_has_unwrap:
-            print "no current support for updating unwrap during simulation"
-            exit()
-        
-        assert self.can_has_object, "need to init object before unwrap"
-        assert isinstance(params,(list,tuple,np.ndarray)), "unwrap params must be iterable"
-        assert len(params) == 2, "must provide exactly two parameters: unwrap_r and unwrap_R"
-        
-        ur, uR = params[0],params[1]
-        assert isinstance(ur,(float,int)) and isinstance(uR,(float,int)), "ur and uR must be numbers"
-        self.ur, self.uR = min([ur,uR]), max([ur,uR])
-        self.rows = self.uR-self.ur
-        
-        assert self.ur > 0,       "unwrap_r must be > 0"
-        assert self.uR > self.ur, "unwrap_R must be > unwrap_r"
-        assert uR < self.pin_N/2,    "unwrap_R exceeds simulated speckle bounds"
-        
-        # make the unwrap plan. put the buffers into gpu memory
-        uy,ux = wrapping.unwrap_plan(self.ur,self.uR,(0,0),modulo=self.pin_N)[:,:-1]
-        self.unwrap_cols = len(ux)/self.rows
-        self.unwrap_x_gpu  = cla.to_device(self.queue,ux.astype(np.float32))
-        self.unwrap_y_gpu  = cla.to_device(self.queue,uy.astype(np.float32))
-        self.unwrapped_gpu = cla.empty(self.queue,(self.rows,self.unwrap_cols), np.float32)
-        
-        # make resizing plans and buffers for row correlations
-        r512_x, r512_y  = self._resize_uw_plan(self.rows,self.unwrap_cols,512)
-        r360_x, r360_y  = self._resize_uw_plan(self.rows,512,360)
-        self.r512_x_gpu = cla.to_device(self.queue, r512_x.astype(np.float32))  # plan
-        self.r512_y_gpu = cla.to_device(self.queue, r512_y.astype(np.float32))  # plan
-        self.r360_x_gpu = cla.to_device(self.queue, r360_x.astype(np.float32))  # plan
-        self.r360_y_gpu = cla.to_device(self.queue, r360_y.astype(np.float32))  # plan
-        self.resized512 = cla.empty(self.queue,r512_x.shape,      np.float32)   # result, also stores correlations
-        self.resized360 = cla.empty(self.queue,r360_x.shape,      np.float32)   # holds data after resizing to 360 pixels in theta
-        self.despiked1  = cla.empty(self.queue,r360_x.shape,      np.float32)   # holds data after resizing to 360 pixels in theta
-        self.despiked2  = cla.empty(self.queue,r360_x.shape,      np.float32)
-        self.rowaverage = cla.empty(self.queue,(r512_x.shape[0],),np.float32) # correlation normalizations
-        self.correl_sum = cla.empty(self.queue,r360_x.shape,      np.float32)
-        self.correl_sum_ds = cla.empty(self.queue,r360_x.shape,   np.float32)
-
-        # make fft plan for correlating rows.
-        self.fftplan_correls = fft_plan((512,), dtype=np.float32, queue=self.queue)
-        self.resized512z     = cla.empty(self.queue,r512_x.shape,np.float32) # an array of zeros for the xaxis-only split fft
-        
-        # zero out some buffers
-        self.set_zero(self.resized512z)
-        self.set_zero(self.correl_sum)
-        self.set_zero(self.correl_sum_ds)
-                        
-        # check for the apple/nvidia problem
-        if 'Apple' in str(self.platform) and 'GeForce' in str(self.device) and ispower2(self.rows): self.adjust_rows()
-
-        self.can_has_unwrap = True
-
-    def set_pinhole(self,pinhole,specklesize):
-        
-        """Set the pinhole function. Can be changed without restarting the class
-        but pinhole size must remain the same.
-        
-        arguments:
-            pinhole: Either a number, in which case a circle is generated as the
-            pinhole with the argument as radius, or an array, in which case the
-            array is set as the pinhole. This latter option allows for
-            complicated illumination shapes to be supplied."""
-
-        assert self.can_has_object, "need to init object before pinhole"
-        assert isinstance(pinhole,np.ndarray), "pinhole must be number or array"
-        assert pinhole.ndim == 2, "pinhole must be 2d array"
-        assert pinhole.shape[0] == pinhole.shape[1], "pinhole must be square"
-        assert len(pinhole) <= self.obj_N, "pinhole size must be leq than object size"
-        
-        if not self.can_has_pinhole:
-            self.pin_N = len(pinhole)
-            self.illumination_gpu = cla.to_device(self.queue,pinhole.astype(np.complex64))
+            psff = np.fft.fft2(psf)
             
+            if self.can_has_psff:
+                assert psff.shape == (self.psf_N,self.psf_N), "new psf must have same size as old psf"
+                self.psff.set(psff.astype(self.psff.dtype),queue=self.queue)
+                
+            if not self.can_has_psff:
+                self.can_has_psff = True
+                self.psff = cla.to_device(self.queue,psff.astype(np.complex64))
+                self.psf_N = psf.shape[0]
+                
+            assert ispower2(self.psf_N), "psf size must be a power of 2"
+                
+        # from psf and pinhole, see if the speckles will be resized. if so, make
+        # the resizing plan
+        assert self.psf_N <= self.pin_N, "psf size must be <= pinhole size"
+        if self.psf_N < self.pin_N:
+            self.speckle_N = self.psf_N
+            resizeplan   = wrapping.resize_plan((self.pin_N,self.pin_N),(self.psf_N,self.psf_N),target='gpu')
+            self.r_x_gpu = cla.to_device(self.queue, resizeplan[1].astype(np.float32))
+            self.r_y_gpu = cla.to_device(self.queue, resizeplan[0].astype(np.float32))
+            self.resized = cla.empty(self.queue, (self.speckle_N,self.speckle_N), np.complex64)  # buffer to hold resized speckle
+            self.resized_f = cla.empty(self.queue, (self.speckle_N,self.speckle_N), np.float32)  # buffer to hold resized speckle
+            
+            io.save('rxgpu.fits',self.r_x_gpu.get())
+            io.save('rygpu.fits',self.r_y_gpu.get())
+            
+            self.resize_speckles = True
+            self.to_blur = self.resized
         else:
-            assert len(pinhole) == self.pin_N, "cannot change pinhole array size after initialization"
-            self.illumination_gpu.set(pinhole.astype(self.illumination_gpu.dtype))
-        
-        # allocate memory for intermediate results in the speckle calculation. these all need to be (pin_N x pin_N) 
-        self.active_object    = cla.empty(self.queue, (self.pin_N,self.pin_N), np.float32  )
-        self.illuminated      = cla.empty(self.queue, (self.pin_N,self.pin_N), np.complex64)
-        self.speckle_buffer   = cla.empty(self.queue, (self.pin_N,self.pin_N), np.complex64)
-        self.pinhole_fft      = cla.empty(self.queue, (self.pin_N,self.pin_N), np.float32  )
-        self.intensity_sum_re = cla.empty(self.queue, (self.pin_N,self.pin_N), np.float32  )
-        self.intensity_sum_im = cla.empty(self.queue, (self.pin_N,self.pin_N), np.float32  )
-        self.subph            = cla.empty(self.queue, (self.pin_N,self.pin_N), np.float32  )
+            self.resize_speckles = False
+            self.speckle_N = self.pin_N
+            self.to_blur = self.speckles
             
-        # make fft plan for complex (interleaved); for speckle
-        self.fftplan_speckle = fft_plan((self.pin_N,self.pin_N), queue=self.queue)
-        
-        # make pinhole speckle. store in self.pinhole_fft
-        self.set_zero_f2(self.speckle_buffer)
-        self._gpu_make_speckle(self.fftplan_speckle,self.illumination_gpu,self.pinhole_fft,self.speckle_buffer)
-        self.ph_max = cla.max(self.pinhole_fft).get()
+        self.pN2 = self.pin_N*self.pin_N
+        self.sN2 = self.speckle_N*self.speckle_N
+        self.speckle_sum = cla.empty(self.queue, (self.speckle_N,self.speckle_N), np.complex64) # this holds the sum of ALL the speckle patterns
+        self.blurred     = cla.empty(self.queue, (self.speckle_N,self.speckle_N), np.complex64) # this holds the blurred speckles.
+        self.blurred_f   = cla.empty(self.queue, (self.speckle_N,self.speckle_N), np.float32) # this holds the blurred speckles.
 
-        # if the speckle will be resized, make the plan and put it on the gpu
-        if not self.can_has_specklesize:
-            if specklesize != None:
-                self.speckle_N  = specklesize
-                r_n2_y, r_n2_x  = self._resize_speckle_plan(self.pin_N,self.speckle_N)  # cpu plan
-                self.r_n2_x_gpu = cla.to_device(self.queue, r_n2_x.astype(np.float32))  # gpu plan
-                self.r_n2_y_gpu = cla.to_device(self.queue, r_n2_y.astype(np.float32))  # gpu plan
-                self.resize_buf = cla.empty(self.queue, (self.speckle_N,self.speckle_N), np.float32)  # buffer to hold resized speckle
-                self.n2_dummy   = cla.empty(self.queue, (self.speckle_N,self.speckle_N), np.float32)
-            if specklesize == None:
-                self.speckle_N = self.pin_N
-            self.can_has_specklesize = True
+        # create the unwrapping plans
+        if unwrap != None:
+            
+            if self.can_has_unwrap:
+                print "cannot reset unwrapping plans"
+            
+            if not self.can_has_unwrap:
+                
+                assert isinstance(unwrap,(list,tuple,np.ndarray)), "unwrap must be iterable type"
+                assert len(unwrap) == 2, "unwrap must be length 2"
+                for x in unwrap: assert isinstance(x,(int,np.int32,np.int64)), "elements in wrap must be integer"
+                
+                self.ur   = min([unwrap[0],unwrap[1]])
+                self.uR   = max([unwrap[0],unwrap[1]])
+                self.rows = self.uR-self.ur
+                
+                
+                # make the unwrap plan. put the buffers into gpu memory
+                uy,ux = wrapping.unwrap_plan(self.ur,self.uR,(0,0),modulo=self.speckle_N)[:,:-1]
+                self.unwrap_cols = len(ux)/self.rows
+                self.unwrap_x_gpu  = cla.to_device(self.queue,ux.astype(np.float32))
+                self.unwrap_y_gpu  = cla.to_device(self.queue,uy.astype(np.float32))
+                self.unwrapped_gpu = cla.empty(self.queue,(self.rows,self.unwrap_cols), np.float32)
+                
+                # make resizing plans and buffers for row correlations
+                r512_x, r512_y  = self._resize_uw_plan(self.rows,self.unwrap_cols,512)
+                r360_x, r360_y  = self._resize_uw_plan(self.rows,512,360)
+                self.r512_x_gpu = cla.to_device(self.queue, r512_x.astype(np.float32))  # plan
+                self.r512_y_gpu = cla.to_device(self.queue, r512_y.astype(np.float32))  # plan
+                self.r360_x_gpu = cla.to_device(self.queue, r360_x.astype(np.float32))  # plan
+                self.r360_y_gpu = cla.to_device(self.queue, r360_y.astype(np.float32))  # plan
+                self.resized512 = cla.empty(self.queue,r512_x.shape,      np.float32)   # result, also stores correlations
+                self.resized360 = cla.empty(self.queue,r360_x.shape,      np.float32)   # holds data after resizing to 360 pixels in theta
+                self.despiked1  = cla.empty(self.queue,r360_x.shape,      np.float32)   # holds data after resizing to 360 pixels in theta
+                self.despiked2  = cla.empty(self.queue,r360_x.shape,      np.float32)
+                self.rowaverage = cla.empty(self.queue,(r512_x.shape[0],),np.float32) # correlation normalizations
+                self.correl_sum = cla.empty(self.queue,r360_x.shape,      np.float32)
+                self.correl_sum_ds = cla.empty(self.queue,r360_x.shape,   np.float32)
+                
+                # make fft plan for correlating rows.
+                
+                self.resized512z     = cla.empty(self.queue,r512_x.shape,np.float32) # an array of zeros for the xaxis-only split fft
         
-        self.speckle_sum = cla.empty(self.queue, (self.speckle_N,self.speckle_N), np.float32)
-        self.set_zero(self.speckle_sum)
+                # zero out some buffers
+                self.set_zero_f(self.resized512z)
+                self.set_zero_f(self.correl_sum)
+                self.set_zero_f(self.correl_sum_ds)
+                
+                self.can_has_unwrap = True
         
-        # make the blocker: ball + stick
-        #self.blocker = fs(io.open('../../jobs/symmetry microscope/images/blocker_mask.png').astype(np.float32))
-        #self.blocker *= 1./self.blocker.max()
+        # we perform the following ffts:
+        # 1. transform illuminated into farfield (pin_N, complex)
+        # 2. blur the speckles (speckle_N,complex)
+        # 3. row correlations (512,complex)
+        self.fftplan_speckle = fft_plan((self.pin_N,self.pin_N), queue=self.queue) # (pin_N, complex)
+        self.fftplan_blur_f2 = fft_plan((self.speckle_N,self.speckle_N),queue=self.queue)
+        self.fftplan_correls = fft_plan((512,), dtype=np.float32,queue=self.queue)
         
-        #self.blocker = shape.circle((self.speckle_N,self.speckle_N),55)
-        self.blocker = shape.rect((self.speckle_N,self.speckle_N),(self.fb,512),center=(512-self.fb/2,512+256))
-        self.blocker = fs(np.clip(1-self.blocker,0,1))
+        # create cosines for the decomposition.
+        if components != None:
 
-        assert self.blocker.shape == (self.speckle_N,self.speckle_N), "blocker is wrong shape"
-        self.blocker_gpu = cla.to_device(self.queue, self.blocker.astype(np.float32))
+            if not self.can_has_cosines:
+                assert isinstance(components,(tuple,list,np.ndarray)), "components must be iterable"
+                for component in components: assert isinstance(component,int), "each component must be int"
+    
+                self.nc = len(components)
+                cosines = np.zeros((self.nc,360),float)
+                angles  = np.arange(360)*2*np.pi/360.
+                for n, c in enumerate(components): cosines[n] = np.cos(angles*c)
+                self.cosines = cosines
+            
+                # put cosines on gpu
+                # initialize the spectrum array
+                self.cosines_gpu      = cla.to_device(self.queue,self.cosines.astype(np.float32))
+                self.spectrum_gpu     = cla.empty(self.queue,(self.rows,self.nc), np.float32) # for correlating with spikes
+                self.spectrum_gpu_sum = cla.empty(self.queue,(self.rows,self.nc), np.float32) # for correlating with spikes
+                self.spectrum_gpu_ds1 = cla.empty(self.queue,(self.rows,self.nc), np.float32) # for correlating without spikes
+                self.spectrum_gpu_ds2 = cla.empty(self.queue,(self.rows,self.nc), np.float32) # for correlating without spikes (second method)
+                self.set_zero_f(self.spectrum_gpu_sum)
+                self.can_has_cosines = True
+            
+        if returnables != None:
+            
+            # check types
+            assert isinstance(returnables,(list,tuple)), "returnables must be list or tuple"
+            assert all([isinstance(r,str) for r in returnables]), "all elements of returnables must be strings"
         
-        self.can_has_pinhole = True
+            self.returnables_list = []
+            for r in returnables:
+                if r not in self.keywords:
+                    print "requested returnable %s is unrecognized and will be ignored"%r
+                else:
+                    self.returnables_list.append(r)
+            print self.returnables_list
+            
+        if self.can_has_object and self.can_has_pinhole and self.can_has_psff and self.can_has_unwrap and self.can_has_cosines:
+            self.can_run_scan = True
 
-    def set_coherence(self,coherence):
-        
-        """ Set the coherence function. Pinhole must be set first. Can be changed
-        without re-instantiating the class, although must be same size as pinhole.
-        
-        arguments:
-            coherence: a 2-tuple where [0] is the horizontal coherence length
-            and [1] is the vertical coherence length. These values must be
-            given in PIXELS, so it is the users responsibility to understand
-            what the pixel pitch is in their calculations."""
-        
-        assert self.can_has_object, "must init object before coherence"
-        assert isinstance(coherence,(list,tuple)) and len(coherence) == 2, "coherence should be a 2-tuple"
-        assert isinstance(coherence[0],(int,float)) and isinstance(coherence[1],(int,float)), "coherence vals should be float or int"
-        
-        # make gaussian kernel
-        cl_x_px, cl_y_px = coherence
-        gaussian = fftshift(shape.gaussian((self.speckle_N,self.speckle_N),(cl_y_px,cl_x_px),normalization=1.0))
-        
-        if not self.can_has_coherence:
-            self.blur_kernel    = cl.array.to_device(self.queue,gaussian.astype(np.float32))
-            self.blurred_image  = cla.empty(self.queue, (self.speckle_N,self.speckle_N), np.float32)
-            self.blurred_image2 = cla.empty(self.queue, (self.speckle_N,self.speckle_N), np.float32)
-        
-            # make fft plan for blurring. because the speckle intensity is in a float32 array,
-            # the fft plan expects data in split format: two float32 buffers which are re and im components
-            self.fftplan_blurred = fft_plan((self.speckle_N,self.speckle_N), dtype=np.float32, queue=self.queue)
-        
-        if self.can_has_coherence:
-            self.blur_kernel.set(gaussian.astype(self.blur_kernel.dtype))
-        
-        self.can_has_coherence = True
-
-    def make_kernels(self):
+    def _make_kernels(self):
         
         """ This is a function just for organizational reasons. Logically,
-        make_kernels is entirely part of __init__() but must follow set_unwrap()
-        due to pyfft x-axis support issues."""
+        make_kernels is entirely part of __init__()."""
         
         #assert self.can_has_unwrap, "need to set unwrap before building kernels to test x-axis support in pyfft"
         
+        # build basic mathematical kernels
+        #self.mult_f_f = gpu.build_kernel_file(self.context, self.device, kp+'basic_multiply_f2_f2.cl') # complex*complex
+        #self.mult_f_f2 = gpu.build_kernel_file(self.context, self.device, kp+'basic_multiply_f2_f2.cl') # complex*complex
+        #self.mult_f2_f = gpu.build_kernel_file(self.context, self.device, kp+'basic_multiply_f2_f2.cl') # complex*complex
+        self.mult_f2_f2 = gpu.build_kernel_file(self.context, self.device, kp+'basic_multiply_f2_f2.cl') # complex*complex
+        
+        #self.div_f_f    = gpu.build_kernel_file(self.context, self.device, kp+'basic_divide_f_f.cl')     # float/float
+        #self.div_f_f2   = gpu.build_kernel_file(self.context, self.device, kp+'basic_divide_f_f2.cl')    # float/complex
+        #self.div_f2_f   = gpu.build_kernel_file(self.context, self.device, kp+'basic_divide_f2_f.cl')    # complex/float
+        #self.div_f2_f2  = gpu.build_kernel_file(self.context, self.device, kp+'basic_divide_f2_f2.cl')   # complex/complex
+        
+        self.abs_f2_f     = gpu.build_kernel_file(self.context, self.device, kp+'basic_abs_f2_f.cl')       # abs cast to float
+        self.abs_f2_f2    = gpu.build_kernel_file(self.context, self.device, kp+'basic_abs_f2_f2.cl')      # abs kept as cmplx
+        self.abs_split_f  = gpu.build_kernel_file(self.context, self.device, kp+'basic_abs_split_f.cl')    # abs kept as cmplx
+        self.abs_split_f2 = gpu.build_kernel_file(self.context, self.device, kp+'basic_abs_split_f2.cl')
+        
+        self.add_f_f = gpu.build_kernel_file(self.context, self.device, kp+'basic_add_f_f.cl')
+        #self.add_f_f2 = gpu.build_kernel_file(self.context, self.device, kp+'basic_add_f_f.cl')
+        #self.add_f2_f = gpu.build_kernel_file(self.context, self.device, kp+'basic_add_f_f.cl')
+        #self.add_f2_f2 = gpu.build_kernel_file(self.context, self.device, kp+'basic_add_f_f.cl')
+        
+        self.complex_sqrt = gpu.build_kernel_file(self.context, self.device, kp+'basic_sqrt_f2.cl')      # square of complex number
+        
+        # recast float to complex and vice versa
+        self.copy_f_f   = gpu.build_kernel_file(self.context, self.device, kp+'copy_f_f.cl') # cast complex to float
+        self.copy_f_f2  = gpu.build_kernel_file(self.context, self.device, kp+'copy_f_f2.cl') # cast float to complex
+        self.copy_f2_f  = gpu.build_kernel_file(self.context, self.device, kp+'copy_f2_f.cl')
+        self.copy_f2_f2 = gpu.build_kernel_file(self.context, self.device, kp+'copy_f2_f2.cl')
+        
         # Build OpenCL programs from external kernel files.
         self.slice_view    = gpu.build_kernel_file(self.context, self.device, kp+'slice_view.cl')        # for extracting a small array from a larger one
-        self.map_coords    = gpu.build_kernel_file(self.context, self.device, kp+'map_coords_buffer.cl') # for unwrapping and resizing
+        self.map_coords_f  = gpu.build_kernel_file(self.context, self.device, kp+'map_coords_f.cl') # for unwrapping and resizing float array
         self.average_rows  = gpu.build_kernel_file(self.context, self.device, kp+'correl_denoms.cl')     # for getting correlation normalizations
         self.corr_norm     = gpu.build_kernel_file(self.context, self.device, kp+'correl_norm.cl')       # for doing correlation normalization
         self.cosine_reduce = gpu.build_kernel_file(self.context, self.device, kp+'cosine_reduce.cl')     # for doing cosine spectrum reduction
-        self.slice_row     = gpu.build_kernel_file(self.context, self.device, kp+'slice_row_f_f.cl')     # slice row to correlate
-        self.subtract_ph   = gpu.build_kernel_file(self.context, self.device, kp+'subtract_pinhole.cl')  # subtract the pinhole signal eg from magnetic domains scattering
         self.despike       = gpu.build_kernel_file(self.context, self.device, kp+'despike.cl')           # cubic interpolation to remove autocorrelation spike
         self.despike2      = gpu.build_kernel_file(self.context, self.device, kp+'despike2.cl')
-            
-        # more kernels. due to their simplicity these are not put into external files
-        self.illuminate_re = EK(self.context,
-            "float2 *a, " # illumination (possibly complex)
-            "float *b, "  # transmission/object
-            "float2 *c",  # output (possibly complex)
-            "c[i] = (float2)(a[i].x*b[i],a[i].y*b[i])",
-            "illluminate_re")
-        
-        self.set_zero = EK(self.context,
+    
+        self.set_zero_f = EK(self.context,
             "float *a",
             "a[i] = 0.0f",
             "setzero")
@@ -314,126 +341,208 @@ class gpu_microscope():
             "float2 *a",
             "a[i] = (float2)(0.0f,0.0f)",
             "setzerof2")
+
+    def _cl_add(self,in1,in2,out):
+        d1, d2, d3 = in1.dtype, in2.dtype, out.dtype
+        assert d1 in self.array_dtypes, "in1 dtype not recognized; is %s"%d1
+        assert d2 in self.array_dtypes, "in2 dtype not recognized; is %s"%d2
+        assert d3 in self.array_dtypes, "out dtype not recognized; is %s"%d3
+        assert in1.shape == in2.shape and in1.shape == out.shape, "all arrays must have same shape"
+        N = in1.size
         
-        self.blur_convolve = EK(self.context,
-            "float *a,"  # convolvee, float
-            "float *b,"  # convolver, float
-            "float *c",  # convolved, float
-            "c[i] = a[i]*b[i]",
-            "complex_mult")
+        if d1 == 'float32':
+            if d2 == 'float32':
+                func = self.add_f_f
+                assert d3 == 'float32', "float + float = float"
+                arg1 = in1
+                arg2 = in2
+                
+            if d2 == 'complex64':
+                func = self.add_f_f2
+                assert d3 == 'complex64', "float + complex = complex"
+                arg1 = in1
+                arg2 = in2
+                
+        if d2 == 'complex64':
+            if d2 == 'float32':
+                func = self.add_f_f2
+                assert d3 == 'complex64', "float + complex = complex"
+                arg1 = in2
+                arg2 = in1
+                
+            if d2 == 'complex64':
+                func = self.mult_f2_f2
+                assert d3 == 'complex64', "complex + complex = complex"
+                arg1 = in1
+                arg2 = in2
+                
+        func.execute(self.queue,(N,), arg1.data, arg2.data, out.data)
         
-        self.add_intensity = EK(self.context,
-            "float2 *a, " # the incoming complex wavefield
-            "float  *b",  # the existing intensity distribution
-            "b[i] = b[i] + pown(hypot(a[i].x,a[i].y),2)",
-            "add_int")
+    def _cl_mult(self,in1,in2,out):
+        """ Wrapper function to the various array-multiplication kernels. Every
+        combination of input requires a different kernel. This function checks
+        dtypes and automatically selects the appropriate kernel.
         
-        self.subtract_ph2= EK(self.context,
-            "float *a," # total speckle
-            "float *b,"  # pinhole signal
-            "float  r," # ratio
-            "float *c", #out
-            "c[i] = a[i]-b[i]*r",
-            "sp2")
+        in1, in2 are the input arrays being multiplied
+        out is the output array where the result is stored
+        
+        All passed arguments should be the pyopencl array, NOT the data attribute.
+        """
+        
+        d1, d2, d3 = in1.dtype, in2.dtype, out.dtype
+        assert d1 in self.array_dtypes, "in1 dtype not recognized; is %s"%d1
+        assert d2 in self.array_dtypes, "in2 dtype not recognized; is %s"%d2
+        assert d3 in self.array_dtypes, "out dtype not recognized; is %s"%d3
+        assert in1.shape == in2.shape and in1.shape == out.shape, "all arrays must have same shape"
+        N = in1.size
+        
+        if d1 == 'float32':
+            if d2 == 'float32':
+                func = self.mult_f_f
+                assert d3 == 'float32', "float * float = float"
+                arg1 = in1
+                arg2 = in2
+                
+            if d2 == 'complex64':
+                func = self.mult_f_f2
+                assert d3 == 'complex64', "float * complex = complex"
+                arg1 = in1
+                arg2 = in2
+                
+        if d2 == 'complex64':
+            if d2 == 'float32':
+                func = self.mult_f_f2
+                assert d3 == 'complex64', "float * complex = complex"
+                arg1 = in2
+                arg2 = in1
+                
+            if d2 == 'complex64':
+                func = self.mult_f2_f2
+                assert d3 == 'complex64', "complex * complex = complex"
+                arg1 = in1
+                arg2 = in2
+                
+        func.execute(self.queue,(N,), arg1.data, arg2.data, out.data)
+        
+    def _cl_abs(self,in1=None,in2=None,out=None):
+        """ Wrapper func to the various abs kernels. Checks types of in1 and out
+        to select appropriate kernel. """
+        
+        # allowed cases
+        # 1. in1, out
+        # 2. in1, in2, out
+        
+        assert in1 != None
+        assert out != None
+
+        d1, d2 = in1.dtype, out.dtype
+
+        assert d1 in self.array_dtypes, "in1 dtype not recognized"
+        assert d2 in self.array_dtypes, "out dtype not recognized"
+        assert in1.shape == out.shape,  "in1 and out must have same shape"
+        
+        if in2 != None:
+            d3 == in2.dtype
+            assert d3 in self.array_dtypes
+            assert in2.shape == in1.shape
+
+        N = in1.size
     
-        self.make_intensity_split = EK(self.context,
-            "float *real_comp,"
-            "float *imag_comp,"
-            "float *intensity",
-            "intensity[i] = real_comp[i]*real_comp[i]+imag_comp[i]*imag_comp[i]",
-            "make_intensity_split")
-        
-        self.make_intensity_interleaved = EK(self.context,
-            "float2 *in,"
-            "float *out",
-            "out[i] = in[i].x*in[i].x+in[i].y*in[i].y",
-            "make_intensity_interleaved")
-        
-        self.plus_equal_f = EK(self.context,
-            "float *in1,"
-            "float *in2",
-            "in1[i] = in1[i]+in2[i]",
-            "plus_equal_f")
-        
-        self.times_equal_f = EK(self.context,
-            "float *in1,"
-            "float *in2",
-            "in1[i] = in1[i]*in2[i]",
-            "times_equal_f")
-        
-        self.plus_equal_f2 = EK(self.context,
-            "float2 *in1,"
-            "float2 *in2",
-            "in1[i] = (float2)(in1[i].x+in2[i].x,in1[i].y+in2[i].y)",
-            "plus_equal_f2")
-        
-        self.scalar_mult = EK(self.context,
-            "float *input,"
-            "float a",
-            "input[i] = a*input[i]",
-            "scalar_mult")
-        
-        self.scalar_mult2 = EK(self.context,
-            "float2 *input,"
-            "float a",
-            "input[i] = (float2)(a*input[i].x,a*input[i].y)",
-            "scalar_mult2")
-        
-        self.square_modulus = EK(self.context,
-            "float2 *fft",
-            "fft[i] = (float2)(fft[i].x*fft[i].x+fft[i].y*fft[i].y, 0.0f)",
-            "square_modulus")
-        
-        self.copy_real = EK(self.context,
-            "float2 *carray,"
-            "float *rarray",
-            "rarray[i] = carray[i].x",
-            "copy_real")
-        
-        self.copy_array_f = EK(self.context,
-            "float *array1,"
-            "float *array2",
-            "array2[i] = array1[i]",
-            "copy_array_f")
+        if in2 == None:
+            assert d1 == 'complex64', "no abs func for in1 dtype float"
+            if d2 == 'float32':   func = self.abs_f2_f
+            if d2 == 'complex64': func = self.abs_f2_f2
+            func.execute(self.queue,(N,),in1.data,out.data)
+            
+        if in2 != None:
+            assert d1 == 'float32', "split data must be float"
+            assert d3 == 'float32', "split data must be float"
+            if d2 == 'float32':   func = self.abs_split_f
+            if d2 == 'complex64': func = self.abs_split_f2
+            func.execute(self.queue,(N,),in1.data,in2.data,out.data)
 
-    def set_cosines(self,components):
+    def _cl_div(self,in1,in2,out):
+        """ Wrapper func to various division kernels. Checks type of in1, in2,
+        and out to select the appropriate kernels.
         
-        """ Precompute the cosines for the cosine decomposition of the angular
-        autocorrelations. Requires object and unwrap to be set. Can't be changed
-        without re-instantiating the class.
+        in1, in2 are the numerator and denominator so ORDER MATTERS
+        out is the output
         
-        arguments:
-            components: a list or array of integers describing which symmetry
-            components are to be decomposed e.g, [4,6,8,10]."""
+        All arguments should be the pyopencl array, NOT the data attribute.
+        """
         
-        assert self.can_has_unwrap, "must set object and unwrap before cosines"
-        assert isinstance(components,(tuple,list,np.ndarray)), "components must be iterable"
-        for component in components: assert isinstance(component,int), "each component must be int"
-        
-        if self.can_has_cosines:
-            print "currently no support for changing components during simulation"
-            exit()
+        d1, d2, d3 = in1.dtype, in2.dtype, out.dtype
+        assert d1 in self.array_dtypes, "in1 dtype not recognized; is %s"%d1
+        assert d2 in self.array_dtypes, "in2 dtype not recognized; is %s"%d2
+        assert d3 in self.array_dtypes, "out dtype not recognized; is %s"%d3
+        assert in1.shape == in2.shape and in1.shape == out.shape, "all arrays must have same shape"
+        N = in1.size
+            
+        if d1 == 'float32':
+            if d2 == 'float32':
+                func = self.div_f_f
+                assert d3 == 'float32', "float / float = float"
+                
+            if d2 == 'complex64':
+                func = self.div_f_f2
+                assert d3 == 'complex64', "float / complex = complex"
 
-        # make cosine array
-        self.nc = len(components)
-        cosines = np.zeros((self.nc,360),float)
-        angles  = np.arange(360)*2*np.pi/360.
-        for n, c in enumerate(components): cosines[n] = np.cos(angles*c)
+        if d2 == 'complex64':
+            if d2 == 'float32':
+                func = self.div_f2_f
+                assert d3 == 'complex64', "complex / float = complex"
+                
+            if d2 == 'complex64':
+                func = self.div_f2_f2
+                assert d3 == 'complex64', "complex / complex = complex"
+                
+        func.execute(self.queue,(N,),in1.data,in2.data,out.data)
         
-        # put on gpu
-        self.cosines = cla.to_device(self.queue,cosines.astype(np.float32))
-
-        # initialize the spectrum array
-        self.spectrum_gpu     = cla.empty(self.queue,(self.rows,self.nc), np.float32) # for correlating with spikes
-        self.spectrum_gpu_sum = cla.empty(self.queue,(self.rows,self.nc), np.float32) # for correlating with spikes
-        self.spectrum_gpu_ds1 = cla.empty(self.queue,(self.rows,self.nc), np.float32) # for correlating without spikes
-        self.spectrum_gpu_ds2 = cla.empty(self.queue,(self.rows,self.nc), np.float32) # for correlating without spikes (second method)
+    def _cl_map2d(self,in1,out,x_plan,y_plan):
+        """ Wrapper for the various places in which map_coords_f gets called."""
         
-        self.set_zero(self.spectrum_gpu_sum)
+        # check types
+        s = out.shape
+        assert in1.dtype == 'float32'
+        assert out.dtype == 'float32'
+        assert x_plan.dtype == 'float32'
+        assert y_plan.dtype == 'float32'
+        assert s == x_plan.shape
+        assert s == y_plan.shape
+        
+        r_in = np.int32(in1.shape[0])
+        c_in = np.int32(in1.shape[1])
+        r_out = s[0]
+        c_out = s[1]
+        
+        self.map_coords_f.execute(self.queue,(c_out,r_out),in1.data,c_in,r_in,out.data,x_plan.data,y_plan.data,np.int32(self.interp_order)).wait()
+        
+    def _cl_copy(self,in1,out):
+        """ Copies in1 to out with correct casting function. If in1 is complex
+        and out is float, retain only the real component. """
+        
+        d1 = in1.dtype
+        d2 = out.dtype
+        
+        assert in1.shape == out.shape
+        assert d1 in ('float32','complex64')
+        assert d2 in ('float32','complex64')
+        N = d1.size
+        
+        if d1 == 'complex64':
+            if d2 == 'complex64':
+                func = self.copy_f2_f2
+            if d2 == 'float32':
+                func = self.copy_f2_f
+        if d1 == 'float32':
+            if d2 == 'complex64':
+                func = self.copy_f2_f
+            if d2 == 'float32':
+                func = self.copy_f_f
+                
+        func.execute(self.queue,(N,),in1.data,out.data)
 
-        self.can_has_cosines = True
- 
-    def adjust_rows(self):
+    def _adjust_rows(self):
         """ Change the value of unwrapped_R or unwrapped_r in the case of a
         GeForce + Mac when (unwrapped_R-unwrapped_r) is a power of 2. For
         unknown reasons (most likely Apple's OpenCL compiler), this combination
@@ -455,59 +564,11 @@ class gpu_microscope():
         if self.uR >= self.pin_N/2 and self.ur == 0:
             print "check output spectra for NaN. if present adjust unwrapped_r or unwrapped_R"
 
-    def set_returnables(self,returnables=('spectrum',)):
-        
-        """ Set which of the possible intermediate values are returned out of
-        the simulation. Results are returned as a dictionary from which
-        intermediates can be extracted through returnables['key'] where 'key' is
-        the desired intermediate. Set after object to be safe. 
-        
-        Available returnables:
-            object: the master object from which views are sliced. this is the
-                object set by set_object()
-            sliced: the current sliced view. when the master object is the same
-                size as the simulation size, slicing is just rolling
-            illuminated: the current slice * the illumination function
-            speckle: human-centered speckle of the current illumination
-            speckle_blocker: speckle with a blocker of radius ur in the center
-            blurred: blurred speckle
-            blurred_blocker: blurred speckle with ur-blocker
-            unwrapped: unwrapped speckle (or blurred).
-            resized: the unwrapped speckle resized to width 512 columns
-            correlated: the angular autocorrelation, resized to width 360
-            spectrum: the angular ac decomposed into a cosine series.
-            
-        By default, the only returnable is 'spectrum', the final output.
-        
-        Advisory note: since the point of running on the GPU is !SPEED!, and
-        pulling data off the GPU is slow, use of returnables should be limited
-        except for debugging.
-        """
-        
-        available = ('object','sliced','illuminated','speckle','speckle_blocker',
-                     'blurred','blurred_blocker','unwrapped','resized','correlated',
-                     'spectrum','spectrum_ds','correlated_ds')
-        
-        # check types
-        assert isinstance(returnables,(list,tuple)), "returnables must be list or tuple"
-        assert all([isinstance(r,str) for r in returnables]), "all elements of returnables must be strings"
-        
-        self.returnables_list = []
-        for r in returnables:
-            if r not in available:
-                print "requested returnable %s is unrecognized and will be ignored"%r
-            else:
-                self.returnables_list.append(r)
-        print self.returnables_list
-        
-        if 'speckle_blocker' in returnables or 'blurred_blocker' in returnables:
-            assert self.can_has_object, "set object before setting xxx_blocker returnable"
-
-    def slice_object(self,top_row,left_col):
+    def _slice_object(self,top_row,left_col):
         """ Copy an object from self.master_object into self.active_active. The
         size of the sliced array is the same as that of the object specified
         when instantiating the class. If the master_object and active_object are
-        the same size, this function basically becomes numpy.roll.
+        the same size, this function basically becomes np.roll.
         
         Inputs are:
             top_row: y coordinate for slice 
@@ -531,17 +592,7 @@ class gpu_microscope():
         if 'object' in self.returnables_list: self.returnables['object'] = self.master_object.get()
         if 'sliced' in self.returnables_list: self.returnables['sliced'] = self.active_object.get()
 
-    def _gpu_make_speckle(self,plan,complex_in,speckle_out,temp):
-        """ Compute a speckle pattern on the gpu.
-        complex_in is the input data. should be interleaved.
-        speckle_out is the real-valued output.
-        plan should be for interleaved data.
-        Be careful! FFT is stored in place if temp=None, overwriting the original data"""
-            
-        plan.execute(data_in=complex_in.data,data_out=temp.data)
-        self.make_intensity_interleaved(temp,speckle_out)
-
-    def make_speckle(self):
+    def _make_speckle(self):
         """Turn the current occupant of self.active_object into a fully speckle pattern.
         This method accepts no input besides the optional site which is used only for saving symmetry microscope
         output at particular illumination locations. The speckle pattern is stored in self.speckles_re.
@@ -552,60 +603,41 @@ class gpu_microscope():
             speckle_blocker: the speckle pattern with a blocker of radius self.ur in the center.
         """
 
-        # reset intensity_sum for each iteration by filling with zeros
-        self.set_zero(self.intensity_sum_re)
-        self.set_zero(self.subph)
-        self.set_zero_f2(self.speckle_buffer)
-
-        self.make_time0 = time.time()
+        make_time0 = time.time()
         
         # calculate the exit wave by multiplying the illumination
-        self.illuminate_re(self.illumination_gpu, self.active_object, self.illuminated).wait()
+        self._cl_mult(self.active_object ,self.pinhole, self.illuminated)
 
-        if 'illuminated' in self.returnables_list:
-            temp = self.illuminated.get()
-            self.returnables['illuminated'] = temp
+        if 'illuminated' in self.returnables_list: self.returnables['illuminated'] = self.illuminated.get()
         
         # from the exit wave, make the speckle by abs(fft)**2
-        self._gpu_make_speckle(self.fftplan_speckle,self.illuminated,self.intensity_sum_re,self.speckle_buffer)
-
-        # try to subtract off some of the charge signal. if the sample has some actual dc offset
-        # it should be understand that this is not a rigorous procedure.
-        speckles_large = self.intensity_sum_re
-        if not self.ph_signal:
-            speckle_max = cla.max(speckles_large).get()
-            ratio = (speckle_max/self.ph_max).astype(np.float32)
-            self.subtract_ph2(speckles_large,self.pinhole_fft,ratio,self.subph)
-            speckles_large = self.subph
+        self.fftplan_speckle.execute(data_in=self.illuminated.data, data_out=self.far_field.data,wait_for_finish=True)
+        self._cl_abs(in1=self.far_field,out=self.speckles)
+        self._cl_mult(self.speckles,self.speckles,self.speckles)
         
-        # resize the speckle pattern if necessary. based on resizing, the speckle data will
-        # be in either intensity_sum_re or resize_buf. use a second variable just as a
-        # link to the data (self.speckles_re, self.speckles_im)
-        if self.speckle_N != self.pin_N:
-            # inputs:
-            # queue, (size of plan)
-            # array to be mapped, size of array
-            # output, size of output array
-            # plan_x, plan_y, interplation order
-            self.map_coords.execute(self.queue, (self.speckle_N,self.speckle_N),
-                   speckles_large.data, np.int32(self.pin_N),     np.int32(self.pin_N),
-                   self.resize_buf.data,       np.int32(self.speckle_N), np.int32(self.speckle_N),
-                   self.r_n2_x_gpu.data,       self.r_n2_y_gpu.data,     np.int32(self.interp_order)).wait()
-            self.set_zero(self.n2_dummy)
-            self.speckles_re = self.resize_buf
-            self.speckles_im = self.n2_dummy
-        else:
-            self.set_zero(self.intensity_sum_im)
-            self.speckles_re = self.intensity_sum_re
-            self.speckles_im = self.intensity_sum_im
+        make_time1 = time.time()
+        
+        # resize the speckles if needed
+        if self.resize_speckles:
+            # copy re to float, map, copy re to complex
+            self._cl_copy(self.speckles,self.speckles_f)
+            self._cl_map2d(self.speckles_f,self.resized_f,self.r_x_gpu,self.r_y_gpu)
+            self._cl_copy(self.resized_f,self.resized)
+            
+        make_time2 = time.time()
+        
+        self.speckle_time += make_time1-make_time0
+        self.resize_time1 += make_time2-make_time1
             
         # include the blocker
-        if 'speckle' in self.returnables_list:         self.returnables['speckle']         = fftshift(self.speckles_re.get())
-        if 'speckle_blocker' in self.returnables_list: self.returnables['speckle_blocker'] = fftshift(self.speckles_re.get())*self.blocker
-            
-        self.make_time1 = time.time()
+        if 'speckle' in self.returnables_list:
+            self.returnables['speckle'] = fftshift(self.speckles_f.get())
+        if 'rspeckle' in self.returnables_list and self.resize_speckles:
+            self.returnables['rspeckle'] = fftshift(self.resized_f.get())
+        if 'speckle_blocker' in self.returnables_list:
+            self.returnables['speckle_blocker'] = fftshift(self.speckles_re.get())*self.blocker
 
-    def blur(self):
+    def _blur(self):
         """ Turn the fully-coherent speckle pattern in self.intensity_sum_re into a partially coherent
         speckle pattern through convolution with a mutual intensity function. This method accepts no input.
         The blurred speckle is saved in self.intensity_sum_re.
@@ -615,93 +647,42 @@ class gpu_microscope():
             blurred_blocker: blurred speckle with a blocker in the center
         """
 
-        self.blur_time0 = time.time()
-        
-        #print self.speckles_re.shape
-        #print self.speckles_im.shape
-        #print self.blur_kernel.shape
+        blur_time0 = time.time()
 
         # fft, multiply, ifft
-        self.fftplan_blurred.execute(self.speckles_re.data, self.speckles_im.data, wait_for_finish=True)
-        self.blur_convolve(self.speckles_re,self.blur_kernel,self.speckles_re)
-        self.blur_convolve(self.speckles_im,self.blur_kernel,self.speckles_im)
-        self.fftplan_blurred.execute(self.speckles_re.data, self.speckles_im.data,
-                                     wait_for_finish=True, inverse=True)
+        self.fftplan_blur_f2.execute(data_in=self.to_blur.data, data_out=self.blurred.data, wait_for_finish=True)
+        self._cl_mult(self.blurred,self.psff,self.blurred)
+        self.fftplan_blur_f2.execute(self.blurred.data, wait_for_finish=True, inverse=True)
+        self._cl_copy(self.blurred,self.blurred_f) # keep only the real component
+        blur_time1 = time.time()
         
-        #self.times_equal_f(self.speckles_re,self.blocker_gpu)
-        
-        # preserve power
-        #p2 = cla.sum(self.blurred_image).get()
-        #self.scalar_mult(self.blurred_image,np.float32(p1/p2))
-        self.blur_time1 = time.time()
+        self.blur_time += blur_time1-blur_time0
 
-        if 'blurred' in self.returnables_list: self.returnables['blurred'] = fftshift(abs(self.speckles_re.get()))
+        if 'blurred' in self.returnables_list: self.returnables['blurred'] = fftshift(abs(self.blurred.get()))
         if 'blurred_blocker' in self.returnables_list: self.returnables['blurred_blocker'] = fftshift(abs(self.speckles_re.get()))*self.blocker
     
-    def unwrap_speckle(self):
+    def _unwrap_speckle(self):
         """Remap the speckle into polar coordinate, and then resize it to 512 pixels along the x-axis.
         This method accepts no input.
         
         Available returnables:
             unwrapped: unwrapped speckle
             resized: unwrapped speckle resized to 512 pixels wide"""
-            
-        # can this be combined into a single operation?
+
+        # unwrap, then resize to 512 columns. this can probably be made into a single operation.
+        unwrap_time0 = time.time()
+        self._cl_map2d(self.blurred_f,self.unwrapped_gpu,self.unwrap_x_gpu,self.unwrap_y_gpu)
+        unwrap_time1 = time.time()
+        self._cl_map2d(self.unwrapped_gpu,self.resized512,self.r512_x_gpu,self.r_512_y_gpu)        
+        unwrap_time2 = time.time()
         
-        # unwrap using map_coords
-        # inputs:
-        # queue, size of output
-        # input, size of input
-        # output, size of output
-        # plan_x, plan_y, interpolation order
-        self.unwrap_time0 = time.time()
-        self.map_coords.execute(self.queue, (self.unwrap_cols,self.rows),                                   
-                   self.speckles_re.data,   np.int32(self.speckle_N),   np.int32(self.speckle_N),           
-                   self.unwrapped_gpu.data, np.int32(self.unwrap_cols), np.int32(self.rows),                
-                   self.unwrap_x_gpu.data,  self.unwrap_y_gpu.data,     np.int32(self.interp_order)).wait()
-        self.unwrap_time1 = time.time()
-        
-        # resize using map_coords to 512 columns in width; height in rows is unchanged
-        # inputs:
-        # queue, size of output
-        # input, size of input
-        # output, size of output
-        # plan_x, plan_y, interpolation order
-        self.map_coords.execute(self.queue, (512,self.rows),
-                   self.unwrapped_gpu.data, np.int32(self.unwrap_cols), np.int32(self.rows), 
-                   self.resized512.data,    np.int32(512),              np.int32(self.rows),
-                   self.r512_x_gpu.data,    self.r512_y_gpu.data,       np.int32(self.interp_order)).wait()         
-        self.unwrap_time2 = time.time()
+        self.unwrap_time += unwrap_time1-unwrap_time0
+        self.resize_time2 += unwrap_time2-unwrap_time1
         
         if 'unwrapped' in self.returnables_list: self.returnables['unwrapped'] = self.unwrapped_gpu.get()
         if 'resized'   in self.returnables_list: self.returnables['resized']   = self.resized512.get()
 
-    def gpu_autocorrelation(self,fftplan,re_data,im_data,data_out=None,xaxisonly=False):
-        """ A helper function which does the autocorrelation of complex data according to the supplied plan.
-         fftplan should expect split (not interleaved) data. The real data is in re_data and the imaginary
-         data is in im_data. The output, which must be real because its an autocorrelation, is stored in
-         re_data unless a separate buffer is specified by optional argument data_out. im_data is overwritten
-         with zero so be careful!"""
-         
-        if xaxisonly: # this means we're doing the correlation
-            fftplan.execute(re_data.data,im_data.data,batch=self.rows,wait_for_finish=True)              # forward transform
-            self.make_intensity(re_data,im_data,re_data)                                 # re**2 + im**2; store in re
-            self.set_zero(im_data)                                                       # set im to 0
-            if data_out == None:
-                fftplan.execute(re_data.data,im_data.data,batch=self.rows,inverse=True,wait_for_finish=True)
-            else:
-                fftplan.execute(re_data.data,im_data.data,data_out=data_out.data,batch=self.rows,inverse=True,wait_for_finish=True)
-                
-        if not xaxisonly: # this means we're doing the blurring (2d)
-            fftplan.execute(re_data.data,im_data.data,wait_for_finish=True)              # forward transform
-            self.make_intensity(re_data,im_data,re_data)                                 # re**2 + im**2; store in re
-            self.set_zero(im_data)                                                       # set im to 0
-            if data_out == None:
-                fftplan.execute(re_data.data,im_data.data,inverse=True,wait_for_finish=True)
-            else:
-                fftplan.execute(re_data.data,im_data.data,data_out=data_out.data,inverse=True,wait_for_finish=True)
-
-    def rotational_correlation(self,fallback='cpu'):
+    def _rotational_correlation(self,fallback='cpu'):
         """ Perform an angular correlation of a speckle pattern by doing a
         cartesian correlation of a speckle pattern unwrapped into polar
         coordinates. This method accepts no input. Data must be in
@@ -713,11 +694,11 @@ class gpu_microscope():
             pixels in the angular coordinate.
         """
         
-        self.correlation_time0 = time.time()
+        corr_time0 = time.time()
         
         # zero the buffers
-        self.set_zero(self.resized512z)
-        self.set_zero(self.rowaverage)
+        self.set_zero_f(self.resized512z)
+        self.set_zero_f(self.rowaverage)
             
         # get the denominaters for the wochner normalization
         if self.norm_mode == 0:
@@ -725,8 +706,8 @@ class gpu_microscope():
             
         # calculate the autocorrelation of the rows using a 1d plan and the batch command in pyfft
         self.fftplan_correls.execute(self.resized512.data,self.resized512z.data,wait_for_finish=True,batch=self.rows)
-        self.make_intensity_split(self.resized512,self.resized512z,self.resized512)
-        self.set_zero(self.resized512z)
+        self._cl_abs(in1=self.resized_512,in2=self.resized512_z,out=self.resized_512)
+        self.set_zero_f(self.resized512z)
         self.fftplan_correls.execute(self.resized512.data,self.resized512z.data,batch=self.rows,inverse=True,wait_for_finish=True)
 
         if self.norm_mode == 1:
@@ -737,19 +718,19 @@ class gpu_microscope():
         # if self.norm_mode = 1, divide each row by the value at column 1
         self.corr_norm.execute(self.queue, (512,self.rows), self.resized512.data, self.rowaverage.data, self.resized512.data, np.int32(self.norm_mode))
         
+        corr_time1 = time.time()
+        
         # resize the normalized correlation to 360 pixels in theta, so each pixel is a one degree step
-        self.map_coords.execute(self.queue, (360,self.rows),
-            self.resized512.data,  np.int32(512),        np.int32(self.rows),                          # input
-            self.resized360.data,  np.int32(360),        np.int32(self.rows),                          # output
-            self.r360_x_gpu.data,  self.r360_y_gpu.data, np.int32(self.interp_order)).wait() # plan, interpolation order
+        self._cl_map_2d(self.resized512,self.resized360,self.r360_x_gpu,self.r360_y_gpu)
+        self._cl_add(self.correl_sum, self.resized360,self.correl_sum)
+        corr_time2 = time.time()
 
         if 'correlated' in self.returnables_list: self.returnables['correlated'] = self.resized360.get()
         
-        self.plus_equal_f(self.correl_sum,self.resized360)
-
-        self.correlation_time1 = time.time()
-        
-    def decompose_spectrum(self):
+        self.correl_time += corr_time1-corr_time0
+        self.resize_time3 += corr_time2-corr_time1
+  
+    def _decompose_spectrum(self):
         """ Decompose the angular correlation in self.resized360 into a cosine spectrum.
         This method accepts no input. Because the amount of data in the self.spectrum_gpu
         object is very small, moving the spectrum back into host memory is a cheap transfer.
@@ -760,32 +741,36 @@ class gpu_microscope():
 
         assert self.can_has_cosines, "cant decompose until cosines are set!"
 
-        self.decomp_time0 = time.time()
+        decomp_time0 = time.time()
         
-        self.set_zero(self.spectrum_gpu)            # zero the buffer self.spectrum_gpu
+        self.set_zero_f(self.spectrum_gpu)            # zero the buffer self.spectrum_gpu
         self.cosine_reduce.execute(                 # run the cosine reduction kernel
-            self.queue,(self.nc,self.rows),
+            self.queue,(int(self.nc),int(self.rows)),
             self.resized360.data,
-            self.cosines.data,
+            self.cosines_gpu.data,
             self.spectrum_gpu.data,
             np.int32(self.nc))
-        self.decomp_time1 = time.time()
+        decomp_time1 = time.time()
         
         # now despike the correlation and redo the decomposition. this will test how much the
         # spikes really matter in the concentration metric
-        self.copy_array_f(self.resized360,self.despiked1)
+        self._cl_copy(self.resized360,self.despiked1)
         self.despike.execute(self.queue,(self.rows,), self.despiked1.data, self.despiked1.data, np.int32(4), np.float32(4))
-        self.plus_equal_f(self.correl_sum_ds,self.despiked1)
-        self.set_zero(self.spectrum_gpu_ds1)        # zero the buffer self.spectrum_gpu_ds
+        self._cl_add(self.correl_sum_ds,self.despiked1,self.correl_sum_ds)
+        self.set_zero_f(self.spectrum_gpu_ds1)       # zero the buffer self.spectrum_gpu_ds
         self.cosine_reduce.execute(                 # run the cosine reduction kernel
             self.queue,(self.nc,self.rows),
             self.despiked1.data,
-            self.cosines.data,
+            self.cosines_gpu.data,
             self.spectrum_gpu_ds1.data,
             np.int32(self.nc))
+        decomp_time2 = time.time()
         
-        self.plus_equal_f(self.spectrum_gpu_sum,self.spectrum_gpu_ds1)
+        self.decomp_time  += decomp_time1-decomp_time0
+        self.despike_time += decomp_time2-decomp_time1
         
+        self._cl_add(self.spectrum_gpu_sum,self_spectrum_gpu_ds1,self.spectrum_gpu_sum)
+
         if 'spectrum' in self.returnables_list:
             self.returnables['spectrum']     = self.spectrum_gpu.get()
         if 'spectrum_ds' in self.returnables_list:
@@ -833,15 +818,27 @@ class gpu_microscope():
         assert self.can_has_cosines, "no cosines set"
         assert isinstance(y,int) and isinstance(x,int), "site coordinates must be integer"
         
-        self.slice_object(y,x)
-        self.make_speckle()
-        if self.can_has_coherence: self.blur()
-        self.plus_equal_f(self.speckle_sum,self.speckles_re)
+        self._slice_object(y,x)
+        self._make_speckle()
+        self._blur()
     
         # in the cpu microscope, these are handled by symmetries.rot_sym
-        self.unwrap_speckle()
-        self.rotational_correlation()
-        self.decompose_spectrum()
+        self._unwrap_speckle()
+        self._rotational_correlation()
+        self._decompose_spectrum()
+
+    def print_timings(self):
+        total_time = self.speckle_time+self.resize_time1+self.blur_time+self.unwrap_time+self.resize_time2+self.decomp_time+self.despike_time+self.correl_time+self.resize_time3+self.decomp_time+self.despike_time
+        print "speckle time: %.3e (%.2f %%)"%(self.speckle_time,self.speckle_time/total_time*100)
+        print "resize1 time: %.3e (%.2f %%)"%(self.resize_time1,self.resize_time1/total_time*100)
+        print "blur time:    %.3e (%.2f %%)"%(self.blur_time,self.blur_time/total_time*100)
+        print "unwrap time:  %.3e (%.2f %%)"%(self.unwrap_time,self.unwrap_time/total_time*100)
+        print "resize2 time: %.3e (%.2f %%)"%(self.resize_time2,self.resize_time2/total_time*100)
+        print "correl time:  %.3e (%.2f %%)"%(self.correl_time,self.correl_time/total_time*100)
+        print "resize3 time: %.3e (%.2f %%)"%(self.resize_time3,self.resize_time3/total_time*100)
+        print "decomp time:  %.3e (%.2f %%)"%(self.decomp_time,self.decomp_time/total_time*100)
+        print "despike time: %.3e (%.2f %%)"%(self.despike_time,self.despike_time/total_time*100)
+
 
 def ispower2(N):
     return (N&(N-1)) == 0

@@ -6,7 +6,5 @@ __kernel void execute(
 	int i = get_global_id(0);
 	
 	// pull the components into registers
-	float a = in[i].x;
-	float b = in[i].y;
-	out[i] = native_sqrt(a*a+b*b);
+	out[i] = in[i];
     }
