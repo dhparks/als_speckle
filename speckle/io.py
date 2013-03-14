@@ -69,7 +69,7 @@ def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimite
     if ext in pck_exts:  return load_pickle(filename)
     if ext in ds9mask_exts: return open_ds9_mask(filename,force_reg_size=force_reg_size)
 
-def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None):
+def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None,scaling=None):
     """ Save components of an array as desired filetype specified by file
     extension. This is a wrapper to save_fits, save_image, write_text_array.
     
@@ -86,6 +86,10 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
             entries. Default is '\t' (tab)
         overwrite - Whether to overwrite a file already existing at filename.
             Default is False.
+        scaling - this allows the data to be scaled before saving. this
+            operates only on the magnitude component of the data.
+            available scales are 'sqrt','log', or a float which is interpreted
+            as a power (ie, 0.5 reproduces sqrt).
 
     returns:
         nothing. Will throw an exception if something wrong happens.
@@ -97,6 +101,16 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
     img_exts  = ('jpg','jpeg','gif','png','bmp')
     fits_exts = ('fits',)
     txt_exts  = ('txt','csv')
+    
+    # rescale the data
+    if scaling != None:
+        assert isinstance(scaling,(str,float))
+        mag, phase = abs(data), numpy.angle(data)
+        if isinstance(scaling, str): assert scaling in ('sqrt','log')
+        if scaling == 'sqrt': mag = numpy.sqrt(mag)
+        if scaling == 'log':  mag = numpy.log(mag+1)
+        if isinstance(scaling,float): mag = mag**scaling
+        data = mag*numpy.exp(complex(0,1)*phase)
     
     # get extension from filename
     assert len(filename.split('.')) >= 2, "filename appears to have no extension"
