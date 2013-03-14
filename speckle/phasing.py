@@ -5,9 +5,12 @@ from . import shape
 
 class CPUPR:
     
-    # Implement phase retrieval as a class. An instance of this class is a reconstruction, and methods in the class are operations on the reconstruction.
-    # For example, calling instance.hio() will advance the reconstruction by one iteration of the HIO algorithm; calling instance.update_support() will
-    # update the support being used in the reconstruction in the manner of Marchesini's shrinkwrap.
+    # Implement phase retrieval as a class. An instance of this class is a
+    # reconstruction, and methods in the class are operations on the
+    # reconstruction. For example, calling instance.hio() will advance the
+    # reconstruction by one iteration of the HIO algorithm; calling
+    # instance.update_support() will update the support being used in the
+    # reconstruction in the manner of Marchesini's shrinkwrap.
 
     def __init__(self,device=None,N=None,shrinkwrap=False):
         self.N = N
@@ -38,8 +41,8 @@ class CPUPR:
         
         # enforce the fourier-space constraint
         self.psi_fourier  = self.f(self.psi_in)
-        self.psi_fourier2 = self.modulus*self.psi_fourier/self.abs(psi_fourier)
-        self.psi_out      = self.g(psi)
+        self.psi_fourier2 = self.modulus*self.psi_fourier/abs(self.psi_fourier)
+        self.psi_out      = self.g(self.psi_in)
         
         # enforce the real-space constraint
         if algorithm == 'hio': self.psi_in = (1-self.support)*(self.psi_in-beta*self.psi_out)+self.support*self.psi_out # hio support algorithm
@@ -81,6 +84,26 @@ class CPUPR:
     def get(self,array):
         # dummy function to unify cpu/gpu api
         return array
+    
+    def iterate(self,iterations,shrinkwrap=False,update_period=0):
+    
+        """ Run iterations on the phasing instance.
+        Arguments:
+            phasing_instance - an instance of either the GPUPR or CPUPR class.
+            iterations       - how many iterations to run total
+            shrinkwrap       - whether to run the shrinkwrap functions
+            update_period    - (optional) if using shrinkwrap, how many iterations
+                between running the update functions
+        """
+        
+        for iteration in range(iterations):
+            if shrinkwrap and iteration%update_period == 0 and iteration > 0:
+                self.update_support()
+                self.iteration('er')
+            else:
+                if (iteration+1)%100 != 0: self.iteration('hio')
+                else: self.iteration('er')
+            if iteration%100 == 0: print "  iteration ",iteration
 
 def align_global_phase(data):
     """ Phase retrieval is degenerate to a global phase factor. This function
@@ -280,20 +303,6 @@ def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshol
         refined  *= 1-weak_part
     
     return refined,blurred
-
-    def _do_iterations(gpupr,n,shrinkwrap):
-        # conduct phase retrieval iterations by calling GPUPR methods.
-        k = 0
-        interval = 100
-        for iteration in range(iterations):
-            if shrinkwrap:
-                if iteration%update_period == 0 and iteration > 0:
-                    gpupr.update_support()
-                    gpupr.iteration('er')
-            if not shrinkwrap:
-                if (iteration+1)%interval != 0: gpupr.iteration('hio',iter=n)
-                else: gpupr.iteration('er')
-            if iteration%interval == 0: print "  iteration ",iteration
 
 def iterate(phasing_instance,iterations,shrinkwrap=False,update_period=0):
     

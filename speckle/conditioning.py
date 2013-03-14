@@ -89,6 +89,112 @@ def remove_dust(data_in,dust_mask,dust_plan=None):
     if was_2d: data.shape = (Lr,Lc)
     return data, dust_plan
 
+def remove_dust_new(data,dust_mask,dust_plan=None):
+    """ Attempts to remove dust through with grid_data, an interpolation routine
+    for irregularly spaced data.
+    
+    Arguments
+        data   - data with dust marks. if 3d, each frame gets dedusted.
+        dust_mask - a mask which shows dust locations.
+        dust_plan - dust_mask gets turned into dust_plan, which is what is actually
+            used to remove the dust. If not supplied, gets created and returned
+            with the dedusted data. Creation is expensive, so it makes since to
+            reuse the plan when feasible.
+            
+    Returned:
+        dedusted - data with dust removed
+        dust_plan - plan for removing dust
+    """
+    
+    data_in = numpy.copy(data)
+    
+    # check types
+    assert isinstance(data_in,numpy.ndarray), "data_in must be an array; is %s"%type(data_in)
+    assert isinstance(dust_mask,numpy.ndarray), "dust_mask mut be an array; is %s"%type(dust_mask)
+    assert isinstance(dust_plan,(type(None),numpy.ndarray)), "dust_plan must be None or an array; is %s"%type(dust_plan)
+    assert data_in.ndim in (2,3), "data_in must be 2d or 3d."
+    assert dust_mask.ndim == 2, "dust_mask must be 2d"
+    if isinstance(dust_plan,numpy.ndarray):
+        assert dust_mask.shape == dust_plan.shape, "dust_mask and dust_plan must have same shape"
+    assert dust_mask.shape[0] == dust_mask.shape[1], "currently only support square arrays"
+    
+    # check that dust_mask and data_in are commensurate
+    was_2d = False
+    if data_in.ndim == 2:
+        was_2d = True
+        data_in.shape = (1,)+tuple(data_in.shape)
+    assert data_in.shape[1:] == dust_mask.shape, "data_in and dust_mask are incommensurate: %s %s"%(data_in.shape,dust_mask.shape)
+
+    # if the dust_plan doesnt exist, make it.
+    if dust_plan == None: dust_plan = plan_remove_dust_new(dust_mask)
+        
+    # loop through the frames of data_in, removing the dust from each using the
+    # same dust plan. interpolation is handled by grid_data from scipy.
+    from scipy.interpolate import griddata
+    y_points, x_points = numpy.nonzero(dust_plan)
+    points             = numpy.array([y_points,x_points])
+    
+    for n,frame in enumerate(data_in):
+        
+        interpolated  = numpy.zeros_like(frame)
+        
+        # pull the values out of frame into a format usable by grid_data
+        values = numpy.zeros_like(y_points).astype(data_in.dtype)
+        for m in range(len(y_points)):
+            values[m] = frame[y_points[m],x_points[m]]
+
+        # figure out what region we will actually interpolate over
+        ymin = y_points.min()
+        ymax = y_points.max()
+        xmin = x_points.min()
+        xmax = x_points.max()
+        gy, gx = numpy.mgrid[ymin-1:ymax+1,xmin-1:xmax+1]
+
+        # do the interpolation and put it into interpolated_data. 'linear'
+        # method gives best results for test data AND is fastest.
+        interpolation = griddata(points.transpose(), values, (gy, gx), method='linear')
+        interpolated[ymin-1:ymax+1,xmin-1:xmax+1] = interpolation
+        interpolated = numpy.nan_to_num(interpolated)
+        
+        data_in[n] = interpolated*dust_mask+frame*(1-dust_mask)
+        
+    if was_2d: data_in.shape = data_in.shape[1:]
+        
+    return data_in, dust_plan
+        
+def plan_remove_dust_new(mask):
+
+        # define the expand-by-1 kernel
+        kernel = numpy.zeros(mask.shape,numpy.float32)
+        kernel[0:2,0:2] = 1
+        kernel[-1:,0:2] = 1
+        kernel[-1:,-1:] = 1
+        kernel[0:2,-1:] = 1
+         
+        # precompute the fourier transforms for the convolutions
+        kf = numpy.fft.fft2(kernel)
+        df = numpy.fft.fft2(mask)
+
+        def _expand(x):
+            f1 = df*kf**x     # expand by x
+            f2 = df*kf**(x-1) # expand by x-1
+            r1 = numpy.fft.ifft2(f1).real # transform to real space
+            r2 = numpy.fft.ifft2(f2).real # transform to real space
+            return numpy.clip(r1,0.,1.)-numpy.clip(r2,0.,1.) # take the difference
+            
+        # now expand by 1, 3, 5, 7, 9 pixels.
+        plan = numpy.zeros(mask.shape,numpy.float32)
+        for x in (1,4,7,10):
+            expanded = _expand(x)
+            plan += expanded
+        
+        # dont allow interpolation inside the marked region of dust_mask
+        plan = numpy.clip(plan,0,1.)
+        plan += -mask
+        plan = numpy.clip(plan,0.,1.)
+        
+        return plan.astype(numpy.uint8)
+    
 def plan_remove_dust(mask):
     """ Dust removal has requires two pieces of information: a mask describing
     the dust and a plan of operations for doing the spline interpolation within

@@ -28,97 +28,32 @@ class GPUPR:
             support by blurring and thresholding.        
     """
     
-    def __init__(self,device=None,N=None,coherence=None,shrinkwrap=False):
+    def __init__(self,device=None):
         
         self.ints = (int,numpy.int32,numpy.int64) # integer types
         self.iters = (list,tuple,numpy.ndarray)     # iterable types
         self.floats = (float,numpy.float32,numpy.float64)
         
         assert isinstance(device,tuple) and len(device) == 4, "device information improperly formed"
-        assert isinstance(N,self.ints), "N must be an integer"
-        
-        self.N = N
         self.context,self.device,self.queue,self.platform = device
-        self.shrinkwrap = shrinkwrap
         
+        self.can_has_modulus = False
+        self.can_has_support = False
+        self.can_has_psff    = False
+        self.can_iterate     = False
+        self.N               = None
         
-        self.can_has_estimate = False
-        self.can_has_psf     = False
+        self.can_has_estimate = False # for rl deconvolution
         
         self._make_kernels()
-        
-        self.coherence = coherence
-        # if supplied, establish the coherence estimate. this sets the code on a different path (see
-        # self.iteration() for details on how the coherence is implemented)
-        assert isinstance(self.coherence,(self.iters,type(None))), "supplied coherence must be iterable type; is %s"%type(coherence)
-        if isinstance(self.coherence,self.iters):
-            assert len(self.coherence) == 2, "supplied coherence must be length 2 (lx, ly)"
-            for x in self.coherence:
-                assert isinstance(x,(self.ints,self.floats)), "supplied coherence must be floats or ints; is %s"%type(x)
 
     def _make_kernels(self):
 
-        # 1. make fft plan for a 2d array with length N. this assumes complex data array
-        # dtype (in c parlance: interleaved complex)
-        from pyfft.cl import Plan
-        self.fftplan = Plan((self.N, self.N), queue=self.queue)
-        
-        # 2. make the kernels to enforce the fourier and real-space constraints
-        self.fourier_constraint = cl_kernel(self.context,
-            "float2 *psi, " # current estimate of the solution
-            "float2 *div,"  # nominally, this is float2 but is real, so ignore imag component
-            "float  *mod,"  # known fourier modulus
-            "float2 *out",  # output destination
-            "out[i] = (float2)(psi[i].x*mod[i]/div[i].x,psi[i].y/div[i].x*mod[i])",
-            "replace_modulus")
-        
-        #self.make_gaussian = cl_kernel(self.context,
-        #    "float2 *xy, "
-        #    "float *gaussian, "
-        #    "float ly, "
-        #    "float lx, "
-        #                               )
-        
-        self.complex_multiply = cl_kernel(self.context,
-            "float2 *a,"
-            "float2 *b,"
-            "float2 *c",
-            "c[i] = (float2)(a[i].x*b[i].x-a[i].y*b[i].y,a[i].x*b[i].y+a[i].y*b[i].x)",
-            "complex_multiply")
-    
         self.rl_make_estimate = cl_kernel(self.context,
             "float *in,"   # this is always self.modulus                           
             "float2 *out", # this is always estimate
             "out[i] = (float2)(in[i]*in[i],0)",
             "rl_make_estimate")
-        
-        self.realspace_constraint_hio = cl_kernel(self.context,
-            "float beta, "       # feedback parameter
-            "float *support, "   # support constraint array
-            "float2 *psi_in, "   # estimate of solution before modulus replacement
-            "float2 *psi_out, "  # estimate of solution after modulus replacement
-            "float2 *out",       # output destination
-            "out[i] = (float2)((1-support[i])*(psi_in[i].x-beta*psi_out[i].x)+support[i]*psi_out[i].x,(1-support[i])*(psi_in[i].y-beta*psi_out[i].y)+support[i]*psi_out[i].y)",
-            "hio")
-        
-        self.realspace_constraint_er = cl_kernel(self.context,
-            "float *support, "   # support constraint array
-            "float2 *psi_out, "  # estimate of solution after modulus replacement
-            "float2 *out",       # output destination
-            "out[i] = support[i]*psi_out[i]",
-            "hio")
-        
-        self.make_abs = cl_kernel(self.context,
-            "float2 *in,"
-            "float2 *out",
-            "out[i] = (float2)(hypot(in[i].x,in[i].y),0.0f)",
-            "make_abs")
-        
-        self.make_abs_f = cl_kernel(self.context,
-            "float2 *in,"
-            "float *out",
-            "out[i] = hypot(in[i].x,in[i].y)",
-            "make_abs_f")
         
         self.square_diff = cl_kernel(self.context,
             "float *in1,"
@@ -127,112 +62,127 @@ class GPUPR:
             "out[i] = pown(fabs(in1[i]-in2[i]),2)",
             "square_diff")
         
-        self.copy_f2 = cl_kernel(self.context,
-            "float2 *in,"
-            "float2 *out",
-            "out[i] = (float2)(in[i].x,in[i].y)",
-            "copyf2")
+        # compile basic mathematical functions for multiplication, division, abs
+        self.mult_f_f   = gpu.build_kernel_file(self.context, self.device, kp+'basic_multiply_f_f.cl')   # float*float
+        self.mult_f_f2  = gpu.build_kernel_file(self.context, self.device, kp+'basic_multiply_f_f2.cl')  # float*complex
+        self.mult_f2_f2 = gpu.build_kernel_file(self.context, self.device, kp+'basic_multiply_f2_f2.cl') # complex*complex
+        
+        self.div_f_f    = gpu.build_kernel_file(self.context, self.device, kp+'basic_divide_f_f.cl')     # float/float
+        self.div_f_f2   = gpu.build_kernel_file(self.context, self.device, kp+'basic_divide_f_f2.cl')    # float/complex
+        self.div_f2_f   = gpu.build_kernel_file(self.context, self.device, kp+'basic_divide_f2_f.cl')    # complex/float
+        self.div_f2_f2  = gpu.build_kernel_file(self.context, self.device, kp+'basic_divide_f2_f2.cl')   # complex/complex
+        
+        self.abs_f2_f   = gpu.build_kernel_file(self.context, self.device, kp+'basic_abs_f2_f.cl')       # abs cast to float
+        self.abs_f2_f2  = gpu.build_kernel_file(self.context, self.device, kp+'basic_abs_f2_f2.cl')      # abs kept as cmplx
+        
+        self.complex_sqrt = gpu.build_kernel_file(self.context, self.device, kp+'basic_sqrt_f2.cl')      # square of complex number
 
-        self.complex_divide = gpu.build_kernel_file(self.context, self.device, kp+'complex_divide.cl')
-        self.complex_sqrt   = gpu.build_kernel_file(self.context, self.device, kp+'complex_sqrt.cl')
-
-        self.blur_convolve = cl_kernel(self.context,
-                "float2 *toblur,"
-                "float  *blurrer,"
-                "float2 *blurred",
-                "blurred[i] = (float2) (toblur[i].x*blurrer[i],toblur[i].y*blurrer[i])",
-                "blur_convolve")
-
-        # if the support will be updated with shrinkwrap, initialize some additional gpu kernels
-        if self.shrinkwrap:
-            
-            self.set_zero = cl_kernel(self.context,
-                "float2 *buff",
-                "buff[i] = (float2)(0.0f, 0.0f)",
-                "set_zero")
-            
-            self.copy_real = cl_kernel(self.context,
-                "float2 *in,"
-                "float  *out",
-                "out[i] = in[i].x",
-                "set_zero")
-
-            self.support_threshold = cl_kernel(self.context,
-                "float2 *in,"
-                "float *out,"
-                "float t",
-                "out[i] = isgreaterequal(in[i].x,t)",
-                "support_threshold")
-            
-            self.bound_support = cl_kernel(self.context,
-                "float *s,"
-                "float *s0",
-                "s[i] = s[i]*s0[i]",
-                "bound_support")
+        # compile kernels specific to phasing
+        self.phasing_er      = self.mult_f_f2
+        self.phasing_hio     = gpu.build_kernel_file(self.context, self.device, kp+'phasing_hio.cl')
+        self.phasing_fourier = gpu.build_kernel_file(self.context, self.device, kp+'phasing_fourier.cl')
 
         # 4. make unwrapping and resizing plans for computing the prtf on the gpu
-        uy, ux = wrapping.unwrap_plan(0, self.N/2, (0,0), modulo=self.N)[:,:-1]
-        self.unwrap_cols   = len(ux)/(self.N/2)
-        self.unwrap_x_gpu  = cla.to_device(self.queue,ux.astype(numpy.float32))
-        self.unwrap_y_gpu  = cla.to_device(self.queue,uy.astype(numpy.float32))
-        self.unwrapped_gpu = cla.empty(self.queue,(self.N/2,self.unwrap_cols), numpy.float32)
+        #uy, ux = wrapping.unwrap_plan(0, self.N/2, (0,0), modulo=self.N)[:,:-1]
+        #self.unwrap_cols   = len(ux)/(self.N/2)
+        #self.unwrap_x_gpu  = cla.to_device(self.queue,ux.astype(numpy.float32))
+        #self.unwrap_y_gpu  = cla.to_device(self.queue,uy.astype(numpy.float32))
+        #self.unwrapped_gpu = cla.empty(self.queue,(self.N/2,self.unwrap_cols), numpy.float32)
 
-    def load_data(self,modulus,support,update_sigma=None,psf=None):
-        """ Put the modulus and support into GPU memory. Allocate memory for intermediate results.
+    def load_data(self,modulus=None,support=None,update_sigma=None,psf=None):
+        """ Load objects into the GPU memory. This is all handled through one
+        function which tracks the sizes of the arrays. After the initial loading,
+        the size of the objects is LOCKED and cannot be changed.
         
-        Required arguments:
-            modulus: 2d numpy array from prephasing output
-            support: 2d numpy array, should be binary 0/1
+        When loaded, the modulus, support, and psf must be equal sizes.
+        The calculation must have a support and a modulus to procede.
+        If a psf is loaded, it is also assumed that the fourier modulus is
+        partially coherent, and algorithms which account for this partial
+        coherence are employed."""
+        
+        # check types, sizes, etc
+        types = (type(None),numpy.ndarray)
+        assert isinstance(modulus,types), "modulus must be ndarray if supplied"
+        assert isinstance(support,types), "support must be ndarray if supplied"
+        assert isinstance(psf,types), "psf must be ndarray if supplied"
+        
+        # load or replace modulus
+        if isinstance(modulus,numpy.ndarray):
+            assert modulus.ndim == 2, "modulus must be 2 dimensional"
+            assert modulus.shape[0] == modulus.shape[1], "modulus must be square"
             
-        Optional arguments:
-            update_sigma: the size of the blurring kernel used for shrinkwrap support updating."""
+            if self.can_has_modulus:
+                assert modulus.shape == (self.N,self.N), "modulus size cannot change when reloading!"
+                self.modulus.set(modulus.astype(numpy.float32),queue=self.queue)
+                
+            if not self.can_has_modulus:
+                self.can_has_modulus = True
+                self.modulus = cla.to_device(self.queue,modulus.astype(numpy.float32))
+            
+        # load or replace support
+        if isinstance(support,numpy.ndarray):
+            assert support.ndim == 2, "support must be 2 dimensional"
+            assert support.shape[0] == support.shape[1], "support must be square"
+            
+            if self.can_has_support:
+                assert support.shape == (self.N,self.N), "support size cannot change when reloading!"
+                self.support.set(support.astype(numpy.float32),queue=self.queue)  # to update
+                self.support0.set(support.astype(numpy.float32),queue=self.queue) # read only?
+                
+            if not self.can_has_support:
+                self.can_has_support = True
+                self.support  = cla.to_device(self.queue,support.astype(numpy.float32)) # to update
+                self.support0 = cla.to_device(self.queue,support.astype(numpy.float32)) # read only?
         
-        # make sure the modulus and support are the correct shape
-        assert modulus.ndim == 2, "modulus must be 2d"
-        assert support.ndim == 2, "support must be 2d"
-        assert modulus.shape == support.shape, "modulus and support must have same shape"
+        # load or replace psf
+        if isinstance(psf,numpy.ndarray):
+            assert psf.ndim == 2, "psf must be 2 dimensional"
+            assert psf.shape[0] == psf.shape[1], "psf must be square"
+            
+            psff = numpy.fft.fft2(psf) # psf needs to come in corner-centered!
+            
+            if self.can_has_psff:
+                assert psf.shape == (self.N,self.N), "psf size cannot change when reloading!"
+                self.psff.set(psff.astype(numpy.float32),queue=self.queue)
+                
+            if not self.can_has_psff:
+                self.can_has_psff = True
+                self.psff = cla.to_device(self.queue,psff.astype(numpy.float32))
         
-        # transfer the data to the cpu. pyopencl handles buffer creation
-        self.modulus  = cla.to_device(self.queue,modulus.astype(numpy.float32))
-        self.support  = cla.to_device(self.queue,support.astype(numpy.float32)) # to update
-        self.support0 = cla.to_device(self.queue,support.astype(numpy.float32)) # read only?
+        # verify that everything currently loaded has the same shape. this is
+        # inefficient but reliable.
+        m = self.can_has_modulus
+        s = self.can_has_support
+        p = self.can_has_psff
+        
+        if m:
+            if s: assert self.modulus.shape == self.support.shape, "modulus and support shapes differ"
+            if p: assert self.modulus.shape == self.psff.shape,    "modulus and psff shapes differ"
+        if s:
+            if m: assert self.support.shape == self.modulus.shape, "modulus and support shapes differ"
+            if p: assert self.support.shape == self.psff.shape,    "support and psff shapes differ"
+        if p:
+            if s: assert self.psff.shape == self.support.shape,    "psff and support shapes differ"
+            if m: assert self.psff.shape == self.modulus.shape,    "psff and modulus shapes differ"
+            
+        if m: self.N = self.modulus.shape[0]
+        if s: self.N = self.modulus.shape[0]
+        if p: self.N = self.modulus.shape[0]
+        if self.N != None:
+            self.N2 = self.N*self.N
+            from pyfft.cl import Plan
+            self.fftplan = Plan((self.N, self.N), queue=self.queue)
         
         # initialize gpu arrays for fourier constraint satisfaction
-        self.psi_in       = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # holds the estimate of the wavefield
-        self.psi_out      = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # need both in and out for hio algorithm
-        self.psi_fourier  = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # to store fourier transforms of psi
-        self.fourier_div  = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # stores divisor generate from psi_fourier
-        self.scratch_c1   = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # general purpose NxN complex buffer
-        self.scratch_c2   = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # general purpose NxN complex buffer
-        self.scratch_c3   = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # general purpose NxN complex buffer
-        self.scratch_f    = cla.empty(self.queue,(self.N,self.N),numpy.float32 )  # general purpose NxN float buffer
-        
-        if self.coherence != None:
-            # put arrays onto the gpu that will facilitate the rapid creation of gaussians
-            y,x = numpy.indices((self.N,self.N),numpy.float32)-self.N/2
-            y = self.s(y)
-            x = self.s(x)
-            xy = (y+complex(0,1)*x).astype(numpy.complex64) # store as a complex, which in c99 is a (float2)
-            self.xy_coords = cla.to_device(self.queue,xy) # x,y coords to rapidly create new coherence functions
-            self.coherence_function = cla.empty(self.queue,(self.N,self.N),numpy.float32 )
-        
-        if update_sigma != None:
-            from .. import shape
-            # make gpu arrays for blurring the magnitude of the current estimate in order to update the support
-            assert isinstance(update_sigma, (int,float)), "update_sigma must be float or int"
-            blurkernel = abs(numpy.fft.fft2(numpy.fft.fftshift(shape.gaussian((self.N,self.N),(update_sigma,update_sigma),center=None,normalization=None))))
-            self.blur_kernel   = cla.to_device(self.queue,blurkernel.astype('float32'))
-            self.blur_temp     = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # for holding the blurred estimate
-            self.blur_temp_max = cla.empty(self.queue,(self.N,self.N),numpy.float32)
+        if m or s or p:
+            self.psi_in      = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # holds the estimate of the wavefield
+            self.psi_out     = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # need both in and out for hio algorithm
+            self.psi_fourier = cla.empty(self.queue,(self.N,self.N),numpy.complex64) # to store fourier transforms of psi
+            self.fourier_div = cla.empty(self.queue,(self.N,self.N),numpy.complex64)   # stores divisor generate from psi_fourier
+            self.scratch_f   = cla.empty(self.queue,(self.N,self.N),numpy.float32)   # general purpose NxN float buffer
             
-        if psf != None:
-            # given the estimate psf, take the fourier transform to form
-            # psff. from that, form psffr. put both on the gpu.
-            psff = numpy.fft.fft2(psf)
-            psffr = psff[::-1,::-1]
-            self.psff  = cla.to_device(self.queue,psff.astype(numpy.complex64))
-            self.psffr = cla.to_device(self.queue,psffr.astype(numpy.complex64))
-            self.can_has_psf = True # loaded
+        # set the flag which allows iteration.
+        if m and s: self.can_iterate = True
             
     def richardson_lucy(self,iterations):
         """ Given:
@@ -267,20 +217,21 @@ class GPUPR:
     
         for i in range(iterations):
             _convolvef(self.rl_est,self.psff,self.rl_blur1)
-            self.complex_divide.execute(self.queue,(self.N*self.N,),self.rl_pc.data,self.rl_blur1.data,self.rl_div.data)
+            self.div_f2_f2.execute(self.queue,(self.N*self.N,),self.rl_pc.data,self.rl_blur1.data,self.rl_div.data)
             _convolvef(self.rl_div,self.psffr,self.rl_blur2)
-            self.complex_multiply(self.rl_est,self.rl_blur2,self.rl_est)
+            self.mult_f2_f2(self.rl_est,self.rl_blur2,self.rl_est)
     
     def _convolvef(self,d1,d2,out):
         # calculate a convolution when d1 must be transformed but d2 is already
         # transformed. the multiplication function depends on the dtype of d2.
         
-        if d2.dtype == 'complex64': multiply = self.complex_multiply
-        if d2.dtype == 'float32':   multiply = self.blur_convolve
+        assert d1.dtype == 'complex64',  "in _convolvef, input d1 has wrong dtype for fftplan"
+        assert out.dtype == 'complex64', "in _convolvef, output has wrong dtype"
         
-        self.fftplan.execute(data_in=d1.data,data_out=out.data,wait_for_finish=True) # forward
-        multiply(out,d2,out) # multiply out and d2. store in out.
-        self.fftplan.execute(out.data,wait_for_finish=True,inverse=True) # inverse 
+        self.fftplan.execute(data_in=d1.data,data_out=out.data,wait_for_finish=True)
+        if d2.dtype == 'float32':   self.mult_f2_f.execute(self.queue,(self.N2,), out.data,d2.data,out.data)
+        if d2.dtype == 'complex64': self.mult_f2_f2.execute(self.queue,(self.N2,),out.data,d2.data,out.data)
+        self.fftplan.execute(out.data,wait_for_finish=True,inverse=True)
     
     def seed(self,supplied=None):
         """ Replaces self.psi_in with random numbers. Use this method to restart
@@ -290,6 +241,8 @@ class GPUPR:
         arguments:
             supplied - (optional) can set the seed with a precomputed array.
         """
+        
+        assert self.N != None, "cannot seed without N being set. load data first."
         
         if supplied != None:
             self.psi_in.set(supplied.astype(numpy.complex64))
@@ -338,32 +291,47 @@ class GPUPR:
         # 1. fourier transform the data in psi_in, store the result in psi_fourier
         self.fftplan.execute(self.psi_in.data,data_out=self.psi_fourier.data)
         
-        # 2. from the data in psi_fourier, build the divisor. depending on whether self.coherence has
-        # been defined, this will be differently executed.
-        
-        def _build_divisor_1(self,psi,div): self.make_abs(psi,div)
-        def _build_divisor_2(self,psi,div,cf):
-            self.make_abs(psi,div)                                      # copy the abs of psi to div
-            self.complex_multiply(div,div,div)                            # square div in place
-            self.fftplan.execute(div.data,wait_for_finish=True)         # fft div in place
-            self.blur_convolve(div,cf,div)                              # multiply by coherence function (cf must be float32)
+        # 2. from the data in psi_fourier, build the divisor. depending on whether self.psff has
+        # been defined, this will be differently executed. _build_divisor_2 implements clark2011 (apl)
+        def _build_divisor_1(self,psi,div):
+            self.abs_f2_f2.execute(self.queue,(self.N*self.N,),psi,div)
+        def _build_divisor_2(self,psi,div,psf):
+            assert psi.dtype == 'complex64', "in _build_divisor_2, psi is wrong dtype"
+            assert div.dtype == 'complex64', "in _build_divisor_2, div is wrong dtype"
+            assert psf.dtype == 'float32'  , "in _build_divisor_2, psf is wrong dtype"
+            self.abs_f2_f2.execute(self.queue,(self.N2,), psi,div)      # copy the abs of psi to div
+            self.mult_f2_f2.execute(self.queue,(self.N2,),div,div,div)  # square div in place by self-multiplying
+            
+            # start convolution
+            self.fftplan.execute(div,wait_for_finish=True)              # fft div in place, div must be COMPLEX
+            self.mult_f2_f.execute(self.queue,(self.N2,), div,psf,div)  # multiply by psff
             self.fftplan.execute(div,inverse=True,wait_for_finish=True) # ifft in place
-            self.complex_sqrt(div,div)                                  # sqrt in place
+            # end convolution
+            
+            # sqrt makes the pc modulus from intensity
+            self.complex_sqrt.execute(self.queue,(self.N2,),div,div)    # sqrt div in place
+            
+        if not self.can_has_psff: _build_divisor_1(self,self.psi_fourier.data,self.fourier_div.data) # fully coherent, no psf
+        if self.can_has_psff:     _build_divisor_2(self,self.psi_fourier.data,self.fourier_div.data,self.psff.data) # partially coherent, has a psf
 
-        if self.coherence == None: _build_divisor_1(self,self.psi_fourier,self.fourier_div)
-        if self.coherence != None: _build_divisor_2(self,self.psi_fourier,self.fourier_divisor,self.coherence_function)
+        # 3. enforce the fourier constraint
+        self.phasing_fourier.execute(self.queue,(self.N2,), self.psi_fourier.data,self.fourier_div.data,self.modulus.data,self.psi_fourier.data)
 
-        # 2. enforce the fourier constraint by replacing the current-estimated fourier modulus with the measured modulus from the ccd
-        self.fourier_constraint(self.psi_fourier,self.fourier_div,self.modulus,self.psi_fourier)
-
-        # 3. inverse fourier transform the new fourier estimate
+        # 4. inverse fourier transform the new fourier estimate
         self.fftplan.execute(self.psi_fourier.data,data_out=self.psi_out.data,inverse=True)
         
-        # 4. enforce the real space constraint. algorithm can be changed based on incoming keyword
-        if algorithm == 'hio': self.realspace_constraint_hio(beta, self.support, self.psi_in, self.psi_out, self.psi_in)
-        if algorithm == 'er':  self.realspace_constraint_er(self.support,self.psi_out,self.psi_in)
+        # 5. enforce the real space constraint. algorithm can be changed based on incoming keyword
+        if algorithm == 'hio':
+            self.phasing_hio.execute(self.queue,(self.N2,),                 # opencl stuff
+                                    numpy.float32(beta), self.support.data, # inputs
+                                    self.psi_in.data, self.psi_out.data,    # inputs
+                                    self.psi_in.data)                       # output
+        if algorithm == 'er':
+            self.phasing_er.execute(self.queue,(self.N2,),                  # opencl stuff
+                                    self.support.data,self.psi_out.data,    # inputs
+                                    self.psi_in.data)                       # output
         
-    def iterate(self,iterations,shrinkwrap=False,update_period=0):
+    def iterate(self,iterations,update_period=0):
     
         """ Run iterations. This is the primary method for the class.
     
@@ -376,21 +344,25 @@ class GPUPR:
         """
              
         assert isinstance(iterations,self.ints), "iterations must be integer, is %s"%type(iterations)
-        assert isinstance(shrinkwrap,bool), "shrinkwrap must be boolean, is %s"%type(shrinkwrap)
-        if shrinkwrap == True:
-            assert isinstance(update_period,self.ints),"update_period must be integer, is %s"%type(update_period)
-                
+        #assert isinstance(shrinkwrap,bool), "shrinkwrap must be boolean, is %s"%type(shrinkwrap)
+        assert self.can_iterate, "cant iterate before loading support and modulus."
+       
         for iteration in range(iterations):
             
-            self.n = iteration
-            
-            if shrinkwrap and iteration%update_period == 0 and iteration > 0:
-                self.update_support()
-                self.iteration('er')
-            else:
-                if (iteration+1)%100 != 0: self.iteration('hio')
-                else: self.iteration('er')
+            self.i_n = iteration
+            if (iteration+1)%100 != 0:
+                self.iteration('hio')
+            else: self.iteration('er')
             if iteration%100 == 0: print "  iteration %s"%iteration
+            
+            #if shrinkwrap and iteration%update_period == 0 and iteration > 0:
+            #    self.update_support()
+            #    self.iteration('er')
+            #else:
+            #    # alternate 99 hio / 1 er. this ratio can be changed
+            #    if (iteration+1)%100 != 0: self.iteration('hio')
+            #    else: self.iteration('er')
+            #if iteration%100 == 0: print "  iteration %s"%iteration
          
     def get(self,array):
         # wraps get to unify cpu/gpu api

@@ -1,5 +1,6 @@
 __kernel void execute(
-    __global float* image // image data
+    __global float* image, // input image
+    __global float* out    // filtered output
 )
 // take a sub array from the master domains image
 
@@ -39,6 +40,7 @@ __kernel void execute(
     int ny3 = y3;
     int ny4 = y4;
     
+    // cyclic boundary conditions
     if (x0 < 0 || x0 >= cols) {nx0 = (x0+cols)%cols;}
     if (x1 < 0 || x1 >= cols) {nx1 = (x1+cols)%cols;}
     if (x2 < 0 || x2 >= cols) {nx2 = (x2+cols)%cols;}
@@ -78,7 +80,7 @@ __kernel void execute(
     
     // run the sorting network. the median is r12
     
-swap_min = fmin(r0,r1);
+    swap_min = fmin(r0,r1);
     swap_max = fmax(r0,r1);
     r0 = swap_min;
     r1 = swap_max;
@@ -935,5 +937,5 @@ swap_min = fmin(r0,r1);
 
     median = r12;
 
-    image[j+rows*i] = median;
+    out[j+rows*i] = median;
 }

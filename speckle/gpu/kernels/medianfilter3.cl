@@ -1,5 +1,6 @@
 __kernel void execute(
-    __global float* image // image data
+    __global float* image,
+    __global float* out// image data
 )
 // take a sub array from the master domains image
 
@@ -235,5 +236,5 @@ __kernel void execute(
     
     median = r4;
 
-    image[j+rows*i] = r4;
+    out[j+rows*i] = r4;
 }

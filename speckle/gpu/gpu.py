@@ -108,6 +108,10 @@ def init():
         except pyopencl.LogicError:
             error_msg = 'logic error getting devices'
             raise GPUInitError(error_msg,platform=platform)
+
+    # Beginning 1 March 2013 this sleep command is necessary to prevent the GPU driver
+    # from hanging. The underlying cause is unknown.
+    time.sleep(1)
         
     if d_success:
         try:
@@ -116,11 +120,7 @@ def init():
         except pyopencl.LogicError:
             error_msg = 'logic error getting context'
             raise GPUInitError(error_msg,platform=platform,device=device)
-        
-    # Beginning 1 March 2013 this sleep command is necessary to prevent the GPU driver
-    # from hanging. The underlying cause is unknown.
-    time.sleep(0.5)
-            
+
     if c_success:
         try:
             queue = pyopencl.CommandQueue(context)
