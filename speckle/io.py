@@ -858,12 +858,14 @@ def complex_hls_image(array):
     """ Take a complex numpy.ndarray and perform 2 transformations. First,
     separate array into mag/phase. Use mag as L and phase as H channel in
     an image with s = 1. Second, transform the HLS-space image into RGB.
-    Returns a (3,N,M) array, where N and M is the dimensionality of array.
     
     arguments:
-        array: a 2d array which will be cast to an rgb image."""
+        array: a 2d array which will be cast to an rgb image.
         
-    
+    returns:
+        an array with shape (N,M,3) and dtype uint8.
+        color channel axis is 2 with order R, G, B."""
+        
     N = len(array)+10
     
     def _hlsrgb_v(m1,m2,hue):
@@ -899,7 +901,6 @@ def complex_hls_image(array):
     
     return (numpy.dstack((r,g,b))*255.999).astype(numpy.uint8)
     
-
 def color_maps(map):
     """ List of colormaps.  Used for image output.
 

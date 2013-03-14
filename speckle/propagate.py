@@ -132,10 +132,14 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subregion
         sr = (N/2-subregion/2,N/2+subregion/2,N/2-subregion/2,N/2+subregion/2)
     
     if isinstance(subregion, iterable_types):
-        assert len(subregion) in (2,4), "subregion length must be 2 or 4, is %s"%len(subregion)
+        assert len(subregion) in (1,2,4), "subregion length must be 2 or 4, is %s"%len(subregion)
         for x in subregion:
             assert isinstance(x,coord_types), ""
             assert x <= data.shape[0] and x >= 0, "coords in subregion must be between 0 and size of data"
+        if len(subregion) == 1:
+            h = int(subregion[0])/2
+            w = int(subregion[0])/2
+            sr = (N/2-h,N/2+h,N/2-w,N/2+w)
         if len(subregion) == 2:
             h = int(subregion[0])/2
             w = int(subregion[1])/2
@@ -150,8 +154,8 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subregion
     else: wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
         
     N = len(data)
-    
-    try: store = numpy.zeros((len(distances),subarraysize,subarraysize),'complex64')
+
+    try: store = numpy.zeros((len(distances),sr[1]-sr[0],sr[3]-sr[2]),'complex64')
     except MemoryError:
         print "save buffer was too large. either use a smaller set of distances or a smaller subregion"
    
@@ -242,15 +246,15 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     u_der       = unwrapped-numpy.roll(unwrapped,-1,axis=0)
     
     # at each column, find the edge of the data by stepping along rows until the object
-    # is found. ways to make this faster?
+    # is found. any ways to make this faster?
     threshold = float(threshold)
-    boundary = numpy.zeros(ux,float)
-    indices = numpy.arange(R-1)
+    boundary  = numpy.zeros(ux,float)
+    indices   = numpy.arange(R-1)
     for col in range(ux):
         u_der_col = u_der[:,col]
         ave = numpy.sum(u_der_col[:-1]*indices)/numpy.sum(u_der_col[:-1])
         boundary[col] = ave
-        
+
     # smooth the edge values by convolution with a gaussian
     kernel = numpy.fft.fftshift(shape.gaussian((ux,),(sigma,),normalization=1.0))
     boundary = abs(convolve(boundary,kernel))-1

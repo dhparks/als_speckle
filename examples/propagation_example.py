@@ -13,16 +13,15 @@ radius = 4e-6  # meters
 
 # generate the object with shape
 pixel_radius = radius/pitch
-object = speckle.shape.circle((N,N),pixel_radius,AA=True)
+test_object  = speckle.shape.circle((N,N),pixel_radius,AA=True)
 
 # choose the distances to propagate and run the propagator. to save space and
 # memory, i'm not saving the whole array but rather a subsection around the
 # origin; this is set through subarraysize=...
-distances = numpy.arange(-400,400,4)*1e-6 # meters
-propagated = speckle.propagate.propagate_distance(object,distances,energy,pitch,subarraysize=4*pixel_radius,silent=False)
+distances = numpy.arange(-200,200,4)*1e-6 # meters
+propagated = speckle.propagate.propagate_distance(test_object,distances,energy,pitch,subregion=4*pixel_radius,silent=False)
 
-print object.shape
-print propagated.shape
 
 # save the output
 speckle.io.save('propagated circle.fits',propagated.astype('complex64'),components='polar',overwrite=True)
+speckle.io.save('propagated circle hls.jpg',propagated.astype('complex64')[0],components='complex_hls',overwrite=True)

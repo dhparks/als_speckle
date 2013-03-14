@@ -70,10 +70,14 @@ def gpu_propagate_distance(gpuinfo,data,distances,energy_or_wavelength,pixel_pit
         sr = (N/2-subregion/2,N/2+subregion/2,N/2-subregion/2,N/2+subregion/2)
     
     if isinstance(subregion, iterable_types):
-        assert len(subregion) in (2,4), "subregion length must be 2 or 4, is %s"%len(subregion)
+        assert len(subregion) in (1,2,4), "subregion length must be 2 or 4, is %s"%len(subregion)
         for x in subregion:
             assert isinstance(x,coord_types), ""
             assert x <= data.shape[0] and x >= 0, "coords in subregion must be between 0 and size of data"
+        if len(subregion) == 1:
+            h = int(subregion[0])/2
+            w = int(subregion[0])/2
+            sr = (N/2-h,N/2+h,N/2-w,N/2+w)
         if len(subregion) == 2:
             h = int(subregion[0])/2
             w = int(subregion[1])/2
