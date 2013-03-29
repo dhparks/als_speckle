@@ -1,69 +1,558 @@
-# core
-import numpy
+# implement coherent phasing algorithms on cpu or gpu if available.
+# it is assumed that if a gpu is available, it is desired.
+# the goal of this code is to completely unify the phasing interface,
+# which was previously split between cpu and gpu files.
 
-from . import shape
+global use_gpu
 
-class CPUPR:
+import numpy as np
+import wrapping,masking,gpu,sys
+w = sys.stdout.write
+common = gpu.common
+
+try:
+    import string
+    import pyopencl
+    import pyopencl.array as cla
+    import pyfft
+    use_gpu = True
     
-    # Implement phase retrieval as a class. An instance of this class is a
-    # reconstruction, and methods in the class are operations on the
-    # reconstruction. For example, calling instance.hio() will advance the
-    # reconstruction by one iteration of the HIO algorithm; calling
-    # instance.update_support() will update the support being used in the
-    # reconstruction in the manner of Marchesini's shrinkwrap.
+except ImportError:
+    use_gpu = False
+    
+class phasing(gpu.common):
+    
+    """ A class to hold a reconstruction and methods to operate on the
+    reconstruction. The GPU and CPU interfaces are identical, and
+    handled internally in the methods.
+    
+    To start a reconstruction, call the class.
+    
+    To load data into a reconstruction, call load(), which must be accessed
+    with keyword arguments. For example, after opening a prepared Fourier,
+    load it into the class by load(modulus=$modulus_data$).
+    
+    For the reconstruction to iterate, the following data must be loaded:
+        1. The goal fourier modulus. This should be corner-centered. 'modulus'
+        2. The estimated support. 'support'
+        3. The number of independent trials. 'numtrials'
+        4. (Optional) An estimate of the coherence factor, which should
+            also be corner-centered. 'ipsf'
+    Data can be loaded in any order. Data can also be changed, eg, to update
+    the estimate of the support.
+    
+            
+    Publicly available methods in this class are:
+    
+        get() - method to unify retrieving class attributes between cpu and gpu.
+        iterate() - run iterations on the current trial
+        load() - load data into the class
+        optimize_gaussian_coherence() - try to optimize the ipsf assuming
+            the coherence function is gaussian
+        richardson_lucy() - implements richardson-lucy deconvolution
+        richardsona_lucy_clark() - implements richardson-lucy deconvolution 
+            specifically for the algorithm found in Clark et al Nat. Comm 2012.
+        seed() - make a complex random number to use as the initial guess
+        status() - reports the current status of the reconstruction
+        
+    Probably the richardson_lucy() method should be removed.
+    """
+    
+    def __init__(self,force_cpu=False):
+        global use_gpu
+        
+        # load the gpu if available
+        # keep context, device, queue, platform, and kp in the parent namespace (still available to self)
+        if use_gpu:
+            common.project = 'phasing'
+            use_gpu = self.start() 
+        if force_cpu: use_gpu = False
+        common.use_gpu = use_gpu # tell the methods in common which device we're using
+        
+        if use_gpu: self.compute_device = 'gpu'  
+        else: self.compute_device = 'cpu'
+            
+        self.modulus_state = 0
+        self.support_state = 0
+        self.ipsf_state    = 0
+        self.buffer_state  = 0
+        self.rl_state      = 0
+        self.can_iterate   = False
+        
+        self.numtrial = 0
+        self.array_dtypes = ('float32','complex64')
+        
+        self.ints    = (int,np.int8,np.int16,np.int32,np.uint8)
+        self.floats  = (float,np.float16,np.float32,np.float64)
+        self.float2s = (complex,np.complex64,np.complex128)
 
-    def __init__(self,device=None,N=None,shrinkwrap=False):
-        self.N = N
+    def iterate(self,iterations,silent=True):
+    
+        """ Run iterations. This is the primary method for the class. When the
+        iterations terminate, the result is copied to self.save_buffer.
         
-        self.f = numpy.fft.fft2
-        self.g = numpy.fft.ifft2
-        self.s = numpy.fft.fftshift
-        
-    def load_data(self,modulus,support,update_sigma=None):
+        The keyword argument silent (default True) can be set to False, in which
+        case every iteration spits out an update, or a number, in which case
+        those iterations where iteration%silent == 0 will report.
 
-        # get the supplied data into the reconstruction namespace
-        self.modulus  = modulus
-        self.support  = support # this is the active support, it can be updated
-        self.support0 = support # this is the original support, it is read-only
+        """
+             
+        if not self.can_iterate:
+            print "cant iterate before loading support and modulus."
+            for n in ('modulus','support','buffer'):
+               print "modulus state: "+str(self.modulus_state)
+               print "support state: "+str(self.support_state)
+               print "buffer  state: "+str(self.buffer_state)
+            
+        iterations = int(iterations)
+       
+        for iteration in range(iterations):
+            
+            if (iteration+1)%100 != 0:
+                self._iteration('hio',iteration=iteration)
+            else:
+                self._iteration('er')
+            
+            if silent != True:
+                if isinstance(silent,int):
+                    if iteration%silent==0:
+                        print "  iteration %s"%iteration
+                if isinstance(silent,bool):
+                    print "  iteration %s"%iteration
+            
+        # copy the current reconstruction to the save buffer
+        if use_gpu: self._kexec('copy_to_buffer', self.savebuffer,self.psi_in,self.c0,self.r0, self.numtrial,self.N, shape=(self.cols,self.rows))
+        else: self.savebuffer[self.numtrial] = self.psi_in[self.r0:self.r0+self.rows,self.c0:self.c0+self.cols]
+
+        self.numtrial += 1
+
+    def load(self,modulus=None,support=None,ipsf=None,numtrials=None):
         
-        self.psi_in       = numpy.zeros((self.N,self.N),numpy.complex64) # holds the estimate of the wavefield
-        self.psi_out      = numpy.zeros((self.N,self.N),numpy.complex64) # need both in and out for hio algorithm
-        self.psi_fourier  = numpy.zeros((self.N,self.N),numpy.complex64) # to store fourier transforms of psi
-        self.psi_fourier2 = numpy.zeros((self.N,self.N),numpy.complex64) # to store fourier transforms of psi
+        # check types, sizes, etc
+        types = (type(None),np.ndarray)
+        assert isinstance(modulus,types), "modulus must be ndarray if supplied"
+        assert isinstance(support,types), "support must be ndarray if supplied"
+        assert isinstance(ipsf,types),     "psf must be ndarray if supplied"
         
-        if update_sigma != None:
-            assert isinstance(update_sigma, (int,float)), "update_sigma must be float or int"
-            self.blurkernel = DFT(shift(shape.gaussian((self.N,self.N),(update_sigma,update_sigma),center=None,normalization=None)))
+        ### first, do all the loading that has no dependencies
         
-    def iteration(self,algorithm,beta=0.8):
+        if modulus != None:
+            # modulus is the master from which all the other arrays take
+            # their required size
+            
+            assert modulus.ndim == 2
+            modulus = modulus.astype(np.float32)
+            
+            if self.modulus_state == 2: assert modulus.shape == self.shape
+            if self.modulus_state != 2:
+                assert modulus.shape[0] == modulus.shape[1]
+                
+                self.N     = modulus.shape[0]
+                self.shape = modulus.shape
+                self.size  = modulus.size
+                
+                # allocate memory for the modulus
+                self.modulus = self._allocate(self.shape,np.float32,'modulus')
+                
+                # allocate NxN complex buffers for iterations
+                names = ('psi_in','psi_out','psi_fourier','fourier_div')
+                for n in names: exec("self.%s = self._allocate(self.shape,np.complex64,name='%s')"%(n,n))
+                
+            # make the fft plan
+            if use_gpu:
+                from pyfft.cl import Plan
+                self.fftplan = Plan((self.N, self.N), queue=self.queue)
+                
+            # load the modulus
+            self.modulus = self._set(modulus,self.modulus)
+            self.modulus_state = 2
+            
+        # load or replace the support
+        if support != None:
+            
+            assert support.ndim == 2
+            assert support.shape[0] == support.shape[1]
+            support = support.astype(np.float32)
+            support *= 1./support.max()
+            
+            # load the support into memory. assume that replacing the support
+            # means a new set of trials, so reset the trial counter
+            if self.support_state == 2:
+                assert support.shape == self.support.shape
+                self.numtrial = 0
+            if self.support_state != 2: self.support = self._allocate(support.shape,np.float32,'support')
+            self.support = self._set(support,self.support)
+            
+            # make the new bounding region. do not yet allocate memory for the buffer.
+            bounds    = masking.bounding_box(support,force_to_square=True,pad=4)
+            self.rows = int(bounds[1]-bounds[0])
+            self.cols = int(bounds[3]-bounds[2])
+            self.r0, self.c0 = bounds[0],bounds[2]
+            #print "support has bounds: %s"%bounds
+
+            self.support_state = 2
+            
+        # get the number of trials into memory
+        if numtrials != None:
+            self.numtrials = int(numtrials)
+            if self.buffer_state == 0: self.buffer_state = 1
+            
+        # load or replace ipsf
+        if ipsf != None:
+            
+            assert ipsf.ndim == 2
+            assert ipsf.shape[0] == ipsf.shape[1]
+            ipsf = ipsf.astype(np.complex64)
+            
+            if self.ipsf_state == 2: assert ipsf.shape == self.ipsf.shape
+            if self.ipsf_state != 2:
+                self.ipsf = self._allocate(ipsf.shape,np.complex64,'ipsf')
+            self.ipsf = self._set(ipsf.astype(np.complex64),self.ipsf)
+            self.ipsf_state = 2
+            
+        #### load information with dependencies
+        if self.modulus_state == 2:
+
+            # check that everything is the same size
+            if self.support_state == 2:
+                assert self.support.shape == self.shape
+                
+                # allocate memory for savebuffer
+                if self.buffer_state == 1 or (self.buffer_state == 2 and self.savebuffer.shape != (self.numtrials,self.rows,self.rows)):
+                    self.savebuffer = self._allocate((self.numtrials,self.rows,self.cols),np.complex64,'savebuffer')
+                    self.buffer_state = 2
+                
+            #if self.ipsf_state == 2 and self.rl_state == 0:
+            #    assert self.ipsf.shape == self.shape
+            #    
+            #    # allocate buffers for rl deconvolution
+            #    names = ('rl_est','rl_pc','rl_blur1','rl_blur2','rl_div','rl_blur2','ipsfr')
+            #    for n in names: exec("self.%s = self._allocate(self.shape,np.complex64,name='%s')"%(n,n))
+            #    self.rl_state = 2
+            
+        # set the flag which allows iteration.
+        if self.modulus_state == 2 and self.support_state == 2 and self.buffer_state == 2: self.can_iterate = True
+ 
+    def optimize_gaussian_coherence(self, best_estimate, modulus=None, force_cpu=False):
+        """ Given a "best estimate" reconstruction, find an ipsf
+        function which when used to blur the "best estimate" speckle pattern
+        closely matches the known partially coherent speckle pattern.
         
-        assert algorithm in ('hio','er'), "real space enforcement algorithm %s is unknown"%algorithm
+        By default this uses self.modulus as the modulus but a modulus
+        can also be supplied through the modulus kwarg. If supplied, it is
+        assumed that it is a modulus instead of an intensity and has been
+        properly rolled to corner.
+        """
         
-        # enforce the fourier-space constraint
-        self.psi_fourier  = self.f(self.psi_in)
-        self.psi_fourier2 = self.modulus*self.psi_fourier/abs(self.psi_fourier)
-        self.psi_out      = self.g(self.psi_in)
+        global use_gpu
+        old_use_gpu = use_gpu
+        if force_cpu: use_gpu = False
         
-        # enforce the real-space constraint
-        if algorithm == 'hio': self.psi_in = (1-self.support)*(self.psi_in-beta*self.psi_out)+self.support*self.psi_out # hio support algorithm
-        if algorithm == 'er':  self.psi_in = self.support*self.psi_in
+        self.counter = 0
+
+        def _make_ac():
+            # fft, abs, square, ifft
+            
+            if use_gpu:
+                
+                self._fft2(self.optimize_ac,self.optimize_ac)
+                self._cl_abs(self.optimize_ac,self.optimize_ac)
+                self._cl_mult(self.optimize_ac,self.optimize_ac,self.optimize_ac)
+                self._fft2(self.optimize_ac,self.optimize_ac,inverse=True)
+                
+            else:
+                self.optimize_ac = np.fft.ifft2(abs(np.fft.fft2(self.optimize_ac))**2)
+                
+        def _diff(cl):
+            
+            self.counter += 1
+            
+            # make the gaussian
+            if use_gpu:
+                self._kexec('gaussian_f',self.optimize_g,cl[0],cl[1],shape=modulus.shape)
+                
+            else:
+                gy = np.exp(-rows**2/(2*cl[0]**2))
+                gx = np.exp(-cols**2/(2*cl[1]**2))
+                self.optimize_g = gy*gx
+                
+            # blur the speckle pattern
+            if use_gpu:
+                
+                self._cl_mult(self.optimize_g, self.optimize_ac,self.optimize_ac2)
+                self._fft2(   self.optimize_ac2,self.optimize_bl)
+                self._cl_abs( self.optimize_bl,self.optimize_bl) # now a blurry intensity
+                self._cl_sqrt(self.optimize_bl,self.optimize_bl2) # now a blurry modulus
+                
+            else:
+                temp = abs(np.fft.fft2(self.optimize_g*self.optimize_ac))
+                power_out = np.sum(temp)
+                self.optimize_bl2 = np.sqrt(temp)
+                
+            # calculate the absolute difference and return the sum
+            if use_gpu:
+                
+                self._kexec('subtract_f_f',self.optimize_bl2,self.optimize_m,self.optimize_bl2)
+                self._cl_abs(     self.optimize_bl2,self.optimize_bl2)
+                x = cla.sum(self.optimize_bl2).get()
+
+            else:
+                diff = self.optimize_bl2-self.optimize_m
+                x = np.sum(abs(self.optimize_bl2-self.optimize_m))
+            
+            return x
+    
+        #### first, get the machine in a known state. this lowers efficiency
+        # but sure makes coding easier
+    
+        # if best_estimate is on gpu, take it off
+        try:
+            best_estimate.isgpu
+            best_estimate = best_estimate.get()
+        except AttributeError: pass
         
-    def update_support(self,threshold = 0.25,retain_bounds=True):
+        # if modulus is on gpu, take if off
+        if modulus == None: modulus = self.modulus
+        try:
+            modulus.isgpu
+            modulus = modulus.get()
+        except AttributeError: pass
+            
+        # modulus sets the shape. if best_estimate is a different
+        # shape, embed it in an array of the correct shape.
         
-        # auto-update the support by blurring the magnitude component of the estimate and retaining the selection of the blurred
-        # signal greater than some threshold fraction of the signal maximum.
+        assert isinstance(modulus,np.ndarray)
+        assert modulus.ndim == 2
+        assert modulus.shape[0] == modulus.shape[1]
         
-        # the retain_bounds flag is intended to keep the updated support from growing outside of the support boundaries supplied with
-        # the first support estimate, the assumption being that that support was much too loose and updates should only get tighter.
+        assert isinstance(best_estimate,np.ndarray)
+        assert best_estimate.ndim == 2
+        assert best_estimate.shape[0] <= modulus.shape[0]
+        assert best_estimate.shape[1] <= modulus.shape[1]
         
-        blur = lambda a,b: g(f(a)*b)
+        if best_estimate.shape != modulus.shape:
+            new = np.zeros_like(modulus).astype(np.complex64)
+            new[:best_estimate.shape[0],:best_estimate.shape[1]] = best_estimate
+            best_estimate = new 
+            
+        if use_gpu and self.modulus_state != 2:
+            from pyfft.cl import Plan
+            self.fftplan = Plan(modulus.shape, queue=self.queue)
         
-        mag     = abs(self.estimate)  
-        blurred = blur(mag,self.blurkernel)
-        update  = numpy.where(blurred > blurred.max()*threshold,1,0)
-        if retain_bounds: update *= self.support0
-        self.support = update
+        # now put the arrays in namespace (and on the gpu if available)
+        self.optimize_ac  = self._allocate(modulus.shape,np.complex64,'optimize_ac')
+        self.optimize_ac2  = self._allocate(modulus.shape,np.complex64,'optimize_ac2')
+        self.optimize_m   = self._allocate(modulus.shape,np.float32,'optimize_m')
+        self.optimize_bl  = self._allocate(modulus.shape,np.complex64,'optimize_bl') # this holds the blurry image
+        self.optimize_bl2 = self._allocate(modulus.shape,np.float32,'optimize_bl2') # this holds the blurry image, abs-ed to f
+        self.optimize_ac  = self._set(best_estimate.astype(np.complex64),self.optimize_ac)
+        self.optimize_m   = self._set(modulus.astype(np.float32),self.optimize_m)
+        self.optimize_d   = self._allocate(modulus.shape,np.complex64,'optimize_d') # this holds the difference
+    
+        _make_ac()
+
+        # to make a gaussian, we will need to put the coordinate array into namespace.
+        # this is the array that gets used to generate the gaussian.
+        rows, cols = np.indices(modulus.shape)-modulus.shape[0]/2.
+        rows = np.fft.fftshift(rows)
+        cols = np.fft.fftshift(cols)
+        self.optimize_g = self._allocate(modulus.shape,np.float32,'optimize_g') # this holds the gaussian
+
+        # now run the optimizer
+        from scipy.optimize import fmin
         
+        p0 = (modulus.shape[0]/4,modulus.shape[1]/4)
+        p1 = fmin(_diff,p0,disp=False)
+
+        # based on the optimized p1, reset ipsf
+        gy = np.exp(-rows**2/(2*p1[0]**2))
+        gx = np.exp(-cols**2/(2*p1[1]**2))
+        
+        use_gpu = old_use_gpu
+        
+        self.load_data(ipsf=(gy*gx))
+        
+        print "reset coherence lengths:"
+        print p1
+            
+    def richardson_lucy_clark(self,best_estimate,modulus=None):
+
+        # attempt to deconvolve the blurry modulus using the intensity
+        # from the best_estimate. for now, assume best_estimate is the
+        # real-space version
+        
+        assert use_gpu
+
+        def _preprocess():
+            # self.rl_p is the best estimate in real space. make its fourier intensity.
+            # precompute the fourier transform for the convolutions.
+            # make modulus into intensity
+            
+            if use_gpu:
+                self._fft2(   self.rl_p, self.rl_p)             # fourier space
+                self._cl_abs( self.rl_p, self.rl_p)             # modulus
+                self._cl_mult(self.rl_p, self.rl_p, self.rl_p)  # intensity
+                self._kexec(  'flip_f2', self.rl_p, self.rl_ph, shape=s) # precompute phat
+                self._fft2(   self.rl_p, self.rl_p)             # fft, precomputed for convolution
+                self._fft2(   self.rl_ph,self.rl_ph)            # fft, precomputed for convolution
+                
+                
+            else:
+                self.rl_p  = abs(np.fft.fft2(self.rl_p))**2 # intensity
+                self.rl_p  = np.fft.fft2(self.rl_p)         # precomputed fft
+                self.rl_ph = self.rl_p[::-1,::-1]              # phat
+                
+        def _rl():
+            # implement the rl deconvolution algorithm
+            
+            # convolve u and p. this should give a blurry intensity
+            if use_gpu:
+                self._fft2(self.rl_u, self.rl_blur)
+                self._cl_mult(self.rl_blur,self.rl_p,self.rl_blur)
+                self._fft2(self.rl_blur,self.rl_blur,inverse=True)
+            else:
+                self.rl_blur = np.fft.ifft2(np.fft.fft2(self.rl_u)*self.rl_p)
+                
+            # divide d by the convolution
+            if use_gpu: self._cl_div(self.rl_d,self.rl_blur,self.rl_blur)
+            else: self.rl_blur = self.rl_d/self.rl_blur
+            
+            
+            # convolve the quotient with phat
+            if use_gpu:
+                self._fft2(self.rl_blur,self.rl_blur)
+                self._cl_mult(self.rl_blur,self.rl_ph,self.rl_blur)
+                self._fft2(self.rl_blur,self.rl_blur,inverse=True)
+            else:
+                self.rl_blur = np.fft.ifft2(np.fft.fft2(self.rl_blur)*self.rl_ph)
+                
+            # multiply u and blur to get a new estimate of u
+            if use_gpu: self._cl_mult(self.rl_u,self.rl_blur,self.rl_u)
+            else: self.rl_u *= self.rl_blur
+
+        #### first, get the machine in a known state. this lowers efficiency
+        # but sure makes coding easier
+    
+        # if best_estimate is on gpu, take it off
+        try:
+            best_estimate.isgpu
+            best_estimate = best_estimate.get()
+        except AttributeError: pass
+        
+        # if modulus is on gpu, take if off
+        if modulus == None: modulus = self.modulus
+        try:
+            modulus.isgpu
+            modulus = modulus.get()
+        except AttributeError: pass
+            
+        # modulus sets the shape. if best_estimate is a different
+        # shape, embed it in an array of the correct shape.
+        
+        assert isinstance(modulus,np.ndarray)
+        assert modulus.ndim == 2
+        assert modulus.shape[0] == modulus.shape[1]
+        s = modulus.shape
+        d = np.complex64
+        
+        assert isinstance(best_estimate,np.ndarray)
+        assert best_estimate.ndim == 2
+        assert best_estimate.shape[0] <= modulus.shape[0]
+        assert best_estimate.shape[1] <= modulus.shape[1]
+        
+        if best_estimate.shape != modulus.shape:
+            new = np.zeros_like(modulus).astype(np.complex64)
+            new[:best_estimate.shape[0],:best_estimate.shape[1]] = best_estimate
+            best_estimate = new 
+            
+        if use_gpu and self.modulus_state != 2:
+            from pyfft.cl import Plan
+            self.fftplan = Plan(modulus.shape, queue=self.queue)
+            
+        # if the rl buffers have not yet been allocated, do so
+        if self.rl_state != 2:
+            self.rl_d    = self._allocate(s,d,'rl_d')
+            self.rl_u    = self._allocate(s,d,'rl_u')
+            self.rl_p    = self._allocate(s,d,'rl_p')
+            self.rl_ph   = self._allocate(s,d,'rl_ph')
+            self.rl_blur = self._allocate(s,d,'rl_blur')
+            self.rl_state = 2
+            
+        # put best_estimate into p and modulus into d, then make them
+        # into the right things for fast calculation with _preprocess()
+        # start rl_u as a bunch of ones
+        from .. import shape
+        modulus = modulus**2
+        g = np.fft.fftshift(shape.gaussian(s,(150,150)))
+        self.rl_p = self._set(best_estimate.astype(d),self.rl_p)
+        self.rl_d = self._set(modulus.astype(d),self.rl_d)
+        self.rl_u = self._set(g.astype(d),self.rl_u)
+        _preprocess()
+
+        # for this version of richardson lucy, d is the blurry intensity
+        # p is the coherent intensity, and u is the coherence function.
+        for n in range(500): _rl() # iterate
+
+        # make rl_u into the ipsf with an fft
+        if use_gpu: self._fft2(self.rl_u, self.rl_u)
+        else: self.rl_u = np.fft.fft2(self.rl_u)
+        
+        # to be power preserving, the ipsf should be 1 at (0,0)?
+        ipsf = self.get(self.rl_u)
+        ipsf *= 1./abs(ipsf[0,0])
+        
+        self.load_data(ipsf=ipsf)
+        w("updated ipsf\n")
+
+    def richardson_lucy(self,iterations,blurry,square=False):
+
+        # given self.ipsf, attempt to deconvolve the blurry input
+
+        # steps in richardson-lucy algorithm:
+        # 1. form an estimate of the perfectly coherent image (ie random seed)
+        # 2. form the inverse psf
+        # 3. in a iterative fashion, do the following:
+        #       4. b = convolve(est, psf)
+        #       5. d = pc/b
+        #       6. e = convolve(d, ipsf)
+        #       7. est *= e
+        # this go can for a number of iterations, or until a termination condition is reached?
+        # therefore, we need the following buffers:
+        
+        assert self.ipsf_state == 2
+
+        def _rl_gpu():
+            
+            # make ipsfr
+            self._kexec('reverse_f2',self.ipsf,self.ipsfr,shape=self.shape)
+            
+            # make the initial estimate by squaring the modulus
+            if square: self._cl_mult(blurry,blurry,self.rl_est)   
+            else:      self._cl_copy(blurry,self.rl_est)
+            self._cl_copy(self.rl_est,self.rl_pc)
+        
+            for i in range(iterations):
+                if i%100 == 0: print i
+                self._convolvef(self.rl_est, self.ipsf,     self.rl_blur1)
+                self._cl_div(   self.rl_pc,  self.rl_blur1, self.rl_div  )
+                self._convolvef(self.rl_div, self.ipsfr,    self.rl_blur2)
+                self._cl_mult(  self.rl_est, self.rl_blur2, self.rl_est  )
+    
+        def _rl_cpu():
+                
+            self.ipsfr = self.ipsf[::-1,::-1]
+            self.rl_est = (abs(blurry)**2).astype(np.complex64)
+            self.rl_pc  = np.copy(self.rl_est)
+            
+            for i in range(iterations):
+                self.rl_blur1 = _convolvef(self.rl_est,self.ipsf)
+                self.rl_div   = self.rl_pc/self.rl_blur1
+                self.rl_blur2 = _convolvef(self.rl_div,self.ipsfr)
+                self.rl_est  *= self.rl_blur2
+                
+        if use_gpu: _rl_gpu()
+        else:       _rl_cpu()
+          
     def seed(self,supplied=None):
         """ Replaces self.psi_in with random numbers. Use this method to restart
         the simulation without having to copy a whole bunch of extra data like
@@ -73,37 +562,123 @@ class CPUPR:
             supplied - (optional) can set the seed with a precomputed array.
         """
         
-        if supplied != None:
-            self.psi_in = supplied.astype(numpy.complex64)
-        if supplied == None:
-            x = numpy.random.rand(self.N,self.N)
-            y = numpy.random.rand(self.N,self.N)
-            z = (x+complex(0,1)*y)
-            self.psi_in = z.astype(numpy.complex64)
-            
-    def get(self,array):
-        # dummy function to unify cpu/gpu api
-        return array
-    
-    def iterate(self,iterations,shrinkwrap=False,update_period=0):
-    
-        """ Run iterations on the phasing instance.
-        Arguments:
-            phasing_instance - an instance of either the GPUPR or CPUPR class.
-            iterations       - how many iterations to run total
-            shrinkwrap       - whether to run the shrinkwrap functions
-            update_period    - (optional) if using shrinkwrap, how many iterations
-                between running the update functions
-        """
+        assert self.N != None, "cannot seed without N being set. load data first."
         
-        for iteration in range(iterations):
-            if shrinkwrap and iteration%update_period == 0 and iteration > 0:
-                self.update_support()
-                self.iteration('er')
-            else:
-                if (iteration+1)%100 != 0: self.iteration('hio')
-                else: self.iteration('er')
-            if iteration%100 == 0: print "  iteration ",iteration
+        if supplied == None: supplied = np.random.rand(self.N,self.N)+complex(0,1)*np.random.rand(self.N,self.N)
+        self.psi_in = self._set(supplied.astype(np.complex64),self.psi_in)
+        
+        if use_gpu: self._cl_mult(self.psi_in,self.support,self.psi_in)
+        else: self.psi_in *= self.support
+        
+    def status(self):
+        
+        ro = {2:'complete',1:'incomplete',0:'nothing'}
+        
+        print "states:"
+        print "  modulus %s"%ro[self.modulus_state]
+        print "  support %s"%ro[self.support_state]
+        print "  ipsf    %s"%ro[self.ipsf_state]
+        print "  buffer  %s"%ro[self.buffer_state]
+        print "  device  %s"%self.compute_device
+
+    def _convolvef(self,to_convolve,kernel,convolved=None):
+        # calculate a convolution when to_convolve must be transformed but kernel is already
+        # transformed. the multiplication function depends on the dtype of kernel.
+        
+        if use_gpu:
+            assert to_convolve.dtype == 'complex64',  "in _convolvef, input to_convolve has wrong dtype for fftplan"
+            assert convolved.dtype == 'complex64', "in _convolvef, convolvedput has wrong dtype"
+        
+            self._fft2(to_convolve,convolved)
+            self._cl_mult(convolved,kernel,convolved)
+            self._fft2(convolved,convolved,inverse=True)
+            
+        if not use_gpu:
+            return np.fft.ifft2(np.fft.fft2(to_convolve)*kernel)
+        
+    def _fft2(self,data_in,data_out,inverse=False):
+        # unified wrapper for fft.
+        # note that this does not expose the full functionatily of the pyfft
+        # plan because of assumptions regarding the input (eg, is complex)
+        
+        if use_gpu: self.fftplan.execute(data_in=data_in.data,data_out=data_out.data,inverse=inverse)
+        else:
+            if inverse: data_out = np.fft.ifft2(data_in)
+            else      : data_out = np.fft.fft2(data_in)
+        return data_out
+           
+    def _iteration(self,algorithm,beta=0.8,iteration=None):
+        """ Do a single iteration of a phase retrieval algorithm.
+        
+        Arguments:
+            algorithm: can be either 'hio' or 'er'
+            beta: if using the hio algorithm, this sets the feeback parameter.
+                default is 0.8"""
+
+        assert algorithm in ('hio','er'), "real space enforcement algorithm %s is unknown"%algorithm
+
+        # first, build some helper functions which abstract the cpu/gpu issue
+        def _build_divisor_1(psi,div):
+            if use_gpu: self._cl_abs(psi,div)
+            else           : div = abs(psi)
+            return div
+        
+        def _build_divisor_2(psi,div,psf):
+            
+            if use_gpu:
+                
+                # make intensity
+                self._cl_abs(psi,div)
+                self._cl_mult(div,div,div)
+                
+                # convolve
+                self._convolvef(div,psf,div)
+                self._cl_abs(div,div)
+
+                # sqrt
+                self._cl_sqrt(div,div)
+                
+            if not use_gpu:
+                div = abs(psi)**2
+                div = np.fft.ifft2(np.fft.fft2(div)*psf)
+                div = np.sqrt(div)
+                
+            return div
+
+        def _fourier_constraint(data,div,mod,out):
+            if use_gpu: self._kexec('fourier',data,div,mod,out)
+            else:            out = mod*data/abs(div)
+            return out
+                
+        def _hio(psi_in,psi_out,support):
+            # hio algorithm, given psi_in and psi_out
+            if use_gpu: self._kexec('hio',np.float32(beta),support,psi_in,psi_out,psi_in)
+            else:            psi_in = (1-support)*(psi_in-beta*psi_out)+support*psi_out
+            return psi_in
+            
+        def _er(psi_in,psi_out,support):
+            if use_gpu: self._kexec('er',support,psi_out,psi_in)
+            else           : psi_in = support*psi_in
+            return psi_in
+            
+        # now run an iteration of the phasing algorithms
+        # 1. fourier transform the data in psi_in, store the result in psi_fourier
+        self.psi_fourier = self._fft2(self.psi_in,self.psi_fourier)
+            
+        # 2. from the data in psi_fourier, build the divisor. depending on whether self.psff has
+        # been defined, this will be differently executed. _build_divisor_2 implements clark2011 (apl)
+        if self.ipsf_state == 2: self.fourier_div = _build_divisor_2(self.psi_fourier,self.fourier_div,self.ipsf) # partially coherent, has a psf
+        else:                    self.fourier_div = _build_divisor_1(self.psi_fourier,self.fourier_div) # fully coherent, no psf
+
+        # 3. enforce the fourier constraint
+        self.psi_fourier = _fourier_constraint(self.psi_fourier,self.fourier_div,self.modulus,self.psi_fourier)
+
+        # 4. inverse fourier transform the new fourier estimate
+        self.psi_out = self._fft2(self.psi_fourier,self.psi_out,inverse=True)
+        
+        # 5. enforce the real space constraint. algorithm can be changed based on incoming keyword
+        if algorithm == 'hio': self.psi_in = _hio(self.psi_in,self.psi_out,self.support)
+        if algorithm == 'er':  self.psi_in = _er(self.psi_in,self.psi_out,self.support)
 
 def align_global_phase(data):
     """ Phase retrieval is degenerate to a global phase factor. This function
@@ -120,9 +695,9 @@ def align_global_phase(data):
     from scipy.optimize import fminbound
     
     # check types
-    assert isinstance(data,numpy.ndarray), "data must be array"
+    assert isinstance(data,np.ndarray), "data must be array"
     assert data.ndim in (2,3), "data must be 2d or 3d"
-    assert numpy.iscomplexobj(data), "data must be complex"
+    assert np.iscomplexobj(data), "data must be complex"
     was2d = False
     
     if data.ndim == 2:
@@ -131,10 +706,10 @@ def align_global_phase(data):
         
     for frame in data:
         x = frame.ravel()
-        e = lambda p: numpy.sum(abs((x*numpy.exp(complex(0,1)*p)).imag))
-        opt, val, conv, num = fminbound(e,0,2*numpy.pi,full_output=1)
-        print abs(x.imag).sum(),opt,abs((x*numpy.exp(complex(0,1)*opt)).imag).sum()
-        frame *= numpy.exp(complex(0,1)*opt)
+        e = lambda p: np.sum(abs((x*np.exp(complex(0,1)*p)).imag))
+        opt, val, conv, num = fminbound(e,0,2*np.pi,full_output=1)
+        #print abs(x.imag).sum(),opt,abs((x*np.exp(complex(0,1)*opt)).imag).sum()
+        frame *= np.exp(complex(0,1)*opt)
         
         # minimizing the imaginary component can give a degenerate solution (ie, 0, pi)
         # now check the value of the real.sum() against -real.sum()
@@ -162,22 +737,22 @@ def prtf(estimates,N):
         prtf_q: a 1d array of the PRTF averaged in annuli using the wrapping lib
     """
     
-    assert isinstance(estimates,(numpy.ndarray,list,tuple)), "must be iterable"
-    if isinstance(estimates,numpy.ndarray):
+    assert isinstance(estimates,(np.ndarray,list,tuple)), "must be iterable"
+    if isinstance(estimates,np.ndarray):
         assert estimates.ndim == 3, "must be 3d"
     if isinstance(estimates,(list,tuple)):
         assert len(estimates) > 1, "must be 3d"
     
     # compute the prtf by averaging the phase of all the trials
-    phase_average = numpy.zeros((N,N),complex)
-    estimate      = numpy.zeros((N,N),complex)
+    phase_average = np.zeros((N,N),complex)
+    estimate      = np.zeros((N,N),complex)
     
     print "averaging phases"
     for n in range(len(estimates)):
         print "  %s"%n
         sample = estimates[n]
         estimate[0:len(sample),0:len(sample[0])] = sample
-        fourier = numpy.fft.fft2(estimate)
+        fourier = np.fft.fft2(estimate)
         phase = fourier/abs(fourier)
         phase_average += phase
     prtf = shift(abs(phase_average/len(estimates)))
@@ -185,7 +760,7 @@ def prtf(estimates,N):
     # unwrap and do the angular average
     import wrapping
     unwrapped = wrapping.unwrap(prtf,(0,N/2,(N/2,N/2)))
-    prtf_q    = numpy.average(unwrapped,axis=1)
+    prtf_q    = np.average(unwrapped,axis=1)
     
     return prtf, prtf_q
 
@@ -208,22 +783,22 @@ def rftf(estimate,goal_modulus,hot_pixels=False):
         rtrf_q : a 1d array of rtrf averaged in annuli using unwrap
     """
     
-    assert isinstance(estimate,numpy.ndarray), "estimate must be ndarray"
-    assert isinstance(goal_modulus,numpy.ndarray), "goal_modulus must be ndarray"
+    assert isinstance(estimate,np.ndarray), "estimate must be ndarray"
+    assert isinstance(goal_modulus,np.ndarray), "goal_modulus must be ndarray"
     assert estimate.shape <= goal_modulus.shape, "estimate must be smaller than goal_modulus"
     
     # form the speckle pattern
-    new = numpy.zeros(goal_modulus.shape,estimate.dtype)
+    new = np.zeros(goal_modulus.shape,estimate.dtype)
     new[0:estimate.shape[0],0:estimate.shape[1]] = estimate
-    fourier = abs(numpy.fft.fft2(new))
+    fourier = abs(np.fft.fft2(new))
     N = goal_modulus.shape[0]
     
     # line up with goal_modulus. based on the operation of the phasing
     # library, the goal_modulus will be centered either at (0,0) or (N/2,N/2).
     # aligning using align_frames is a bad idea because the reconstruction might
     # give a bad speckle pattern, throwing off alignment.
-    diff1 = numpy.sum(abs(fourier-goal_modulus))          # goal modulus at (0,0)
-    diff2 = numpy.sum(abs(shift(fourier)-goal_modulus))   # goal modulus at N/2
+    diff1 = np.sum(abs(fourier-goal_modulus))          # goal modulus at (0,0)
+    diff2 = np.sum(abs(shift(fourier)-goal_modulus))   # goal modulus at N/2
     
     if diff1 > diff2:
         fourier = shift(fourier)
@@ -238,10 +813,10 @@ def rftf(estimate,goal_modulus,hot_pixels=False):
         
     # calculate the rtrf from the error
     import wrapping
-    rtrf      = numpy.sqrt(1./(1+error))
+    rtrf      = np.sqrt(1./(1+error))
     if hot_pixels: rtrf = conditioning.remove_hot_pixels(rtrf,threshold=1.1)
     unwrapped = wrapping.unwrap(rtrf,(0,N/2,(N/2,N/2)))
-    rtrf_q    = numpy.average(unwrapped,axis=1)
+    rtrf_q    = np.average(unwrapped,axis=1)
     
     return rtrf, rtrf_q
     
@@ -265,36 +840,36 @@ def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshol
         
     """
     
-    assert isinstance(support,numpy.ndarray),        "support must be array"
+    assert isinstance(support,np.ndarray),        "support must be array"
     assert support.ndim == 2,                        "support must be 2d"
-    assert isinstance(average_mag,numpy.ndarray),    "average_mag must be array"
+    assert isinstance(average_mag,np.ndarray),    "average_mag must be array"
     assert average_mag.ndim == 2,                    "average_mag must be 2d"
     assert isinstance(blur,(float,int)),             "blur must be a number (is %s)"%type(blur)
     assert isinstance(global_threshold,(float,int)), "global_threshold must be a number (is %s)"%type(global_threshold)
     assert isinstance(local_threshold,(float,int)),  "lobal_threshold must be a number (is %s)"%type(local_threshold)
     
-    refined   = numpy.zeros_like(support)
+    refined     = np.zeros_like(support)
+    average_mag = abs(average_mag) # just to be sure...
     
-    from . import shape,masking
-    kernel  = numpy.fft.fftshift(shape.gaussian(support.shape,(blur,blur)))
+    from .. import shape,masking
+    kernel  = np.fft.fftshift(shape.gaussian(support.shape,(blur,blur)))
     kernel *= 1./kernel.sum()
-    kernel  = numpy.fft.fft2(kernel)
-    blurred = numpy.fft.ifft2(kernel*numpy.fft.fft2(average_mag)).real
+    kernel  = np.fft.fft2(kernel)
+    blurred = np.fft.ifft2(kernel*np.fft.fft2(average_mag)).real
     
     # find all the places where the blurred image passes the global threshold test
-    global_passed = numpy.where(blurred > blurred.max()*global_threshold,1,0)
+    global_passed = np.where(blurred > blurred.max()*global_threshold,1,0)
     
     # now find all the local parts of the support, and conduct local thresholding on each
     parts = masking.find_all_objects(support)
-    print "refining"
-    print parts.shape
-    part_sums = numpy.ndarray(len(parts),float)
+    #print "refining... %s %s %s"%(parts.shape)
+    part_sums = np.ndarray(len(parts),float)
     for n,part in enumerate(parts):
         current      = blurred*part
-        local_passed = numpy.where(current > current.max()*local_threshold, 1, 0)
+        local_passed = np.where(current > current.max()*local_threshold, 1, 0)
         refined     += local_passed
         
-        if kill_weakest: part_sums[n] = numpy.sum(average_mag*part)
+        if kill_weakest: part_sums[n] = np.sum(average_mag*part)
         
     refined *= global_passed
     
@@ -304,29 +879,4 @@ def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshol
     
     return refined,blurred
 
-def iterate(phasing_instance,iterations,shrinkwrap=False,update_period=0):
-    
-    """ Run iterations on the phasing instance.
-    Arguments:
-        phasing_instance - an instance of either the GPUPR or CPUPR class.
-        iterations       - how many iterations to run total
-        shrinkwrap       - whether to run the shrinkwrap functions
-        update_period    - (optional) if using shrinkwrap, how many iterations
-            between running the update functions
-    """
-    
-    for iteration in range(iterations):
-        if shrinkwrap and iteration%update_period == 0 and iteration > 0:
-            phasing_instance.update_support()
-            phasing_instance.iteration('er')
-        else:
-            if (iteration+1)%100 != 0: phasing_instance.iteration('hio')
-            else: phasing_instance.iteration('er')
-        if iteration%100 == 0: print "  iteration ",iteration
-        
-        
-        
-    
-    
-    
     

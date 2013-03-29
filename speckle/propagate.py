@@ -2,7 +2,7 @@
 
 Author: Daniel Parks (dhparks@lbl.gov)"""
 
-import numpy
+import numpy as np
 
 from . import shape, conditioning, scattering, wrapping
 
@@ -36,12 +36,12 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
     returns: a complex array representing the propagated wavefield.
     """
     # check requirements regarding types of data
-    assert isinstance(data,numpy.ndarray),                "data must be an array"
+    assert isinstance(data,np.ndarray),                "data must be an array"
     assert data.shape[0] == data.shape[1],                "data must be square"
-    assert data.dtype in (float, complex),                "data must be float32 or complex64"
+    data = data.astype(np.complex64)
     assert data.ndim == 2,                                "supplied wavefront data must be 2-dimensional"
     assert type(data_is_fourier) == bool,                 "data_is_fourier must be bool"
-    assert isinstance(phase,(numpy.ndarray,type(None))),  "phase must be array or None"
+    assert isinstance(phase,(np.ndarray,type(None))),  "phase must be array or None"
     assert type(band_limit) == bool,                      "band_limit must be bool"
 
     I = complex(0,1)
@@ -57,30 +57,30 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
         else: wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
     
         N = len(data)
-        r = numpy.fft.fftshift((shape.radial((N,N)))**2)
-        phase = numpy.exp(-I*numpy.pi*wavelength*z*r/(pixel_pitch*N)**2)
+        r = np.fft.fftshift((shape.radial((N,N)))**2)
+        phase = np.exp(-I*np.pi*wavelength*z*r/(pixel_pitch*N)**2)
         
         upper_limit = N*pixel_pitch**2/wavelength # this is the nyquist limit on the far-field quadratic phase factor
 
                 
     else:
         # phase has been supplied, so check its types for correctness. if phase-generating parameters are supplied they are ignored.
-        assert isinstance(phase,numpy.ndarray), "phase must be an array"
+        assert isinstance(phase,np.ndarray), "phase must be an array"
         assert phase.shape == data.shape,       "phase and data must be same shape"
         upper_limit = -1
         
     if not data_is_fourier:
-        res = numpy.fft.fft2(data)
+        res = np.fft.fft2(data)
     else:
         res = data
         
     if z > upper_limit and z > 0:
         #print "warning! z (%s) exceeds upper limit (%s)"%(z,upper_limit)
-        if band_limit: res *= numpy.fft.fftshift(shape.circle((N,N),N/2*upper_limit/z))
+        if band_limit: res *= np.fft.fftshift(shape.circle((N,N),N/2*upper_limit/z))
 
-    return numpy.fft.ifft2(res*phase)
+    return np.fft.ifft2(res*phase)
 
-def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subregion=None,silent=True,band_limit=False):
+def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregion=None,silent=True,band_limit=False,gpu_info=None,im_convert=False):
     """ Propagates a complex-valued wavefield through a range of distances
     using the CPU. A GPU-accelerated version is available elsewhere.
     
@@ -105,32 +105,35 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subregion
     returned[n] is the wavefield propagated to distances[n].
     """
     import sys
+    
+    
+    iterable_types = (tuple,list,np.ndarray)
+    coord_types = (int,float,np.int32,np.float32,np.float64)
+    
     # check types and defaults
-    assert isinstance(data,numpy.ndarray),                              "data must be an array"
-    assert data.dtype in (float, complex),                              "data must be float or complex"
-    assert data.ndim == 2,                                              "supplied wavefront data must be 2-dimensional"
-    assert data.shape[0] == data.shape[1],                              "data must be square"
-    assert isinstance(energy_or_wavelength, (float, int)),              "must supply either wavelength in meters or energy in eV"
-    assert isinstance(distances, (list, tuple, numpy.ndarray)),         "distances must be an iterable set (list or ndarray) of distances given in meters"
-    assert isinstance(pixel_pitch, (int,float)),                        "pixel_pitch must be a float saying how big each pixel is in meters"
+    assert isinstance(data,np.ndarray),            "data must be an array"
+    data = data.astype(np.complex64)
+    assert data.ndim == 2,                         "supplied wavefront data must be 2-dimensional"
+    assert data.shape[0] == data.shape[1],         "data must be square"
+    assert isinstance(distances, iterable_types), "distances must be an iterable set (list or ndarray) of distances given in meters" 
+
+    N = data.shape[0]
+    pixel_pitch          = np.float32(pixel_pitch)
+    energy_or_wavelength = np.float32(energy_or_wavelength)
+    numfr = len(distances)
 
     # do checking on subregion specification
     # subregion can be any of the following:
     # 1. an integer, in which case the subregion is a square cocentered with data
     # 2. a 2 element iterable, in which case the subregion is a rectangle cocentered with data
     # 3. a 4 element iterable, in which case the subregion is a rectangle specified by (rmin, rmax, cmin, cmax)
-    iterable_types = (tuple,list,numpy.ndarray)
-    coord_types = (int,float,numpy.int32,numpy.float32,numpy.float64)
-    N = data.shape[0]
     if subregion == None: subregion = N
-    
     assert isinstance(subregion,coord_types) or isinstance(subregion,iterable_types), "subregion type must be integer or iterable"
-    if isinstance(subregion,(int,numpy.int32)):
+    if isinstance(subregion,(int,np.int32)):
         sr = (N/2-subregion/2,N/2+subregion/2,N/2-subregion/2,N/2+subregion/2)
-    if isinstance(subregion,(float,numpy.float32,numpy.float64)):
+    if isinstance(subregion,(float,np.float32,np.float64)):
         subregion = int(subregion)
         sr = (N/2-subregion/2,N/2+subregion/2,N/2-subregion/2,N/2+subregion/2)
-    
     if isinstance(subregion, iterable_types):
         assert len(subregion) in (1,2,4), "subregion length must be 2 or 4, is %s"%len(subregion)
         for x in subregion:
@@ -146,44 +149,149 @@ def propagate_distance(data,distances,energy_or_wavelength,pixel_pitch,subregion
             sr = (N/2-h,N/2+h,N/2-w,N/2+w)
         if len(subregion) == 4:
             sr = (int(subregion[0]),int(subregion[1]),int(subregion[2]),int(subregion[3]))
-
-    I = complex(0,1)
+            
+    rows = int(sr[1]-sr[0])
+    cols = int(sr[3]-sr[2])
 
     # convert energy_or_wavelength to wavelength.  If < 1 assume it's a wavelength.
-    if energy_or_wavelength < 1: wavelength = energy_or_wavelength
+    if    energy_or_wavelength < 1: wavelength = energy_or_wavelength
     else: wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
+    
+    # precompute the fourier signals
+    r = np.fft.fftshift((shape.radial((N,N)))**2)
+    f = np.fft.fft2(data)
+    t = np.float32(np.pi*wavelength/((pixel_pitch*N)**2))
+
+    ### first, the gpu codepath
+    use_gpu = True
+    if gpu_info == None:
+        use_gpu = False
+    if use_gpu:
+        # if a gpu is requested, see if one is available (almost certainly yes since
+        # the init information is being passed)
+        try:
+            import gpu
+            import string
+            import pyopencl as cl
+            import pyopencl.array as cla
+            from pyfft.cl import Plan
+            use_gpu = True
+        except ImportError:
+            use_gpu = False
+            
+    if use_gpu:
         
-    N = len(data)
+        context,device,queue,platform = gpu_info
 
-    try: store = numpy.zeros((len(distances),sr[1]-sr[0],sr[3]-sr[2]),'complex64')
-    except MemoryError:
-        print "save buffer was too large. either use a smaller set of distances or a smaller subregion"
-   
-    # this is the upper limit of the propagation distance. after this point nysquist sampling
-    # limits the reliability of the phase component, although the magnitude component is still useful.
-    upperlimit = (pixel_pitch*N)**2/(wavelength*N)
+        # make fft plan
+        fftplan = Plan((N,N),queue=queue)
+        
+        # build kernels
+        kp = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/' # kernel path
+        phase_factor   = gpu.build_kernel_file(context, device, kp+'propagate_phase_factor.cl')
+        copy_to_buffer = gpu.build_kernel_file(context, device, kp+'propagate_copy_to_save_buffer.cl')
+        multiply       = gpu.build_kernel_file(context, device, kp+'common_multiply_f2_f2.cl')
 
-    numfr = len(distances)
-    # compute the distances of back propagations on the cpu.
-    # precompute the fourier signal. define the phase as a lambda function. loop through the distances
-    # calling phase and propagate_one_distance. save the region of interest (subarray) to the buffer.
-    fourier = numpy.fft.fft2(data)
-    r = numpy.fft.fftshift((shape.radial((N,N)))**2)
-    cpu_phase = lambda z: numpy.exp(-I*numpy.pi*wavelength*z*r/(pixel_pitch*N)**2)
-    for n,z in enumerate(distances):
-        if z > upperlimit: print "propagation distance (%s) exceeds accuracy upperlimit (%s)"%(z,upperlimit)
+        # put the signals onto the gpu along with buffers for the various operations
+        rarray  = cla.to_device(queue,r.astype(np.float32))   # r array
+        fourier = cla.to_device(queue,f.astype(np.complex64)) # fourier data
+        phase   = cla.empty(queue,(N,N),np.complex64)         # buffer for phase factor and phase-fourier product
+        back    = cla.empty(queue,(N,N),np.complex64)         # buffer for propagated wavefield
+        store   = cla.empty(queue,(numfr,rows,cols),np.complex64) # allocate propagation buffer
+        
+        # now compute the propagations
+        N = np.int32(N)
+        sr0 = np.int32(sr[0])
+        sr2 = np.int32(sr[2])
+
+        for n,z in enumerate(distances):
+            
+            n = np.int32(n)
+            
+            # compute on gpu and transfer to buffer.
+            if not silent:
+                sys.stdout.write("\rpropagating: %1.2e m (%02d/%02d)" % (z, n+1, numfr))
+                sys.stdout.flush()
+            
+            # make the phase factor; multiply the fourier rep; inverse transform
+            phase_factor.execute(queue,(int(N*N),),rarray.data,np.float32(t*z), phase.data)
+            multiply.execute(queue,(int(N*N),),phase.data,fourier.data,phase.data) 
+            fftplan.execute(data_in=phase.data,data_out=back.data,inverse=True,wait_for_finish=True)
+
+            # slice the subregion from the back-propagation and save in store
+            copy_to_buffer.execute(queue,(rows,cols), store.data, back.data, n, N, sr0, sr2)
+            
         if not silent:
-            sys.stdout.write("\rpropagating: %1.2e m (%02d/%02d)" % (z, n+1, numfr))
-            sys.stdout.flush()
-        phase_z = cpu_phase(z)
-        back = propagate_one_distance(fourier,phase=phase_z,data_is_fourier=True)
-        store[n] = back[sr[0]:sr[1],sr[2]:sr[3]]
+            print ""
 
-    if not silent:
-        print ""
+        if im_convert:
+            
+            # build the additional kernels
+            hsv_convert = gpu.build_kernel_file(context, device, kp+'complex_to_rgb.cl')
+            cl_abs      = gpu.build_kernel_file(context, device, kp+'common_abs_f2_f.cl')
+            
+            # calculate abs of entire buffer. this is so we can get the maxval
+            abs_store = cla.empty(queue,store.shape,np.float32)
+            cl_abs.execute(queue,(store.size,),store.data,abs_store.data)
+            maxval = np.float32(cla.max(abs_store).get())
+            
+            # allocate new memory (frames, rows, columns, 3); uchar -> uint8?
+            new_shape    = store.shape+(3,)
+            image_buffer = cla.empty(queue,new_shape,np.uint8)
+            hsv_convert.execute(queue,store.shape,store.data,image_buffer.data,maxval).wait()
+            
+            # now convert to pil objects
+            import scipy.misc.pilutil as smp
+            images = []
+            image_buffer = image_buffer.get()
+            for image in image_buffer: images.append(smp.toimage(image))
+        
+            return store.get(), images # done
+        
+        else:
+            
+            return store.get()
 
-    return store
-     
+    ### now the cpu fallback
+    if not use_gpu:
+    
+        I = complex(0,1)
+        upperlimit = (pixel_pitch*N)**2/(wavelength*N)
+        
+        try: store = np.zeros((numfr,rows,cols),'complex64')
+        except MemoryError:
+            print "save buffer was too large. either use a smaller set of distances or a smaller subregion"
+
+        # compute the distances of back propagations on the cpu.
+        # precompute the fourier signal. define the phase as a lambda function. loop through the distances
+        # calling phase and propagate_one_distance. save the region of interest (subarray) to the buffer.
+        cpu_phase = lambda z: np.exp(-I*t*z*r)
+        for n,z in enumerate(distances):
+            if z > upperlimit: print "propagation distance (%s) exceeds accuracy upperlimit (%s)"%(z,upperlimit)
+            if not silent:
+                sys.stdout.write("\rpropagating: %1.2e m (%02d/%02d)" % (z, n+1, numfr))
+                sys.stdout.flush()
+            phase_z = cpu_phase(z)
+            back = np.fft.ifft2(f*phase_z)
+            store[n] = back[sr[0]:sr[1],sr[2]:sr[3]]
+    
+        if not silent:
+            print ""
+    
+        if im_convert:
+            
+            # now convert frames to pil objects
+            import scipy.misc.pilutil as smp
+            import io
+            images = []
+            for frame in store:
+                image = io.complex_hsv_image(frame)
+                images.append(smp.toimage(image))
+                
+            return store, images
+        
+        if not im_convert: return store
+
 def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     """ Apodizes a 2d array so that upon back propagation ringing from the
     aperture is at least somewhat suppressed. The steps this function follows
@@ -212,10 +320,10 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
             'all'.
     """
     
-    data = numpy.copy(data_in)
+    data = np.copy(data_in)
     
     # check types
-    assert isinstance(data,numpy.ndarray),    "data must be an array"
+    assert isinstance(data,np.ndarray),    "data must be an array"
     assert data.ndim == 2,                    "data must be 2d"
     assert isinstance(kt,(int,float)),        "kt must be float or int"
     assert isinstance(sigma,(int,float)),     "sigma must be float or int"
@@ -223,18 +331,18 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     
     # if the data is complex, operate only on the magnitude component
     was_complex = False
-    if numpy.iscomplexobj(data):
-        phase = numpy.angle(data)
+    if np.iscomplexobj(data):
+        phase = np.angle(data)
         data = abs(data)
         was_complex = True
         
-    convolve = lambda x,y: numpy.fft.ifft(numpy.fft.fft(x)*numpy.fft.fft(y))
+    convolve = lambda x,y: np.fft.ifft(np.fft.fft(x)*np.fft.fft(y))
 
     # find the center of mass
     N,M       = data.shape
-    rows,cols = numpy.indices((N,M),float)
-    av_row    = numpy.sum(data*rows)/numpy.sum(data)
-    av_col    = numpy.sum(data*cols)/numpy.sum(data)
+    rows,cols = np.indices((N,M),float)
+    av_row    = np.sum(data*rows)/np.sum(data)
+    av_col    = np.sum(data*cols)/np.sum(data)
     
     # determine the maximum unwrapping radius
     R = int(min([av_row,len(data)-av_row,av_col,len(data)-av_col]))
@@ -243,41 +351,41 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     unwrap_plan = wrapping.unwrap_plan(0,R,(av_col,av_row)) # very important to set r = 0!
     unwrapped   = wrapping.unwrap(data,unwrap_plan)
     ux          = unwrapped.shape[1]
-    u_der       = unwrapped-numpy.roll(unwrapped,-1,axis=0)
+    u_der       = unwrapped-np.roll(unwrapped,-1,axis=0)
     
     # at each column, find the edge of the data by stepping along rows until the object
     # is found. any ways to make this faster?
     threshold = float(threshold)
-    boundary  = numpy.zeros(ux,float)
-    indices   = numpy.arange(R-1)
+    boundary  = np.zeros(ux,float)
+    indices   = np.arange(R-1)
     for col in range(ux):
         u_der_col = u_der[:,col]
-        ave = numpy.sum(u_der_col[:-1]*indices)/numpy.sum(u_der_col[:-1])
+        ave = np.sum(u_der_col[:-1]*indices)/np.sum(u_der_col[:-1])
         boundary[col] = ave
 
     # smooth the edge values by convolution with a gaussian
-    kernel = numpy.fft.fftshift(shape.gaussian((ux,),(sigma,),normalization=1.0))
+    kernel = np.fft.fftshift(shape.gaussian((ux,),(sigma,),normalization=1.0))
     boundary = abs(convolve(boundary,kernel))-1
     
     # now that the coordinates have been smoothed, build the filter as a series of 1d filters along the column (angle) axis
-    x = numpy.outer(numpy.arange(R),numpy.ones(ux)).astype(float)/boundary
+    x = np.outer(np.arange(R),np.ones(ux)).astype(float)/boundary
     filter = _apodization_f(x,kt)
     
     # rewrap the filter. align the filter to the data
     rplan  = wrapping.wrap_plan(0,R)
     filter = wrapping.wrap(filter,rplan)
     
-    e_filter = numpy.zeros_like(data)
+    e_filter = np.zeros_like(data).astype(np.float32)
     e_filter[0:filter.shape[0],0:filter.shape[1]] = filter
     
-    data_mask   = numpy.where(data > 1e-6,1,0)
-    filter_mask = numpy.where(e_filter > 1e-6,1,0)
+    data_mask   = np.where(data > 1e-6,1,0)
+    filter_mask = np.where(e_filter > 1e-6,1,0)
     
-    rolls  = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
+    rolls  = lambda d, r0, r1: np.roll(np.roll(d,r0,axis=0),r1,axis=1)
     coords = conditioning.align_frames(filter_mask,align_to=data_mask,return_type='coordinates')[0]
     filter = rolls(e_filter,coords[0],coords[1])
 
-    if was_complex: data *= numpy.exp(complex(0,1)*phase)
+    if was_complex: data *= np.exp(complex(0,1)*phase)
     
     # return a filtered version of the data.
     if return_type == 'filter': return filter
@@ -308,15 +416,15 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
     """
    
     # check types
-    assert isinstance(data, numpy.ndarray),               "data must be ndarray"
+    assert isinstance(data, np.ndarray),               "data must be ndarray"
     assert data.ndim in (2,3),                            "data must be 2d or 3d"
     assert method in ('sobel','roll'),                    "unknown derivative method"
     assert isinstance(exponent,(int, float)),             "exponent must be float or int"
     assert isinstance(normalized, type(True)),            "normalized must be bool"
-    assert isinstance(mask, (type(None), numpy.ndarray)), "mask must be None or ndarray"
+    assert isinstance(mask, (type(None), np.ndarray)), "mask must be None or ndarray"
     
     if data.ndim == 2: data.shape = (1,data.shape[0],data.shape[1])
-    if mask == None: mask = numpy.ones(data.shape[1:],float)
+    if mask == None: mask = np.ones(data.shape[1:],float)
 
     # calculate the acutance
     acutance_list = []
@@ -336,20 +444,20 @@ def _acutance_calc(data,method,normalized,mask,exponent):
         dy = abs(sobel(data,axis=0))
                 
     if method == 'roll':
-        dx = data-numpy.roll(data,1,axis=0)
-        dy = data-numpy.roll(data,1,axis=1)
+        dx = data-np.roll(data,1,axis=0)
+        dy = data-np.roll(data,1,axis=1)
 
-    gradient = numpy.sqrt(dx**2+dy**2)**exponent
+    gradient = np.sqrt(dx**2+dy**2)**exponent
             
-    a = numpy.sum(gradient*mask)
-    if normalized: a *= 1./numpy.sum(data*mask)
+    a = np.sum(gradient*mask)
+    if normalized: a *= 1./np.sum(data*mask)
     return a
 
 def _apodization_f(x,kt):
-    F = 1./(numpy.exp((x-1)/kt)+1)
+    F = 1./(np.exp((x-1)/kt)+1)
     F += -.5
     F[F < 0] = 0
-    m = numpy.max(F,axis=0)
+    m = np.max(F,axis=0)
     F *= 1./m
     return F
-    
+
