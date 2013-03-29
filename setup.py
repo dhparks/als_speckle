@@ -2,10 +2,10 @@ from distutils.core import setup
 
 setup(
     name='speckle',
-    version='0.6.1',
-    packages=[ 'speckle', 'speckle.gpu', 'speckle.simulation' ],
+    version='0.7.0',
+    packages=[ 'speckle', 'speckle.simulation', 'speckle.interfaces' ],
     requires = ['scipy', 'numpy'],
-    package_data = { 'speckle.gpu': ['kernels/*.cl']},
+    package_data = { 'speckle': ['kernels/*.cl']},
     author = "Daniel Parks, Keoki Seu",
     author_email = "dhparks@lbl.gov, kaseu@lbl.gov",
     description = "Library for speckle analysis at Beamline 12.0.2 at the Advanced Light Source",
