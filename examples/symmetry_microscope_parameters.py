@@ -1,35 +1,56 @@
-device = 'gpu' # options: 'gpu','cpu'
+import sys
+import numpy as np
 
-# first, specify the colloid/random-walk simulation parameters. note that these parameters
-# are also used elsewhere; for example, the symmetry microscope, which runs after the random-walk,
-# looks for output files whose names depend on brownian step etc.
-N            = 1024 # simulation grid size
-density      = 1e-2 # density of ball centers
-frames       = 16   # number of simulation frames. for gpu g2 calculation, make a power of 2
-brownianstep = 0.50 # stdev of brownian motion step size
-ballradius   = 0    # object size; this doesnt change the speckles, just gives an intensity profile. if 0, a delta function
+path = '../exampledata' # I'm just using this to shorten paths below
 
-# second, specify the parameters for the symmetry microscope
-pinhole    = 64           # pinhole RADIUS
-unwrap_r   = 70           # inner radius to unwrap
-unwrap_R   = unwrap_r+255 # outer radius to unwrap; uR-ur should be a power of 2?
-step_size  = 32           # step size between illumination sites
-view_size  = 1024         # this limits the field of view. the total number of sites is (view_size/step_size)**2
-components = [2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32] # cosine components for the decomposition
+# specify the objects. these are the files that will be rastered across to look
+# for symmetries.
+samples  = ['%s/domains 296 114 1_real.png'%path,
+            '%s/domains 296 114 2_real.png'%path]
 
-# candidate symmetries are detected in this simulation by finding a cosine component which
-# dominates the total cosine power at a given |q|. candidate_threshold defines how much of the total
-# power a cosine component must possess to be a candidate. returnables specifies which
-# simulation output should be saved for each candidate; recommend against changing.
-candidate_threshold = 0.58
-candidate_returnables = ('illuminated','correlated','spectrum')
+# Specify the illumination function. in this example, I supply a magnitude
+# file for the illumination; see start_illumination() to change this scheme.
+# The shape of the files must be the same. The size of the illumination sets
+# the size of the speckle pattern (ie 2048x2048) so you need to pay attention to
+# what illumination width gives the correct speckle size.
+mag_file   = '%s/ex_pinhole110_mag.fits'%path
+phase_file = None
 
-# finally, choose which parts of the simulation to run.
-make_samples    = True # this makes images of balls according to the first set of parameters
+# Specify the coherence factor. This is the inverse fourier transform of the
+# point-spread function. For simplificity, we will just use a circular gaussian.
+# The coherence function should be constructed so that the 0-frequency component
+# is in the (0,0) pixel ("machine-centered") instead of the (N/2,N/2) pixel.
+coherence_file = '%s/ex_coherence_mag.fits'%path
+
+# Specify the parameters for unwrapping the speckle pattern. unwrap_r and
+# unwrap_R are the inner and outer wrapping radii, respectively.
+unwrap_r  = 80
+unwrap_R  = 250
+
+# Specify the spacing of the illumination sites.
+# In this example, the list of coordinates is recalculated every time a new
+# object file is loaded for scanning.
+step_size = 16
+
+# this is mainly just for my debugging.
+troubleshoot_returnables = ('illuminated','blurred','unwrapped','resized','correlated','spectrum','spectrum_ds','speckle')
+
+# choose which parts of the simulation to run.
 run_microscope  = True # this runs the symmetry microscope on each of the images according to the microscope parameters
-find_candidates = False # find candidates according to the candidate_threshold
+troubleshoot    = False # debugging: runs on one site of the first object to make sure the code executes properly
+get_list        = [0,500] # list of which site numbers to get particulars from
 
-# designate a basic output path for results. sub directories will be created. you MUST have write permissions
-# in this specified path
-output_path = 'colloid output'
+# Designate a basic output path for results.
+# !!you MUST have write permissions to this path !!
+# If comine_output is true, the spectra are all combined into one big 4d file containing
+# spectra from all samples in the list above. If combine_spectra = False, the
+# spectra from the samples will be saved individually in 3d files.
+output_path = path
+combine_output = True  # if True, the spectra are all combined into one big file containing all object results
+output_labels = [1,2] # for labeling output in conjugation with identifier (below)
+
+# this gets prepended to the spectra names. basically a "project name"
+identifier = 'symmetry microscope demo'
+
+
 

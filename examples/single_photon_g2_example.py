@@ -1,7 +1,7 @@
 import speckle
 import numpy
 
-pcfile = "data/xpcs/4000V_Xray4.fits"
+pcfile = "4000V_Xray4.fits"
 
 # open a photon counting fits file, correcting overflows and sorting the data by increasing incidence times
 data = speckle.io.open_photon_counting_fits(pcfile, correct=True, sort=True)

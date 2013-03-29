@@ -1,21 +1,17 @@
-""" Parameters and filenames to execute the phasing_example script.
-To adopt phasing_example into general purpose canonical phasing code,
-most changes should be in phasing_parameters."""
+""" Parameters and filenames to execute the barker_phasing script."""
 
-device = 'gpu'
+iterations = 200 # how many iterations per trials
+trials     = 10  # how independent trials per round
+rounds     = 3   # how many rounds
 
-dataname    = '../../jobs/out/stripestest/stripes_speckle_mag.fits'
-supportname = '../../jobs/out/stripestest/stripes_support_mag.fits'
-
-# the primary reconstruction parameters: trials and iterations (per trial)
-trials     = 1
-iterations = 500
+dataname    = 'path to conditioned modulus; max pixel should be in corner'
+supportname = 'path to support file, can be .png, .fits, or .reg'
 
 # define the output path
-savepath = '../../jobs/out/stripestest/'
-savename = 'testing'
+savepath = 'path to output folder'
+savename = 'namebase for output files'
 
-# set these for shrinkwrap
-shrinkwrap = False
-shrinkwrap_sigma = 3
-update_period = 50
+# these pertain to support refinement
+blur_sigma       = 2.0
+global_threshold = 0.0
+local_threshold  = 0.07
