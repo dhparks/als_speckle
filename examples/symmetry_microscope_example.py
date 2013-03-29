@@ -3,8 +3,6 @@ import numpy as np
 import itertools
 
 # shared
-import sys
-sys.path.insert(0,'..')
 import speckle
 speckle.io.set_overwrite(True)
 

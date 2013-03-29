@@ -1,7 +1,5 @@
 # demonstrate wrapping library functionality
 import numpy
-import sys
-sys.path.insert(0,'..')
 import speckle
 DFT, IDFT, shift = numpy.fft.fft2, numpy.fft.ifft2, numpy.fft.fftshift
 speckle.io.set_overwrite(True)

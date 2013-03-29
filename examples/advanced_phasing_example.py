@@ -6,8 +6,6 @@
 
 # import the common libraries
 import numpy
-import sys
-sys.path.insert(0,'..')
 import speckle
 
 # import the parameters for the reconstruction

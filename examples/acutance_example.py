@@ -12,12 +12,11 @@
 # 5. The acutance is calculated for both propagation cases.
 # 6. Output is saved
 
-import numpy, matplotlib, sys
-sys.path.insert(0,'..')
+import numpy, matplotlib
 import speckle
 DFT, IDFT, shift = numpy.fft.fft2, numpy.fft.ifft2, numpy.fft.fftshift
 speckle.io.set_overwrite(True)
-matplotlib.use('Agg')
+matplotlib.use('Agg') # for headless
 import matplotlib.pyplot as plt
 
 #### parameters section ####

@@ -1,7 +1,5 @@
 # illustrate use of functions in shape and propagate. propagate uses the cpu
 # code path, which is slow.
-import sys
-sys.path.insert(0,'..')
 import numpy, speckle
 
 # first, establish simulation parameters. these are physically reasonable
