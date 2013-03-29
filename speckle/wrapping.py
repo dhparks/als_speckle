@@ -141,7 +141,7 @@ def unwrap(array,plan,interpolation_order=3,modulo=None):
 
     return unwrapped
 
-def wrap(array,plan,interpolation_order=3):
+def wrap(array,plan,interpolation_order=1):
     """ Wraps data from polar coordinates into cartesian coordinates. A plan
     must be supplied. This is basically just a wrapper to scipy.ndimage.map_coordinates
     with all the real work being done in generating the plan. The plan can be a

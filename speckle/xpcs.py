@@ -85,7 +85,7 @@ def normalize_intensity(img, method="maxI"):
 
     return img
 
-def g2_symm_norm(img, numtau, qAvg = ("circle", 10)):
+def g2_symm_norm(img, numtau, qAvg = ("circle", 10), fft=False):
     """ calculate correlation function g_2 with a symmetric normalization.
 
     The symmetric normalization is defined as
@@ -128,9 +128,19 @@ def g2_symm_norm(img, numtau, qAvg = ("circle", 10)):
     result = np.zeros((ntaus, ys, xs), dtype=float)
 
     IQ = _averagingFunctions[avgType](img, avgSize)
+    
+    if fft:
+        try:
+            numerator = g2_numerator_fft(img,taus)
+        except MemoryError:
+            print "run out of memory trying to do fft. reverting to shift-multiply method"
+            fft = False
+    if not fft:
+        numerator = numpy.zeros((taus,),np.float32)
+        for tau in taus: numerator[tau] = g2_numerator(img,tau)
 
     for i, tau in enumerate(tauvals):
-        result[i] = g2_numerator(img, tau)/(_time_average(IQ, 0, fr-tau)*_time_average(IQ, tau, fr))
+        result[i] = numerator[i]/(_time_average(IQ, 0, fr-tau)*_time_average(IQ, tau, fr))
         sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
         sys.stdout.flush()
     print("")
@@ -269,7 +279,7 @@ def g2_no_norm(img, numtau):
     print("")
     return numerator
 
-def g2_numerator(img, onetau):
+def g2_numerator(img, onetau,fft=False):
     """ Calculates <I(t) I(t + tau)>_t for a single value of tau.
 
     arguments:
@@ -305,7 +315,7 @@ def g2_numerator_fft(img, taus=None):
     """
     assert img.ndim == 3, "g2_numerator: Must be a three dimensional image."
     (fr, ys, xs) = img.shape
-
+    
     IDFT = np.fft.ifftn
     DFT = np.fft.fftn
 

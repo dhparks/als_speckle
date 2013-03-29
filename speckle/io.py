@@ -108,7 +108,7 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
         mag, phase = abs(data), numpy.angle(data)
         if isinstance(scaling, str): assert scaling in ('sqrt','log')
         if scaling == 'sqrt': mag = numpy.sqrt(mag)
-        if scaling == 'log':  mag = numpy.log(mag+1)
+        if scaling == 'log':  mag = numpy.log(mag/mag.min())
         if isinstance(scaling,float): mag = mag**scaling
         data = mag*numpy.exp(complex(0,1)*phase)
     
@@ -879,8 +879,8 @@ def complex_hls_image(array):
     returns:
         an array with shape (N,M,3) and dtype uint8.
         color channel axis is 2 with order R, G, B."""
-        
-    N = len(array)+10
+
+    # unacceptably slow. find a faster algorithm.
     
     def _hlsrgb_v(m1,m2,hue):
 
@@ -898,7 +898,7 @@ def complex_hls_image(array):
     array = array.astype(numpy.complex64)
 
     l = abs(array)
-    l *= 0.6/l.max()
+    l *= 0.8/l.max()
     h = (numpy.angle(array)+numpy.pi)/(2*numpy.pi)
     s = 1.
 
@@ -914,6 +914,64 @@ def complex_hls_image(array):
     b = _hlsrgb_v(m1,m2,h-1./3)
     
     return (numpy.dstack((r,g,b))*255.999).astype(numpy.uint8)
+
+def complex_hsv_image(array):
+    
+    """ Convert a complex-valued array into the HSV color-space using
+    magnitude and V, phase as H, s = 1.0.
+    
+    See http://en.wikipedia.org/wiki/HSL_and_HSV
+    
+    Best efforts have been made to make the conversion as fast as possible.
+    Timing reveals the main slowdown occurs in the lookup table
+    k = vpqt[hsv_k_map[hi[n]],n]
+    """
+    
+    # first, convert the complex to hsv
+    v = abs(array)
+    v /= v.max()
+    h = (numpy.angle(array)+numpy.pi)*360/(2*numpy.pi)
+    
+    #unravel for mapping
+    v.shape = (v.size,)
+    h.shape = (h.size,)
+    
+    # prep the p,q,t,v components which get mapped to rgb
+    h60  = h/60.
+    h60f = numpy.floor(h60)
+    hi   = numpy.mod(h60f,6).astype(int)
+    f    = h60-h60f
+    
+    # build the vpqt array (see commented code above)
+    # calculating the pieces and then making an array
+    # by numpy.array([v,p,q,t]) takes MUCH more time
+    vpqt = numpy.zeros((4,array.size),numpy.float32)
+    vpqt[0] = v
+    #vpqt[1] = p # stays zeros with s = 1
+    vpqt[2] = v*(1-f)
+    vpqt[3] = v*f
+    
+    #r = numpy.zeros(array.size,numpy.float32)
+    #g = numpy.zeros(array.size,numpy.float32)
+    #b = numpy.zeros(array.size,numpy.float32)
+    n = numpy.arange(array.size)
+    
+    # map: x_map[hi[n]] gets the row in vpqt
+    r = vpqt[hsv_r_map[hi[n]],n]
+    g = vpqt[hsv_g_map[hi[n]],n]
+    b = vpqt[hsv_b_map[hi[n]],n]
+    
+    r.shape = array.shape
+    g.shape = array.shape
+    b.shape = array.shape
+
+    return (numpy.dstack((r,g,b))*255).astype(numpy.uint8)
+    
+# these map hi to p,q,t,v
+hsv_r_map = numpy.array((0,2,1,1,3,0))
+hsv_g_map = numpy.array((3,0,0,2,1,1))
+hsv_b_map = numpy.array((1,1,3,0,0,2))
+    
     
 def color_maps(map):
     """ List of colormaps.  Used for image output.

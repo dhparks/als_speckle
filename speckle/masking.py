@@ -60,6 +60,12 @@ def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0):
             average_r = (rmax+rmin)/2
             rmin = average_r-delta_c/2
             rmax = average_r+delta_c/2
+            
+    # this here is the panic section
+    if rmin < 0:
+        rmin, rmax = 0, rmax-rmin
+    if cmin < 0:
+        cmin, cmax = 0, cmax-cmin
         
     return np.array([rmin, rmax, cmin, cmax]).astype('int')
 

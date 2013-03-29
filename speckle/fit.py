@@ -28,10 +28,11 @@ class OneDimFit():
             new_data = np.zeros((2,len(data[0])))
             new_data[0] = data[0]
             new_data[1] = data[1]
-            data = new_data
+            data = new_data.transpose()
         assert not np.iscomplexobj(data), "data must not be complex"
 
         ys, xs = data.shape
+
         if ys == 2 or xs == 2:
             # small bug: if you have an image where a dimension is 2 then it will think it's 1d data.
 
@@ -41,7 +42,6 @@ class OneDimFit():
             else:
                 self.npoints = xs
                 data = data.swapaxes(0,1)
-    
             self.xvals = data[:, 0]
             self.data = data[:, 1]            
             self.try_again = np.ones_like(self.data)* 1e30
@@ -59,10 +59,8 @@ class OneDimFit():
             self.mask = np.ones_like(self.data)
         else:
             assert mask.shape == self.data.shape, "mask and data are different shapes"
-            if not weighted:
-                self.mask = np.where(mask, 1, 0)
-            else:
-                self.mask = mask
+            if not weighted: self.mask = np.where(mask, 1, 0)
+            if weighted: self.mask = mask
 
         self.ys, self.xs = data.shape
 
@@ -83,6 +81,7 @@ class OneDimFit():
         """
         if params is not None:
             self.params = params
+
         return np.nan_to_num(np.ravel((self.data - self.fit_function())*self.mask))
 
     def fit(self, ransac_params = None):
@@ -338,7 +337,7 @@ class OneDimPeak(OneDimFit):
         """ Estimate a FWHM peak. This returns a reasonably good estimate of the
             FWHM of a 1d peak.
         """
-        hm = (self.data.max() - self.data.min())/2
+        hm = (self.data.max() + self.data.min())/2
         argmax = self.data.argmax()
         if argmax == len(self.xvals):
             argmax = argmax - 1
@@ -346,8 +345,8 @@ class OneDimPeak(OneDimFit):
             argmax = 1
 
         absdiff = abs(self.data - hm)
-        left = self.xvals[absdiff[np.argwhere(self.xvals < argmax)].argmin()]
-        right = self.xvals[absdiff[np.argwhere(self.xvals > argmax)].argmin()]
+        left    = self.xvals[absdiff[:argmax].argmin()]
+        right   = self.xvals[absdiff[argmax:].argmin()+argmax]
 
         return abs(left-right)
 
@@ -465,11 +464,33 @@ class DecayExpBeta(OneDimFit):
         return a + b * (np.exp(-1*(self.xvals/tf)**beta))
 
     def guess_parameters(self):
+        
+        # guess parameters
         self.params = np.zeros(4)
-        self.params[0] = self.data[-1]
-        self.params[1] = self.data[0] - self.params[0]
-        self.params[2] = self.xvals[int(self.npoints/2)]
-        self.params[3] = 1.5
+        self.params[0] = self.data.min() # assume this is the offset
+        self.params[1] = self.data[0]-self.params[0]
+
+        # create a guess for tf and beta by doing a linear fit to doubly-logged data (yikes!)
+        # get this for solving self.functional for log(t). this operation will generate
+        # warnings, so turn those off for the duration of the estimate
+
+        oerr = np.geterr()
+        np.seterr(all='ignore')
+
+        k = np.log(-1*np.log((self.data-self.data.min())/self.data.max())) # "y" data
+        j = np.log(self.xvals[2:])                                         # "x" data
+        m = np.isfinite(k).astype(np.float32)
+
+        k = np.nan_to_num(k)*m
+
+        linfit    = linear([k[2:],j],mask=m[2:])
+        slp, icpt = linfit.final_params
+
+        self.params[2] = np.exp(icpt)
+        self.params[3] = abs(1./slp)
+        
+        # restore the original warnings
+        np.seterr(over=oerr['over'],divide=oerr['divide'],invalid=oerr['invalid'],under=oerr['under'])
 
 class DecayExp(OneDimFit):
     """ fit a function to a decay exponent.  This fits the function:
@@ -512,8 +533,8 @@ class Gaussian(OneDimPeak):
         # average the first and last points to try to guess the background
         self.params[3] = (self.data[0] + self.data[-1]) / 2.0
         self.params[0] = self.data.max() - self.params[3]
-        self.params[1] = self.xvals[self.data.argmax()]
-        
+        self.params[1] = self.data.argmax()
+
         # width is always some function-dependent multiple of fwhm
         self.params[2] = self.estimate_fwhm()/2.35 #2.35 = 1/(2*sqrt(2*ln(2)))
 
@@ -531,17 +552,17 @@ class Lorentzian(OneDimPeak):
         a, x0, w, shift = self.params
         # checks to return high numbers if parameters are getting out of hand.
         if ( w < 0 ): return self.try_again
-        return a*shape.lorentzian(self.data.shape, (w,), center=(x0,)) + shift
+        return a/((self.xvals-x0)**2/w**2+1)+shift
 
     def guess_parameters(self):
         self.params = np.zeros(4)
         # average the first and last points to try to guess the background
-        self.params[3] = (self.data[0] + self.data[-1]) / 2.0
-        self.params[1] = self.xvals[self.data.argmax()]
+        self.params[3] = self.data.min()
+        self.params[1] = self.data.argmax()
         
         # width is always some function-dependent multiple of fwhm
         self.params[2] = self.estimate_fwhm()/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
-        self.params[0] = (self.data.max() - self.params[3])*(np.pi*self.params[2])
+        self.params[0] = self.data.max()-self.data.min()
 
 class LorentzianSq(OneDimPeak):
     """ fit a function to a 1d squared lorentzian.  This fits the function:
@@ -557,14 +578,14 @@ class LorentzianSq(OneDimPeak):
         # checks to return high numbers if parameters are getting out of hand.
         #if ( gam > 0 ): return np.ones_like(self.xvals) * self.try_again
         if w < 0: return self.try_again
-        return a*shape.lorentzian(self.data.shape, (w,), center=(x0,))**2 + bg
+        return a/((self.xvals-x0)**2/w**2+1)**2+bg
 
     def guess_parameters(self):
         self.params = np.zeros(4)
         
         self.params[3] = abs(self.data).min()              # bg
         self.params[0] = self.data.max() - self.params[3]  # scale
-        self.params[1] = self.xvals[self.data.argmax()]    # center x0
+        self.params[1] = self.data.argmax()                # center x0
         
         # width is always some function-dependent multiple of fwhm
         self.params[2] = self.estimate_fwhm()/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
@@ -586,7 +607,7 @@ class LorentzianSqBlurred(OneDimPeak):
         #if ( gam > 0 ): return np.ones_like(self.xvals) * self.try_again
         if lw < 0 or gw < 0: return self.try_again
 
-        l = shape.lorentzian(self.data.shape, (lw,), center=(x0,))**2
+        l = 1./((self.xvals-x0)**2/w**2+1)
         g = np.fft.fftshift(shape.gaussian(self.data.shape, (gw,), normalization=1.0))
         f = self._convolve(l,g)
 
@@ -600,7 +621,7 @@ class LorentzianSqBlurred(OneDimPeak):
         
         self.params[3] = abs(self.data).min()              # bg
         self.params[0] = self.data.max() - self.params[3]  # scale
-        self.params[1] = self.xvals[self.data.argmax()]    # center x0
+        self.params[1] = self.data.argmax()                # center x0
         
         # width is always some function-dependent multiple of fwhm
         self.params[2] = self.estimate_fwhm()/1.29 #1.29 = 1/(2*sqrt(sqrt(2)-1))
