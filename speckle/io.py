@@ -947,7 +947,6 @@ def complex_hsv_image(array):
     # by numpy.array([v,p,q,t]) takes MUCH more time
     vpqt = numpy.zeros((4,array.size),numpy.float32)
     vpqt[0] = v
-    #vpqt[1] = p # stays zeros with s = 1
     vpqt[2] = v*(1-f)
     vpqt[3] = v*f
     

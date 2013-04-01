@@ -20,4 +20,4 @@ sample = speckle.shape.circle((N,N),pixel_radius,AA=True)
 # origin; this is set through subarraysize=...
 distances = numpy.arange(-400,400,4)*1e-6 # meters
 propagated = speckle.propagate.propagate_distance(sample,distances,energy,pitch,subarraysize=4*pixel_radius,silent=False)
-
+speckle.io.save('name_of_file.png',propagated)

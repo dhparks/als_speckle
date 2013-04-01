@@ -20,7 +20,7 @@ try:
 except ImportError:
     use_gpu = False
     
-class phasing(gpu.common):
+class phasing(common):
     
     """ A class to hold a reconstruction and methods to operate on the
     reconstruction. The GPU and CPU interfaces are identical, and
@@ -108,11 +108,9 @@ class phasing(gpu.common):
        
         for iteration in range(iterations):
             
-            if (iteration+1)%100 != 0:
-                self._iteration('hio',iteration=iteration)
-            else:
-                self._iteration('er')
-            
+            if (iteration+1)%100 != 0: self._iteration('hio',iteration=iteration)
+            else:                      self._iteration('er')
+
             if silent != True:
                 if isinstance(silent,int):
                     if iteration%silent==0:
@@ -341,7 +339,7 @@ class phasing(gpu.common):
         
         # now put the arrays in namespace (and on the gpu if available)
         self.optimize_ac  = self._allocate(modulus.shape,np.complex64,'optimize_ac')
-        self.optimize_ac2  = self._allocate(modulus.shape,np.complex64,'optimize_ac2')
+        self.optimize_ac2 = self._allocate(modulus.shape,np.complex64,'optimize_ac2')
         self.optimize_m   = self._allocate(modulus.shape,np.float32,'optimize_m')
         self.optimize_bl  = self._allocate(modulus.shape,np.complex64,'optimize_bl') # this holds the blurry image
         self.optimize_bl2 = self._allocate(modulus.shape,np.float32,'optimize_bl2') # this holds the blurry image, abs-ed to f
@@ -370,7 +368,7 @@ class phasing(gpu.common):
         
         use_gpu = old_use_gpu
         
-        self.load_data(ipsf=(gy*gx))
+        self.load(ipsf=(gy*gx))
         
         print "reset coherence lengths:"
         print p1
@@ -851,7 +849,7 @@ def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshol
     refined     = np.zeros_like(support)
     average_mag = abs(average_mag) # just to be sure...
     
-    from .. import shape,masking
+    import shape,masking
     kernel  = np.fft.fftshift(shape.gaussian(support.shape,(blur,blur)))
     kernel *= 1./kernel.sum()
     kernel  = np.fft.fft2(kernel)

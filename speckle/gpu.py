@@ -31,12 +31,16 @@ class common:
     
         if square == False:
             # usual abs operation
-            assert d1 == 'complex64', "no abs func for in1 dtype float"
+            if d1 == 'float32':
+                assert d2 == 'float32'
+                func = 'abs_f'
             if d2 == 'float32': func = 'abs_f2_f'
             if d2 == 'complex64': func = 'abs_f2_f2'
         if square == True:
             # square the abs. this saves some time.
-            assert d1 == 'complex64'
+            if d1 == 'float32':
+                assert d2 == 'float32'
+                func = 'abs2_f'
             if d2 == 'float32': func = 'abs2_f2_f'
             if d2 == 'complex64': func = 'abs2_f2_f2'
         

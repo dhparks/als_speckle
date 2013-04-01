@@ -9,16 +9,18 @@ import numpy
 import speckle
 
 # import the parameters for the reconstruction
-import advanced_phasing_parameters as params
+import phasing_parameters as params
 
 def reconstruct():
+    
+    print r.compute_device
 
     # open and load the modulus data
     data = speckle.io.open(params.dataname).astype(numpy.float32)
-    r.load(modulus=data, numtrials=params.numtrials)
+    r.load(modulus=data, numtrials=params.trials)
 
     # behavior regarding the support changes based on the round number
-    for ur in params.update_rounds:
+    for ur in range(params.rounds):
         
         if ur == 0:
             support = speckle.io.open(params.supportname).astype('float')
@@ -33,7 +35,7 @@ def reconstruct():
             s1 = support[r.r0:r.r0+r.rows,r.c0:r.c0+r.cols] # take the minimally bounded support
             
             # refine the support. embed it in an array of the correct size.
-            support = phasing.refine_support(s1,save_buffer[-1],blur=pbs,local_threshold=plt,global_threshold=pgt)[0]
+            support = speckle.phasing.refine_support(s1,save_buffer[-1],blur=pbs,local_threshold=plt,global_threshold=pgt)[0]
             new_support = numpy.zeros(data.shape,numpy.float32)
             new_support[0:support.shape[0],0:support.shape[1]] = support
             support = new_support
@@ -47,7 +49,7 @@ def reconstruct():
         for trial in range(params.trials):
             print "trial ",trial
             r.seed()
-            r.iterate(params.iterations)
+            r.iterate(params.iterations,silent=100)
 
         # now that all the independent trials are reconstructed,
         # pull data out of the class and in to local namespace.
@@ -55,7 +57,7 @@ def reconstruct():
     
         # roll the phase for global phase alignment. executes on cpu because
         # executing the optimization algorithms on the gpu is painful.
-        save_buffer = phasing.align_global_phase(save_buffer)
+        save_buffer = speckle.phasing.align_global_phase(save_buffer)
         
         # sum along the frame axis then save the output. save the components as fits for future work and a sqrt
         # image of the magnitude for inspection with a program like GIMP or photoshop
@@ -64,11 +66,11 @@ def reconstruct():
         # in later rounds, optimize the coherence function (assumes gaussian form)
         # notice that we are passing the average reconstruction from host memory
         # back into the class, which is a little ham-fisted.
-        if update_round > 2: r.optimize_gaussian_coherence(save_buffer[-1])
+        if ur > 2: r.optimize_gaussian_coherence(save_buffer[-1])
     
         # save some output in the specified output directory
         speckle.io.save('%s/%s summed.fits'%(params.savepath,params.savename), save_buffer[-1], components='cartesian', overwrite=True)
-        speckle.io.save('%s/%s summed sqrt.png'%(params.savepath,params.savename), numpy.sqrt(abs(save_buffer[-1])), components='complex_hls')
+        speckle.io.save('%s/%s summed.png'%(params.savepath,params.savename),  save_buffer[-1], components='complex_hls',overwrite=True)
 
 if __name__ == '__main__':
     # instantiate the class

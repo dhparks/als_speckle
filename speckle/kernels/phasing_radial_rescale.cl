@@ -38,6 +38,11 @@ __kernel void execute(__global float* primary,
 	float val21 = 0;
 	float val22 = 0;
 	float iv = 0;
+	
+	int keep_x1 = 1;
+	int keep_x2 = 1;
+	int keep_y1 = 1;
+	int keep_y2 = 1;
 
 	// for each slice of the spectrum, do a bilinear interpolation to find
 	// the pixel which contributes to the pixel (i,j) in the output image.
@@ -45,24 +50,50 @@ __kernel void execute(__global float* primary,
 	    
 	    rv = rescale[k]; // rescaling factor
 	    sw = weights[k]; // spectral weight
+		
+		rx = fx/rv;
+		ry = fy/rv;
+		
+	    //rx = fmod(rx+N,N); // rescale x, then modulo coords to corner-centered system
+	    //ry = fmod(ry+M,M);
+		
+		keep_x1 = 1;
+		keep_x2 = 1;
+		keep_y1 = 1;
+		keep_y2 = 1;
 	    
-	    rx = fmod(fx/rv+N,N);
-	    ry = fmod(fy/rv+M,M);
-	    
-	    // these form the coordinates which we will use to interpolate
+	    // these form the coordinates which we will use to interpolate. they are still
+		// in the (-N/2,N/2) coordinate system
 	    x1 = floor(rx);
 	    x2 = x1+1;
 	    y1 = floor(ry);
 	    y2 = y1+1;
 
+		// check to see if the location we pull from is out-of-bounds
+		if (x1 <= -N/2) {keep_x1 = 0;}
+		if (x1 >= N/2)  {keep_x1 = 0;}
+		if (x2 <= -N/2) {keep_x2 = 0;}
+		if (x2 >= N/2)  {keep_x2 = 0;}
+		if (y1 <= -N/2) {keep_y1 = 0;}
+		if (y1 >= N/2)  {keep_y1 = 0;}
+		if (y2 <= -N/2) {keep_y2 = 0;}
+		if (y2 >= N/2)  {keep_y2 = 0;}
+		
+		// these are the weights for each coordinate
+	    wx1 = (1-fabs(x1-rx))*keep_x1;
+	    wx2 = (1-fabs(x2-rx))*keep_x2;
+	    wy1 = (1-fabs(y1-ry))*keep_y1;
+	    wy2 = (1-fabs(y2-ry))*keep_y2;
+		
+		// now modulo the coordinates to bring them back to the (0,N) system
+		if (x1 < 0) {x1 = (x1+N)%N;}
+		if (x2 < 0) {x2 = (x2+N)%N;}
+		if (y1 < 0) {y1 = (y1+M)%M;}
+		if (y2 < 0) {y2 = (y2+M)%M;}
+
+		// cyclic boundary conditions
 	    if (x2 >= N) {x2 = (x2+N)%N;}
 	    if (y2 >= M) {y2 = (y2+M)%M;}
-	    
-	    // these are the weights for each coordinate
-	    wx1 = 1-fabs(x1-rx);
-	    wx2 = 1-fabs(x2-rx);
-	    wy1 = 1-fabs(y1-ry);
-	    wy2 = 1-fabs(y2-ry);
 	    
 	    // these are the values from the four pixels
 	    val11 = primary[x1+y1*N];
@@ -76,7 +107,6 @@ __kernel void execute(__global float* primary,
 	    // add to cumulant, ending the loop
 	    cumulant += iv*sw;
 
-	    //out[j*N+i] = iv;
 	}
 
 	out[j*N+i] = cumulant;

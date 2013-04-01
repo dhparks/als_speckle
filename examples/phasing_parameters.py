@@ -1,8 +1,9 @@
-""" Parameters and filenames to execute the barker_phasing script."""
+""" Parameters and filenames to execute the basic_phasing_example and
+advanced_phasing_example scripts."""
 
-iterations = 200 # how many iterations per trials
-trials     = 10  # how independent trials per round
-rounds     = 3   # how many rounds
+iterations = 500 # how many iterations per trials
+trials     = 10   # how independent trials per round
+rounds     = 5    # how many rounds
 
 dataname    = 'path to conditioned modulus; max pixel should be in corner'
 supportname = 'path to support file, can be .png, .fits, or .reg'
