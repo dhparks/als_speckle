@@ -119,7 +119,7 @@ class phasing(common):
                     print "  iteration %s"%iteration
             
         # copy the current reconstruction to the save buffer
-        if use_gpu: self._kexec('copy_to_buffer', self.savebuffer,self.psi_in,self.c0,self.r0, self.numtrial,self.N, shape=(self.cols,self.rows))
+        if use_gpu: self._kexec('copy_to_buffer', self.savebuffer,self.psi_in,self.c0,self.r0, self.numtrial,self.N,shape=(self.cols,self.rows))
         else: self.savebuffer[self.numtrial] = self.psi_in[self.r0:self.r0+self.rows,self.c0:self.c0+self.cols]
 
         self.numtrial += 1
@@ -172,23 +172,19 @@ class phasing(common):
             assert support.shape[0] == support.shape[1]
             support = support.astype(np.float32)
             support *= 1./support.max()
-            
-            # load the support into memory. assume that replacing the support
-            # means a new set of trials, so reset the trial counter
-            if self.support_state == 2:
-                assert support.shape == self.support.shape
-                self.numtrial = 0
-            if self.support_state != 2: self.support = self._allocate(support.shape,np.float32,'support')
+
+            # load the support into memory. because we only check the size later after both
+            # support and modulus have been loaded, we must re-allocate memory every time.
+            if self.support_state == 2: self.numtrial = 0
+            self.support = self._allocate(support.shape,np.float32,'support')
             self.support = self._set(support,self.support)
             
             # make the new bounding region. do not yet allocate memory for the buffer.
-            bounds    = masking.bounding_box(support,force_to_square=True,pad=4)
-            self.rows = int(bounds[1]-bounds[0])
-            self.cols = int(bounds[3]-bounds[2])
-            self.r0, self.c0 = bounds[0],bounds[2]
-            #print "support has bounds: %s"%bounds
+            bounds = masking.bounding_box(support,force_to_square=False,pad=4)
+            self.r0, self.rows = bounds[0], int(bounds[1]-bounds[0])
+            self.c0, self.cols = bounds[2], int(bounds[3]-bounds[2])
 
-            self.support_state = 2
+            self.support_state = 1
             
         # get the number of trials into memory
         if numtrials != None:
@@ -202,35 +198,51 @@ class phasing(common):
             assert ipsf.shape[0] == ipsf.shape[1]
             ipsf = ipsf.astype(np.complex64)
             
-            if self.ipsf_state == 2: assert ipsf.shape == self.ipsf.shape
-            if self.ipsf_state != 2:
-                self.ipsf = self._allocate(ipsf.shape,np.complex64,'ipsf')
+            if self.ipsf_state == 2:
+                assert ipsf.shape == self.ipsf.shape
+            self.ipsf = self._allocate(ipsf.shape,np.complex64,'ipsf')
             self.ipsf = self._set(ipsf.astype(np.complex64),self.ipsf)
-            self.ipsf_state = 2
+            self.ipsf_state = 1
             
         #### load information with dependencies
         if self.modulus_state == 2:
+            
+            if self.ipsf_state > 0:
+                assert self.ipsf.shape == self.shape
+                self.ipsf_state = 2
 
-            # check that everything is the same size
-            if self.support_state == 2:
+            # if a support is loaded, ensure it is the correct size
+            if self.support_state > 0:
+                
+                # this means we have a self.modulus and a self.support
+                if self.support.shape != self.modulus.shape:
+                    
+                    assert self.rows <= self.modulus.shape[0]
+                    assert self.cols <= self.modulus.shape[1]
+                    
+                    resupport = self.get(self.support)[self.r0:self.r0+self.rows,self.c0:self.c0+self.cols]
+                    new = np.zeros(self.shape,np.float32)
+                    new[:self.rows,:self.cols] = resupport
+                    
+                    # make the new bounding region
+                    bounds    = masking.bounding_box(new,force_to_square=True,pad=4)
+                    self.r0, self.rows = bounds[0], int(bounds[1]-bounds[0])
+                    self.c0, self.cols = bounds[2], int(bounds[3]-bounds[2])
+
+                    self.support = self._allocate(self.shape,np.float32,name='support')
+                    self.support = self._set(new,self.support)
+                
                 assert self.support.shape == self.shape
+                self.support_state = 2
                 
                 # allocate memory for savebuffer
                 if self.buffer_state == 1 or (self.buffer_state == 2 and self.savebuffer.shape != (self.numtrials,self.rows,self.rows)):
                     self.savebuffer = self._allocate((self.numtrials,self.rows,self.cols),np.complex64,'savebuffer')
                     self.buffer_state = 2
-                
-            #if self.ipsf_state == 2 and self.rl_state == 0:
-            #    assert self.ipsf.shape == self.shape
-            #    
-            #    # allocate buffers for rl deconvolution
-            #    names = ('rl_est','rl_pc','rl_blur1','rl_blur2','rl_div','rl_blur2','ipsfr')
-            #    for n in names: exec("self.%s = self._allocate(self.shape,np.complex64,name='%s')"%(n,n))
-            #    self.rl_state = 2
             
         # set the flag which allows iteration.
         if self.modulus_state == 2 and self.support_state == 2 and self.buffer_state == 2: self.can_iterate = True
- 
+
     def optimize_gaussian_coherence(self, best_estimate, modulus=None, force_cpu=False):
         """ Given a "best estimate" reconstruction, find an ipsf
         function which when used to blur the "best estimate" speckle pattern
@@ -244,7 +256,9 @@ class phasing(common):
         
         global use_gpu
         old_use_gpu = use_gpu
-        if force_cpu: use_gpu = False
+        if force_cpu:
+            use_gpu = False
+            common.use_gpu = False
         
         self.counter = 0
 
@@ -259,6 +273,7 @@ class phasing(common):
                 self._fft2(self.optimize_ac,self.optimize_ac,inverse=True)
                 
             else:
+                
                 self.optimize_ac = np.fft.ifft2(abs(np.fft.fft2(self.optimize_ac))**2)
                 
         def _diff(cl):
@@ -281,7 +296,7 @@ class phasing(common):
                 self._fft2(   self.optimize_ac2,self.optimize_bl)
                 self._cl_abs( self.optimize_bl,self.optimize_bl) # now a blurry intensity
                 self._cl_sqrt(self.optimize_bl,self.optimize_bl2) # now a blurry modulus
-                
+
             else:
                 temp = abs(np.fft.fft2(self.optimize_g*self.optimize_ac))
                 power_out = np.sum(temp)
@@ -291,12 +306,12 @@ class phasing(common):
             if use_gpu:
                 
                 self._kexec('subtract_f_f',self.optimize_bl2,self.optimize_m,self.optimize_bl2)
-                self._cl_abs(     self.optimize_bl2,self.optimize_bl2)
+                self._cl_abs(     self.optimize_bl2,self.optimize_bl2,square=True)
                 x = cla.sum(self.optimize_bl2).get()
 
             else:
                 diff = self.optimize_bl2-self.optimize_m
-                x = np.sum(abs(self.optimize_bl2-self.optimize_m))
+                x = np.sum(abs(self.optimize_bl2-self.optimize_m)**2)
             
             return x
     
@@ -359,7 +374,7 @@ class phasing(common):
         # now run the optimizer
         from scipy.optimize import fmin
         
-        p0 = (modulus.shape[0]/4,modulus.shape[1]/4)
+        p0 = (modulus.shape[0]/2,modulus.shape[1]/2)
         p1 = fmin(_diff,p0,disp=False)
 
         # based on the optimized p1, reset ipsf
@@ -367,6 +382,7 @@ class phasing(common):
         gx = np.exp(-cols**2/(2*p1[1]**2))
         
         use_gpu = old_use_gpu
+        common.use_gpu = old_use_gpu
         
         self.load(ipsf=(gy*gx))
         
@@ -860,8 +876,8 @@ def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshol
     
     # now find all the local parts of the support, and conduct local thresholding on each
     parts = masking.find_all_objects(support)
-    #print "refining... %s %s %s"%(parts.shape)
     part_sums = np.ndarray(len(parts),float)
+
     for n,part in enumerate(parts):
         current      = blurred*part
         local_passed = np.where(current > current.max()*local_threshold, 1, 0)

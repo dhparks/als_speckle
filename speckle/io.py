@@ -930,8 +930,10 @@ def complex_hsv_image(array):
     # first, convert the complex to hsv
     v = abs(array)
     v /= v.max()
-    h = (numpy.angle(array)+numpy.pi)*360/(2*numpy.pi)
     
+    N = len(array)
+    h = numpy.mod(numpy.angle(array,deg=True)+360,360)
+
     #unravel for mapping
     v.shape = (v.size,)
     h.shape = (h.size,)
@@ -1035,7 +1037,8 @@ _save_maps = {
     "phase": numpy.angle, 
     "real": numpy.real,
     "imag": numpy.imag,
-    "complex_hls": complex_hls_image
+    "complex_hls": complex_hls_image,
+    "complex_hsv": complex_hsv_image
 }
 
 def _process_components(components):
