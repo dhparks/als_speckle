@@ -756,6 +756,8 @@ def prtf(estimates,N):
         assert estimates.ndim == 3, "must be 3d"
     if isinstance(estimates,(list,tuple)):
         assert len(estimates) > 1, "must be 3d"
+        
+    shift = np.fft.fftshift
     
     # compute the prtf by averaging the phase of all the trials
     phase_average = np.zeros((N,N),complex)
@@ -800,6 +802,8 @@ def rftf(estimate,goal_modulus,hot_pixels=False):
     assert isinstance(estimate,np.ndarray), "estimate must be ndarray"
     assert isinstance(goal_modulus,np.ndarray), "goal_modulus must be ndarray"
     assert estimate.shape <= goal_modulus.shape, "estimate must be smaller than goal_modulus"
+    
+    shift = np.fft.fftshift
     
     # form the speckle pattern
     new = np.zeros(goal_modulus.shape,estimate.dtype)
