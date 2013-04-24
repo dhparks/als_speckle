@@ -361,7 +361,7 @@ def openimage(filename):
         integer ndarray"""
     
     import Image
-    import scipy.misc.pilutil as smp
+    import scipy.misc as smp
     return smp.fromimage(Image.open(filename).convert("L"))
 
 def writefits(filename, img, headerItems={}, overwrite=None):
@@ -843,7 +843,7 @@ def write_image(filename, array, color_map='L'):
         no return arguments.
     """
 
-    import scipy.misc.pilutil as smp
+    import scipy.misc as smp
     
     assert isinstance(array,numpy.ndarray), "in write_image, array must be ndarray but is %s"%type(array)
     assert array.ndim in (2,3), "in write_image, array must be 2d or 3d; is %s"%array.ndim
@@ -935,8 +935,12 @@ def complex_hsv_image(array):
     h = numpy.mod(numpy.angle(array,deg=True)+360,360)
 
     #unravel for mapping
-    v.shape = (v.size,)
-    h.shape = (h.size,)
+    try:
+        v.shape = (v.size,)
+        h.shape = (h.size,)
+    except AttributeError:
+        v = numpy.reshape(v,(v.size,))
+        h = numpy.reshape(h,(h.size,))
     
     # prep the p,q,t,v components which get mapped to rgb
     h60  = h/60.
@@ -968,11 +972,10 @@ def complex_hsv_image(array):
 
     return (numpy.dstack((r,g,b))*255).astype(numpy.uint8)
     
-# these map hi to p,q,t,v
+# these map hi to p,q,t,v in complex_xxx_image
 hsv_r_map = numpy.array((0,2,1,1,3,0))
 hsv_g_map = numpy.array((3,0,0,2,1,1))
 hsv_b_map = numpy.array((1,1,3,0,0,2))
-    
     
 def color_maps(map):
     """ List of colormaps.  Used for image output.
@@ -1069,7 +1072,7 @@ def _process_components(components):
         components.extend( ['real', 'imag'] )
         components.remove('cartesian')
     if 'all' in components:
-        components = _save_maps.keys()
+        components = ['mag','phase','real','imag']
     #print components, "components"
     for elem in components:
         assert elem in _save_maps.keys(), "unknown component %s" % elem

@@ -94,7 +94,7 @@ def despike(ac,width=4):
     return np.roll(ac,90,axis=1)
 
 def resize(data,shape):
-    import scipy.misc.pilutil as smp
+    import scipy.misc as smp
     import Image
     return smp.fromimage(smp.toimage(data,mode='F').resize(shape,Image.ANTIALIAS))
 

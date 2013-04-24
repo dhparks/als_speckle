@@ -1,6 +1,6 @@
 import numpy
 import speckle
-import scipy.misc.pilutil as smp
+import scipy.misc as smp
 
 global use_gpu
 

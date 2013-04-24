@@ -241,7 +241,7 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
             hsv_convert.execute(queue,store.shape,store.data,image_buffer.data,maxval).wait()
             
             # now convert to pil objects
-            import scipy.misc.pilutil as smp
+            import scipy.misc as smp
             images = []
             image_buffer = image_buffer.get()
             for image in image_buffer: images.append(smp.toimage(image))
@@ -281,7 +281,7 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         if im_convert:
             
             # now convert frames to pil objects
-            import scipy.misc.pilutil as smp
+            import scipy.misc as smp
             import io
             images = []
             for frame in store:

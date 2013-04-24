@@ -24,13 +24,15 @@ __kernel void execute(
         float re = in[index_in].x;
         float im = in[index_in].y;
         
-        // convert re and im to hls
+        // convert re and im to hsv
         float pi = 3.14159265358979323846f;
         float s = 1.0;
         float v = native_sqrt(re*re+im*im)/max;
-        float h = (atan2(im,re)+pi)*6/(2*pi); // 0 to 6; hi in the python function
-        float hf = floor(h);
-        float f = h-hf;
+        float h = (atan2(im,re)+2*pi)*360/(2*pi);
+        h = fmod(h,360);
+        float h60 = h/60;
+        float hf = floor(h60);
+        float f = h60-hf;
         int h2 = (int)(hf);
         
         // make the p, q, t components
@@ -51,8 +53,7 @@ __kernel void execute(
         
         // assign rgb to out. first, calculate the index.
         // this assume the following structure (frame,row,column,channel)
-        int channels = 3;
-        int index_out = i*(rows*columns*channels)+j*(columns*channels)+k*channels;
+        int index_out = i*(rows*columns*3)+j*(columns*3)+k*3;
         
         out[index_out]   = (uchar)(255*r); //convert to 8-bit integers
         out[index_out+1] = (uchar)(255*g);

@@ -8,7 +8,7 @@ Author: Keoki Seu (kaseu@lbl.gov)
 import numpy
 from . import masking, io, shape, crosscorr
 
-def remove_dust(data_in,dust_mask,dust_plan=None):
+def remove_dust_old(data_in,dust_mask,dust_plan=None):
     """ Attempts to remove dust and burn marks from CCD images by interpolating
     in regions marked as defective in a plan file.
     
@@ -89,7 +89,7 @@ def remove_dust(data_in,dust_mask,dust_plan=None):
     if was_2d: data.shape = (Lr,Lc)
     return data, dust_plan
 
-def remove_dust_new(data,dust_mask,dust_plan=None):
+def remove_dust(data,dust_mask,dust_plan=None):
     """ Attempts to remove dust through with grid_data, an interpolation routine
     for irregularly spaced data.
     
@@ -152,7 +152,7 @@ def remove_dust_new(data,dust_mask,dust_plan=None):
 
         # do the interpolation and put it into interpolated_data. 'linear'
         # method gives best results for test data AND is fastest.
-        interpolation = griddata(points.transpose(), values, (gy, gx), method='linear')
+        interpolation = griddata(points.transpose(), values, (gy, gx), method='linear') # magic
         interpolated[ymin-1:ymax+1,xmin-1:xmax+1] = interpolation
         interpolated = numpy.nan_to_num(interpolated)
         
@@ -162,40 +162,44 @@ def remove_dust_new(data,dust_mask,dust_plan=None):
         
     return data_in, dust_plan
         
-def plan_remove_dust_new(mask):
-
-        # define the expand-by-1 kernel
-        kernel = numpy.zeros(mask.shape,numpy.float32)
-        kernel[0:2,0:2] = 1
-        kernel[-1:,0:2] = 1
-        kernel[-1:,-1:] = 1
-        kernel[0:2,-1:] = 1
-         
-        # precompute the fourier transforms for the convolutions
-        kf = numpy.fft.fft2(kernel)
-        df = numpy.fft.fft2(mask)
-
-        def _expand(x):
-            f1 = df*kf**x     # expand by x
-            f2 = df*kf**(x-1) # expand by x-1
-            r1 = numpy.fft.ifft2(f1).real # transform to real space
-            r2 = numpy.fft.ifft2(f2).real # transform to real space
-            return numpy.clip(r1,0.,1.)-numpy.clip(r2,0.,1.) # take the difference
-            
-        # now expand by 1, 3, 5, 7, 9 pixels.
-        plan = numpy.zeros(mask.shape,numpy.float32)
-        for x in (1,4,7,10):
-            expanded = _expand(x)
-            plan += expanded
-        
-        # dont allow interpolation inside the marked region of dust_mask
-        plan = numpy.clip(plan,0,1.)
-        plan += -mask
-        plan = numpy.clip(plan,0.,1.)
-        
-        return plan.astype(numpy.uint8)
-    
 def plan_remove_dust(mask):
+
+    # first, clip the mask to the minimum size needed to bound the region
+    # identified as having dust.
+    bb    = masking.bounding_box(mask,force_to_square=True,pad=10)
+    mask2 = mask[bb[0]:bb[1],bb[2]:bb[3]]
+    
+    # define the expand-by-1 kernel
+    kernel = numpy.zeros(mask2.shape,numpy.float32)
+    kernel[0:2,0:2] = 1
+    kernel[-1:,0:2] = 1
+    kernel[-1:,-1:] = 1
+    kernel[0:2,-1:] = 1
+     
+    # precompute the fourier transforms for the convolutions
+    kf = numpy.fft.fft2(kernel)
+    df = numpy.fft.fft2(mask2)
+
+    def _expand(x):
+        f1 = df*kf**x     # expand by x
+        f2 = df*kf**(x-1) # expand by x-1
+        r1 = numpy.fft.ifft2(f1).real # transform to real space
+        r2 = numpy.fft.ifft2(f2).real # transform to real space
+        return numpy.clip(r1,0.,1.01)-numpy.clip(r2,0.,1.01) # take the difference
+        
+    # now expand by 1, 3, 5, 7, 9 pixels.
+    plan = numpy.zeros(mask2.shape,numpy.float32)
+    for x in (1,4,7,10):
+        expanded = _expand(x)
+        plan += expanded
+    
+    # restore to original size and position.
+    plan2 = numpy.zeros(mask.shape,numpy.uint8)
+    plan2[bb[0]:bb[1],bb[2]:bb[3]] = plan.astype(numpy.uint8)
+    
+    return plan2
+    
+def plan_remove_dust_old(mask):
     """ Dust removal has requires two pieces of information: a mask describing
     the dust and a plan of operations for doing the spline interpolation within
     the mask. Only the mask is specified by the user. This function generates
@@ -619,7 +623,7 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
     Merging follows two steps: count levels are matched in a selectable region,
     and then counts are smoothly blended between the two images.
     
-    It is assumed that the two images have been proprely registered before being
+    It is assumed that the two images have been properly aligned before being
     passed to this function.
     
     arguments:
@@ -654,7 +658,7 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
     assert isinstance(fill_region, (numpy.ndarray,str)), "fill_region must be an array or a path to an array"
     assert isinstance(width, (int,float)), "width must be float or int"
 
-    def make_blender(fill_region, width):
+    def _make_blender(fill_region, width):
         """ Fast blender generation from fill_region. Helper function for merge.
             Returns a blender array that is 0 in fill_region with a gradual
             transition to 1 outside.  If width <= 0, do a hard merge without
@@ -695,7 +699,7 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
         
     # make the blender
     assert fill_region.shape == data_to.shape, "fill_region and data must be same shape"
-    blender = make_blender(fill_region,width)
+    blender = _make_blender(fill_region,width)
     
     # scale the data to reconcile acquisition times etc
     if fit_region != None:
