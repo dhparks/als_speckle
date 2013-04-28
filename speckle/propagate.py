@@ -82,7 +82,8 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
 
 def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregion=None,silent=True,band_limit=False,gpu_info=None,im_convert=False):
     """ Propagates a complex-valued wavefield through a range of distances
-    using the CPU. A GPU-accelerated version is available elsewhere.
+    using the CPU. GPU acceleration is available if properly formed gpu_info is
+    supplied, as is returned by gpu.init().
     
     Required input:
         data -- a square numpy array, either float32 or complex64, to propagate
@@ -95,17 +96,29 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         subarraysize -- because the number of files can be large a subarray
             cocentered with data can be specified.
         silent -- if False, report what distance is currently being calculated.
+        gpu_info -- what gets returned by speckle.gpu.init().
+        im_convert -- if True, will convert each of the propagated frames
+            to hsv color space and then into PIL objects. 
     
-    Returns: a complex-valued 3d ndarray with shape:
-        (len(distances),subarraysize,subarraysize)
+    Returns:
     
-        If the subarraysize argument wasn't used the output shape is:
-        (len(distances),len(data),len(data))
-    
-    returned[n] is the wavefield propagated to distances[n].
+        if im_convert == False:
+            a complex-valued 3d ndarray with shape:
+            (len(distances),subarraysize,subarraysize)
+        
+            If the subarraysize argument wasn't used the output shape is:
+            (len(distances),len(data),len(data))
+            
+        if im_convert == True:
+        
+            (propagated_array, propagated_pil_images)
+            
+            propagated_array is the same as in the im_convert=False case.
+            propagated_pil_images is a list of images whose shapes are
+            the same as the frame in propagated_array.
     """
-    import sys
     
+    import sys
     
     iterable_types = (tuple,list,np.ndarray)
     coord_types = (int,float,np.int32,np.float32,np.float64)
@@ -193,11 +206,14 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         multiply       = gpu.build_kernel_file(context, device, kp+'common_multiply_f2_f2.cl')
 
         # put the signals onto the gpu along with buffers for the various operations
-        rarray  = cla.to_device(queue,r.astype(np.float32))   # r array
-        fourier = cla.to_device(queue,f.astype(np.complex64)) # fourier data
-        phase   = cla.empty(queue,(N,N),np.complex64)         # buffer for phase factor and phase-fourier product
-        back    = cla.empty(queue,(N,N),np.complex64)         # buffer for propagated wavefield
+        rarray  = cla.to_device(queue,r.astype(np.float32))      # r array
+        fourier = cla.to_device(queue,data.astype(np.complex64)) # fourier data
+        phase   = cla.empty(queue,(N,N),np.complex64)            # buffer for phase factor and phase-fourier product
+        back    = cla.empty(queue,(N,N),np.complex64)            # buffer for propagated wavefield
         store   = cla.empty(queue,(numfr,rows,cols),np.complex64) # allocate propagation buffer
+        
+        # precompute the fourier transform of data
+        fftplan.execute(fourier.data,wait_for_finish=True)
         
         # now compute the propagations
         N = np.int32(N)
@@ -238,10 +254,11 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
             # allocate new memory (frames, rows, columns, 3); uchar -> uint8?
             new_shape    = store.shape+(3,)
             image_buffer = cla.empty(queue,new_shape,np.uint8)
+            debug_buffer = cla.empty(queue,store.shape,np.float32)
             hsv_convert.execute(queue,store.shape,store.data,image_buffer.data,maxval).wait()
-            
+
             # now convert to pil objects
-            import scipy.misc as smp
+            import scipy.misc.pilutil as smp
             images = []
             image_buffer = image_buffer.get()
             for image in image_buffer: images.append(smp.toimage(image))
@@ -281,7 +298,7 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         if im_convert:
             
             # now convert frames to pil objects
-            import scipy.misc as smp
+            import scipy.misc.pilutil as smp
             import io
             images = []
             for frame in store:
@@ -423,20 +440,26 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
     assert isinstance(normalized, type(True)),            "normalized must be bool"
     assert isinstance(mask, (type(None), np.ndarray)), "mask must be None or ndarray"
     
+    import masking
     if data.ndim == 2: data.shape = (1,data.shape[0],data.shape[1])
     if mask == None: mask = np.ones(data.shape[1:],float)
+    bounds = masking.bounding_box(mask)
 
     # calculate the acutance
+    import time
     acutance_list = []
     for n,frame in enumerate(data):
-        a = _acutance_calc(abs(frame).real,method,normalized,mask,exponent)
-        acutance_list.append(_acutance_calc(abs(frame).real,method,normalized,mask,exponent))
+        acutance_list.append(_acutance_calc(abs(frame).real,method,normalized,mask,exponent,bounds))
         
     # return the calculation
     return acutance_list
             
-def _acutance_calc(data,method,normalized,mask,exponent):
+def _acutance_calc(data,method,normalized,mask,exponent,bounds=None):
     assert data.ndim == 2, "data is wrong ndim"
+
+    if bounds != None:
+        data = data[bounds[0]:bounds[1],bounds[2]:bounds[3]]
+        mask = mask[bounds[0]:bounds[1],bounds[2]:bounds[3]]
 
     if method == 'sobel':
         from scipy.ndimage.filters import sobel
