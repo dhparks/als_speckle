@@ -132,7 +132,7 @@ def take_masked_pixels(data, mask):
 def trace_object(data_in, start, detect_val=None, return_type='detected'):
     """ Using a floodfill algorithm (basically, the paintbuck tool in software
     like Photoshop), find all the elements of an array which are connected to
-    the a specified pixel.
+    a specified pixel.
     
     arguments:
         data_in -- 2d array to be flood-filled
@@ -250,6 +250,7 @@ def find_all_objects(data,detect_val=(.95,1.05),return_type='objects'):
                     if return_type == 'objects':     objects.append(found_object.astype(int))
                     if return_type == 'coordinates': starts.append((r,c))
                     data[found_object == 1] = 0 # zero out the object we just find so we don't find it again
+
                     
     if return_type == 'coordinates': return starts
     if return_type == 'objects': return np.array(objects).astype(int)

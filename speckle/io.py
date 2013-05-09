@@ -293,6 +293,8 @@ def openfits(filename, quiet=True, orientImageHDU=True):
     """
     import pyfits
     import os
+    
+    has_imagehdu = False
 
     assert os.path.exists(filename), "unknown file %s" % filename
     if not isinstance(quiet, bool):
@@ -304,21 +306,31 @@ def openfits(filename, quiet=True, orientImageHDU=True):
 
     # open fits file - Labview software stores data in ImageHDU and Andor stores it in PrimaryHDU.
     a = pyfits.open(filename)
-    # return data where header shows NAXIS != 0
-    if a[0].header['NAXIS'] != 0:
+    
+    # check if an ImageHDU exists in the list of HDUs
+    for HDU in a:
+        if isinstance(HDU,pyfits.core.ImageHDU):
+            has_imagehdu = True
+        
+    # if not, the file was written (presumably!) by Andor or pyfits.    
+    if not has_imagehdu:
         pr('openfits: %s data located in PrimaryHDU' % filename)
         return a[0].data
-    elif a[1].header['NAXIS'] != 0:
-        pr('openfits: %s data located in ImageHDU' % filename)
+    
+    # if so, the file was written by labview, so make sure to open the ImageHDU and not
+    # one of the other HDUs.
+    if has_imagehdu:
+        for HDU in a:
+            if isinstance(HDU,pyfits.core.ImageHDU):
+                
+                pr('openfits: %s data located in ImageHDU' % filename)
 
-        if orientImageHDU:
-            # ImageHDU usually means that it was written by Labview. Default to reorient the image into the correct (andor) orientation.
-            pr('openfits: orienting ImageHDU data properly')
-            return _labview_to_andor(a[1].data)
-        else:
-            return a[1].data
-    else:
-        raise IOError('openfits: No idea where data is located!')
+                if orientImageHDU:
+                    # Default to reorient the image into the correct (andor) orientation.
+                    pr('openfits: orienting ImageHDU data properly')
+                    return _labview_to_andor(HDU.data)
+                else:
+                    return HDU.data
 
 def openframe(filename, frame=0, quiet=True):
     """ Opens a single FITS frame.
@@ -927,10 +939,15 @@ def complex_hsv_image(array):
     k = vpqt[hsv_k_map[hi[n]],n]
     """
     
+    # these map hi to v,p,q,t in complex_xxx_image
+    hsv_r_map = numpy.array((0,2,1,1,3,0))
+    hsv_g_map = numpy.array((3,0,0,2,1,1))
+    hsv_b_map = numpy.array((1,1,3,0,0,2))
+    
     # first, convert the complex to hsv
     v = abs(array)
     v /= v.max()
-    
+
     N = len(array)
     h = numpy.mod(numpy.angle(array,deg=True)+360,360)
 
@@ -941,7 +958,7 @@ def complex_hsv_image(array):
     except AttributeError:
         v = numpy.reshape(v,(v.size,))
         h = numpy.reshape(h,(h.size,))
-    
+
     # prep the p,q,t,v components which get mapped to rgb
     h60  = h/60.
     h60f = numpy.floor(h60)
@@ -960,22 +977,21 @@ def complex_hsv_image(array):
     #g = numpy.zeros(array.size,numpy.float32)
     #b = numpy.zeros(array.size,numpy.float32)
     n = numpy.arange(array.size)
-    
+
     # map: x_map[hi[n]] gets the row in vpqt
     r = vpqt[hsv_r_map[hi[n]],n]
     g = vpqt[hsv_g_map[hi[n]],n]
     b = vpqt[hsv_b_map[hi[n]],n]
-    
+
     r.shape = array.shape
     g.shape = array.shape
     b.shape = array.shape
 
+    h.shape = array.shape
+    hi.shape = array.shape
+
     return (numpy.dstack((r,g,b))*255).astype(numpy.uint8)
-    
-# these map hi to p,q,t,v in complex_xxx_image
-hsv_r_map = numpy.array((0,2,1,1,3,0))
-hsv_g_map = numpy.array((3,0,0,2,1,1))
-hsv_b_map = numpy.array((1,1,3,0,0,2))
+
     
 def color_maps(map):
     """ List of colormaps.  Used for image output.

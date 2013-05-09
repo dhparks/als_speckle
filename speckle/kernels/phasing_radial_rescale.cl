@@ -1,22 +1,31 @@
-__kernel void execute(__global float* primary,
-		      __global float* rescale,
-		      __global float* weights,
-		      __global float* out)
+__kernel void execute(__global float2* primary, // primary comes in as float2 but has zero imaginary component.
+		      __global const float* rescale,
+		      __global const float* weights,
+		      int kmax,
+		      __global float2* out) // out is float2 but has zero imaginary component
         
         {
+	// this kernel assumes that the data being passed is in human-centered form, meaning that
+	// the center of the diffraction pattern is at coordinate (N2,M/2) instead of (0,0).
+	// this arrangement is done on the gpu by invoking common_fftshift_f.cl or
+	// common_fftshift_f2.cl depending on data type. this split is intended to facilitate easier
+	// implementation for algorithms such as this one at the cost of some speed necessary to do
+	// the shifting of the data between coordinates.
 
-	int kmax = 100;
-	
-	// get coordinates
+	// get coordinates of local worker
 	int i = get_global_id(0);
 	int j = get_global_id(1);
 	int N = get_global_size(0);
 	int M = get_global_size(1);
 	
-	int x = (i+N/2)%N-N/2; // this coordinate system has its origin at center
-	int y = (j+N/2)%N-N/2;
-	float fx = (float)x; // coordinates as float
-	float fy = (float)y;
+	int N2 = N/2;
+	int M2 = M/2;
+	
+	// switch from machine coordinates (i, j) to human coordinates (x, y)
+	float x = (float) i;
+	float y = (float) j;
+	if (i > N2-1) {x = i-N;}
+	if (j > M2-1) {y = j-N;}
 	
 	float cumulant = 0; // this holds the running total of the value
 	
@@ -37,12 +46,12 @@ __kernel void execute(__global float* primary,
 	float val12 = 0;
 	float val21 = 0;
 	float val22 = 0;
-	float iv = 0;
-	
 	int keep_x1 = 1;
 	int keep_x2 = 1;
 	int keep_y1 = 1;
 	int keep_y2 = 1;
+
+	float iv = 0;
 
 	// for each slice of the spectrum, do a bilinear interpolation to find
 	// the pixel which contributes to the pixel (i,j) in the output image.
@@ -51,55 +60,47 @@ __kernel void execute(__global float* primary,
 	    rv = rescale[k]; // rescaling factor
 	    sw = weights[k]; // spectral weight
 		
-		rx = fx/rv;
-		ry = fy/rv;
-		
-	    //rx = fmod(rx+N,N); // rescale x, then modulo coords to corner-centered system
-	    //ry = fmod(ry+M,M);
-		
-		keep_x1 = 1;
-		keep_x2 = 1;
-		keep_y1 = 1;
-		keep_y2 = 1;
-	    
+	    rx = x/rv;
+	    ry = y/rv;
+
 	    // these form the coordinates which we will use to interpolate. they are still
-		// in the (-N/2,N/2) coordinate system
+	    // in the (-N2,N2) coordinate system
 	    x1 = floor(rx);
 	    x2 = x1+1;
 	    y1 = floor(ry);
 	    y2 = y1+1;
 
-		// check to see if the location we pull from is out-of-bounds
-		if (x1 <= -N/2) {keep_x1 = 0;}
-		if (x1 >= N/2)  {keep_x1 = 0;}
-		if (x2 <= -N/2) {keep_x2 = 0;}
-		if (x2 >= N/2)  {keep_x2 = 0;}
-		if (y1 <= -N/2) {keep_y1 = 0;}
-		if (y1 >= N/2)  {keep_y1 = 0;}
-		if (y2 <= -N/2) {keep_y2 = 0;}
-		if (y2 >= N/2)  {keep_y2 = 0;}
+	    // check to see if the location we pull from is out-of-bounds
+	    keep_x1 = 1;
+	    keep_x2 = 1;
+	    keep_y1 = 1;
+	    keep_y2 = 1;
+	    if (x1 <= -N2) {keep_x1 = 0;}
+	    if (x1 >= N2)  {keep_x1 = 0;}
+	    if (x2 <= -N2) {keep_x2 = 0;}
+	    if (x2 >= N2)  {keep_x2 = 0;}
+	    if (y1 <= -M2) {keep_y1 = 0;}
+	    if (y1 >= M2)  {keep_y1 = 0;}
+	    if (y2 <= -M2) {keep_y2 = 0;}
+	    if (y2 >= M2)  {keep_y2 = 0;}
 		
-		// these are the weights for each coordinate
+	    // these are the weights for each coordinate
 	    wx1 = (1-fabs(x1-rx))*keep_x1;
 	    wx2 = (1-fabs(x2-rx))*keep_x2;
 	    wy1 = (1-fabs(y1-ry))*keep_y1;
 	    wy2 = (1-fabs(y2-ry))*keep_y2;
 		
-		// now modulo the coordinates to bring them back to the (0,N) system
-		if (x1 < 0) {x1 = (x1+N)%N;}
-		if (x2 < 0) {x2 = (x2+N)%N;}
-		if (y1 < 0) {y1 = (y1+M)%M;}
-		if (y2 < 0) {y2 = (y2+M)%M;}
+	    // now modulo the coordinates to bring them back to the (0,N) system
+	    if (x1 < 0) {x1 = x1+N;}
+	    if (x2 < 0) {x2 = x2+N;}
+	    if (y1 < 0) {y1 = y1+M;}
+	    if (y2 < 0) {y2 = y2+M;}
 
-		// cyclic boundary conditions
-	    if (x2 >= N) {x2 = (x2+N)%N;}
-	    if (y2 >= M) {y2 = (y2+M)%M;}
-	    
 	    // these are the values from the four pixels
-	    val11 = primary[x1+y1*N];
-	    val12 = primary[x1+y2*N];
-	    val21 = primary[x2+y1*N];
-	    val22 = primary[x2+y2*N];
+	    val11 = primary[x1+y1*N].x;
+	    val12 = primary[x1+y2*N].x;
+	    val21 = primary[x2+y1*N].x;
+	    val22 = primary[x2+y2*N].x;
 	    
 	    // this is the interpolated value at the fractional coordinate (rx,ry)
 	    iv = val11*wx1*wy1+val12*wx1*wy2+val21*wx2*wy1+val22*wx2*wy2;
@@ -109,6 +110,6 @@ __kernel void execute(__global float* primary,
 
 	}
 
-	out[j*N+i] = cumulant;
+	out[j*N+i] = (float2)(cumulant,0);
 	
 }

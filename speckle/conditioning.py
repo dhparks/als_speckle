@@ -261,55 +261,46 @@ def plan_remove_dust_old(mask):
     # doesn't matter for this purpose
     return tuple(set(PixelIDStrings))
 
-def subtract_background(data, dark=None, x=20, scale=1, abs_val=True):
-    """Subtract a background file. The DC component of both files is subtracted
-    first. the DC component is calculated by averaging pixels 0:x in both
-    directions.
+def subtract_dark(data, dark, x=20):
+    """Subtract a background file. The data and dark files may have been
+    collected under different acquisition parameters so this tries to scale
+    the dark file appropriately in the region [:x,:x].
 
     arguments:
         data - data to subtract.
         dark - dark file. Must be an ndarray or None.  Defaults to None.  In
             this case only the DC component is subtracted.
-        x - amount from the data edge that should be used for DC component
-            averaging. The dc component is average(data[0:x, 0:x]). Defaults to
-            20 pixels.
-        scale - amount to scale up the dark image before subtraction. Defaults
-            to 1 (no scaling).
-        abs_val - Weather the absolute value of the data should be returned.
-            Defaults to True.
+        x - amount from the data edge that should be used for counts matching.
 
     returns:
         data - the background-subtracted data.
     """
-
-    # check types
-    assert isinstance(data,numpy.ndarray), "data must be ndarray"
-    assert data.ndim in (2,3), "data must be 2d or 3d"
-    assert isinstance(dark,(type(None),numpy.ndarray)), "dark must be None or ndarray"
-    if isinstance(dark,numpy.ndarray):
-        assert dark.ndim == 2, "dark must be 2d"
-        assert data.shape[-2:] == dark.shape, "data and dark must be same shape"
-    assert isinstance(abs_val, (bool, int)), "abs_val must be boolean-evaluable"
     
-    # subtract DC component from data
-    if data.ndim == 2:
-        dc = numpy.average(data[0:x,0:x])
-        data = abs(data-dc)
-        
-    if data.ndim == 3:
-        for n in range(data.shape[0]):
-            dc = numpy.average(data[n,0:x,0:x])
-            data[n] = abs(data[n]-dc)
-        
-    # dark subtraction can be broadcast to all frames of data so no need to check ndim
-    if dark is not None:
-        dark = dark-numpy.average(dark[0:x,0:x])
-        data = data-dark*scale
+    # check types
+    assert isinstance(data,numpy.ndarray), "data must be an array"
+    assert data.ndim in (2,3), "data must be 2d or 3d"
+    assert isinstance(dark,numpy.ndarray), "dark must be an array"
+    assert dark.ndim == 2, "dark must be 2d"
+    assert data.shape[-2:] == dark.shape, "dark and data must be commensurate"
+    assert isinstance(abs_val,bool), "abs_val must be bool"
 
-    if abs_val:
-        return abs(data)
-    else:
-        return data
+    match_region = numpy.zeros(dark.shape,np.uint8)
+    match_region[:x,:x] = 1
+    
+    was2d = False
+    if data.ndim == 2:
+        data.shape = (1,)+data.shape
+        was2d = True
+    
+    for n,frame in enumerate(data):
+        scaled_dark = match_counts(frame,dark,region=match_region)
+        if abs_val: frame = abs(frame-scaled_dark)
+        else: frame += -scaled_dark
+        data[n] = frame
+        
+    if was2d: data = data[0]
+    
+    return data
 
 def remove_hot_pixels(data_in, iterations=1, threshold=2):
     """Uses numpy.medfilt to define hot pixels as those which exceed a certain

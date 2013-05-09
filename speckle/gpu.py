@@ -34,15 +34,18 @@ class common:
             if d1 == 'float32':
                 assert d2 == 'float32'
                 func = 'abs_f'
-            if d2 == 'float32': func = 'abs_f2_f'
-            if d2 == 'complex64': func = 'abs_f2_f2'
+            if d1 == 'complex64':
+                if d2 == 'float32': func = 'abs_f2_f'
+                if d2 == 'complex64': func = 'abs_f2_f2'
+        
         if square == True:
             # square the abs. this saves some time.
             if d1 == 'float32':
                 assert d2 == 'float32'
                 func = 'abs2_f'
-            if d2 == 'float32': func = 'abs2_f2_f'
-            if d2 == 'complex64': func = 'abs2_f2_f2'
+            if d1 == 'complex64':
+                if d2 == 'float32': func = 'abs2_f2_f'
+                if d2 == 'complex64': func = 'abs2_f2_f2'
         
         self._kexec(func,in1,out)
    
@@ -254,7 +257,17 @@ class common:
             func = 'sqrt_f'
         
         self._kexec(func,in1,out)
-
+        
+    def _cl_zero(self,in1):
+        """ Wrapper func to set_zero kernels. """
+        
+        d1 = in1.dtype
+        assert d1 in self.array_dtypes
+        if d1 == 'float32':   func = 'set_zero_f'
+        if d1 == 'complex64': func = 'set_zero_f2'
+        
+        self._kexec(func,in1)
+        
     def _kexec(self,name,*args,**kwargs):
         """ Wrapper function to execute elementwise kernels. If the kernel
         does not exist, try to build it. If the named file cannot be found,
@@ -282,7 +295,6 @@ class common:
         cmd = 'self.%s.execute(self.queue,%s'%(name,shape)
 
         for arg in args:
-            
             try:
                 arg.isgpu
                 cmd += ',self.%s.data'%arg.name
@@ -292,20 +304,16 @@ class common:
                 if isinstance(arg,self.float2s): cmd += ',np.complex64(%s)'%arg # not tested
         cmd += ').wait()'
         
-        #print cmd
-        
-        # try to run the command. this fails is the kernel hasnt yet been built
+        # try to run the command. this fails if the kernel hasnt yet been built
         try: exec(cmd)
         except AttributeError:
         
-            # try to build the kernel. here 'sm' refers to those kernels
-            # specific to the microscope class. 'common' refers to those
-            # kernels shared between many several scripts.
+            # try to build the kernel
             cmd1 = "self.%s = build_kernel_file(self.context, self.device, self.kp+'%s_%s.cl')"%(name,self.project,name)
             cmd2 = "self.%s = build_kernel_file(self.context, self.device, self.kp+'common_%s.cl')"%(name,name)
             
             try:
-                exec(cmd1)
+                exec(cmd1) 
             except IOError:
                 try:
                     exec(cmd2)
@@ -323,7 +331,7 @@ class common:
         Only applicable to arrays. Care must be taken that, in the case of
         GPUs, memory is allocated first. For CPUs, allocation gets handled
         dynamically by the interpreter. """
-        
+
         assert what.shape == where.shape
         assert what.dtype == where.dtype
         if self.use_gpu:

@@ -4,9 +4,19 @@ import speckle,numpy
 speckle.io.set_overwrite(True)
 import time
 
-import matplotlib
-matplotlib.use('TkAgg')
-import pylab
+# see if a gpu is available.
+try:
+    device_info = speckle.gpu.init()
+    context, device, queue, platform = device_info
+    import pyopencl as cl
+    import pyopencl.array as cla
+    kp = string.join(speckle.gpu.__file__.split('/')[:-1],'/')+'/kernels/'
+    gpu_median3 = speckle.gpu.build_kernel_file(context, device, kp+'medianfilter3.cl') # for signal
+    gpu_median5 = speckle.gpu.build_kernel_file(context, device, kp+'medianfilter5.cl') # for dark
+    gpu_hotpix  = speckle.gpu.build_kernel_file(context, device, kp+'remove_hot_pixels.cl')
+    use_gpu = True
+except:
+    use_gpu = False
 
 def average_dark():
     
@@ -49,23 +59,22 @@ def average_dark():
 
 def clean_dark(i=3):
     """ This function uses a median filter to remove hot pixels.
-    If a gpu is available and requested through bcp.device, run the
-    median filter on the gpu instead."""
-    
-    print "    cleaning with median filter"
+    If a gpu is available, run the median filter on the gpu instead."""
 
     # make paths
     in_file = '%s/barker average bg_mag.fits'%bcp.data_path
     out_file = '%s/barker cleaned bg_mag'%bcp.data_path
-    
+
     if isfile('%s_mag.fits'%out_file) and bcp.use_old_files:
         print "    found old cleaned dark file; opening"
         cleaned = speckle.io.open('%s_mag.fits'%out_file).astype(numpy.float32)
-    
+
     else:
         
         assert isfile(in_file), "couldnt find file %s"%in_file
         data = speckle.io.open(in_file).astype(numpy.float32)
+        
+        print "    cleaning dark with median filter"
         
         if use_gpu: # gpu codepath
 
@@ -106,20 +115,20 @@ def correlate_frames(L=256):
     else:
         # to speed the calculation, only correlate a box of size L around the
         # central maximum in each frame. 
-        shape  = speckle.io.get_fits_dimensions(in_file)
-        if len(shape) == 2:
-            shape = (1,shape[0],shape[1])
+        shape = speckle.io.get_fits_dimensions(in_file)
+        if len(shape) == 2: shape = (1,shape[0],shape[1])
         maxima = numpy.zeros((shape[0],L,L),numpy.float32)
         
         # slice the out the central maxima
         for n in range(shape[0]):
-            frame       = speckle.io.openframe(in_file,n)
-            mr,mc       = numpy.unravel_index(frame.argmax(),(frame.shape)) # brightest pixel (row,col)
-            maxima[n]   = frame[mr-L/2:mr+L/2,mc-L/2:mc+L/2]
+            frame     = speckle.io.openframe(in_file,n)
+            mr,mc     = numpy.unravel_index(frame.argmax(),(frame.shape)) # brightest pixel (row,col)
+            maxima[n] = frame[mr-L/2:mr+L/2,mc-L/2:mc+L/2]
     
         print "    correlating..."
-        #if use_gpu:     correlations = gpulib.gpu_phasing.covar_results(gpu_info,subarray,threshold=0.9)[1] # accidentally deleted this file, oops
-        #if not use_gpu: correlations = speckle.crosscorr.pairwise_covariances(maxima)
+        #if use_gpu:     correlations = gpulib.gpu_phasing.covar_results(gpu_info,subarray,threshold=0.9)[1] # i seem to have deleted this...
+        if use_gpu: correlations = speckle.phasing.covar_results(device_info,maxima)[1]
+        else:      correlations = speckle.crosscorr.pairwise_covariances(maxima)
            
         # save the cross-correlations
         speckle.io.save('%s.fits'%out_file,correlations)
@@ -148,7 +157,9 @@ def average_signal():
     
     in_file  = '%s/%s'%(bcp.data_path,bcp.data_name)
     out_file = '%s/barker sum config1'%bcp.data_path
-    dm = '%s/%s'%(bcp.data_path,bcp.dust_mask_name)
+
+    if bcp.dust_mask_name != None: dm = '%s/%s'%(bcp.data_path,bcp.dust_mask_name)
+    else: dm = None
     
     print "  working on signal average"
     
@@ -162,8 +173,9 @@ def average_signal():
         
         print "    planning"
         # open the dust masks and make plans
-        dust_mask = numpy.flipud(speckle.conditioning.open_dust_mask(dm))
-        dust_plan = speckle.conditioning.plan_remove_dust_new(dust_mask)
+        if dm != None:
+            dust_mask = numpy.flipud(speckle.conditioning.open_dust_mask(dm))
+            dust_plan = speckle.conditioning.plan_remove_dust(dust_mask)
         
         # set up the sums for:
         # 0. all data
@@ -209,12 +221,12 @@ def average_signal():
             print "    working on frame %s of %s"%(n,shape[0])
             
             # find the configuration
-            if frame_corrs[0,n] >= 0.97:
+            if frame_corrs[0,n] >= 0.98:
                 add_to   = sum1
                 align_to = align1
                 r,c      = mr1, mc1
                 
-            if frame_corrs[0,n] <  0.97:
+            if frame_corrs[0,n] <  0.98:
                 add_to   = sum2
                 align_to = align2
                 r,c      = mr2, mc2
@@ -222,8 +234,8 @@ def average_signal():
             # open the data, subtract background, remove dust, remove hot pixels
             # we can do dark subtraction simply because acquisition parameters were the same
             frame = speckle.io.openframe(in_file,n)
-            frame = abs(frame-cleaned_dark)
-            frame = speckle.conditioning.remove_dust_new(frame,dust_mask,dust_plan=dust_plan)[0]
+            frame = speckle.conditioning.subtract_dark(frame,cleaned_dark)
+            if dm != None: frame = speckle.conditioning.remove_dust(frame,dust_mask,dust_plan=dust_plan)[0]
             
             if use_gpu:
                 # gpu code path for hot pixels. execute two kernels. first, medfilt.
@@ -232,8 +244,8 @@ def average_signal():
                     gpu_data_hot  = cla.empty(queue, frame.shape, numpy.float32)
                     gpu_data_cold = cla.empty(queue, frame.shape, numpy.float32)
                 gpu_data_hot.set(frame.astype(numpy.float32))
-                gpu_median3.execute(queue,frame.shape,  gpu_data_hot.data,gpu_data_cold.data)
-                gpu_hotpix.execute(queue, (frame.size,),gpu_data_hot.data,gpu_data_cold.data,numpy.float32(1.25))
+                gpu_median3.execute(queue,frame.shape,  gpu_data_hot.data, gpu_data_cold.data)
+                gpu_hotpix.execute(queue, (frame.size,),gpu_data_hot.data, gpu_data_cold.data,numpy.float32(1.25))
                 frame = gpu_data_hot.get()
                 
             if not use_gpu:
@@ -249,7 +261,7 @@ def average_signal():
     
             # using the coordinates from the subframe, shift the whole frame.
             add_to += rolls(frame,x,y)
-            
+        
         # save configuration 1
         speckle.io.save('%s.fits'%out_file,sum1)
     
@@ -263,12 +275,8 @@ def prep_speckles():
    
     in_file = '%s/barker sum config1_mag.fits'%bcp.data_path
     out_file = '%s/barker hologram.fits'%bcp.data_path
-   
-    levels = [5,4,1]
     
     L = 512
-    x = 1024
-    z = 256
 
     # put the brightest pixel at (0,0)
     data = cleaned_signal
@@ -277,7 +285,8 @@ def prep_speckles():
     
     # inverse transform the data. cut the oversampling ratio. save it.
     idata = numpy.fft.fftshift(numpy.fft.ifft2(data))
-    cut   = idata[x-L/2:x+L/2,x-L/2:x+L/2]
+    s = idata.shape
+    cut   = idata[s[0]/2-L/2:s[0]/2+L/2,s[1]/2-L/2:s[1]/2+L/2]
     
     speckle.io.save('%s/inverse data.fits'%bcp.data_path,cut,components='polar')
     speckle.io.save('%s/inverse data.jpg'%bcp.data_path, cut,components='complex_hls')
@@ -332,26 +341,6 @@ def dumb_average_signal():
 import barker_conditioning_parameters as bcp
 
 print "running barker conditioning script"
-    
-# see if a gpu is available. output is in "global" so it doesn't need to be
-# passed to the various functions
-try:
-    use_gpu, device_info = check_gpu()
-    
-    # load gpu stuff
-    import speckle.gpu as gpulib
-    import pyopencl as cl
-    import pyopencl.array as cla
-    kp = string.join(gpulib.__file__.split('/')[:-1],'/')+'/kernels/'
-    context, device, queue, platform = device_info
-    
-    gpu_median3 = gpulib.gpu.build_kernel_file(context, device, kp+'medianfilter3.cl') # for signal
-    gpu_median5 = gpulib.gpu.build_kernel_file(context, device, kp+'medianfilter5.cl') # for dark
-    gpu_hotpix  = gpulib.gpu.build_kernel_file(context, device, kp+'remove_hot_pixels.cl')
-    
-    print "using gpu"
-except:
-    use_gpu = False
 
 average_dark   = average_dark()
 cleaned_dark   = clean_dark()
