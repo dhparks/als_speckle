@@ -261,7 +261,7 @@ def plan_remove_dust_old(mask):
     # doesn't matter for this purpose
     return tuple(set(PixelIDStrings))
 
-def subtract_dark(data, dark, x=20):
+def subtract_dark(data_in, dark, x=20):
     """Subtract a background file. The data and dark files may have been
     collected under different acquisition parameters so this tries to scale
     the dark file appropriately in the region [:x,:x].
@@ -277,15 +277,16 @@ def subtract_dark(data, dark, x=20):
     """
     
     # check types
-    assert isinstance(data,numpy.ndarray), "data must be an array"
-    assert data.ndim in (2,3), "data must be 2d or 3d"
+    assert isinstance(data_in,numpy.ndarray), "data must be an array"
+    assert data_in.ndim in (2,3), "data must be 2d or 3d"
     assert isinstance(dark,numpy.ndarray), "dark must be an array"
     assert dark.ndim == 2, "dark must be 2d"
-    assert data.shape[-2:] == dark.shape, "dark and data must be commensurate"
-    assert isinstance(abs_val,bool), "abs_val must be bool"
+    assert data_in.shape[-2:] == dark.shape, "dark and data must be commensurate"
 
-    match_region = numpy.zeros(dark.shape,np.uint8)
+    match_region = numpy.zeros(dark.shape,numpy.uint8)
     match_region[:x,:x] = 1
+    
+    data = numpy.copy(data_in)
     
     was2d = False
     if data.ndim == 2:
@@ -294,8 +295,7 @@ def subtract_dark(data, dark, x=20):
     
     for n,frame in enumerate(data):
         scaled_dark = match_counts(frame,dark,region=match_region)
-        if abs_val: frame = abs(frame-scaled_dark)
-        else: frame += -scaled_dark
+        frame = abs(frame-scaled_dark)
         data[n] = frame
         
     if was2d: data = data[0]
@@ -438,7 +438,7 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
             result = result[0]
         return result
 
-def match_counts(img1, img2, region=None, nparam=3):
+def match_counts(img1, img2, region=None, nparam=3, silent=True):
     """ Match the counts between two images. There are options to match in a
         region of interest and the number of fitting parameters to be used.
 
@@ -532,7 +532,7 @@ def match_counts(img1, img2, region=None, nparam=3):
         paramstr = "s=%1.2f, d1=%1.2f, d2=%1.2f"
         funcstr = "(img1-d1)-s*(img2-d2) (%d parameters)" % nparam
 
-    print("minimizing %s.\nInitial guess: %s." % (funcstr, paramstr % tuple(c)))
+    if not silent: print("minimizing %s.\nInitial guess: %s." % (funcstr, paramstr % tuple(c)))
     
     # optimize only in region; this saves the time required to multiply and
     # sum and consider all the zeros outside the region
@@ -541,7 +541,7 @@ def match_counts(img1, img2, region=None, nparam=3):
 
     x = scipy.optimize.fmin(diff, c, args=(img1_shrunk, img2_shrunk), disp=False)
 
-    print("Final result: %s." % (paramstr % tuple(x)))
+    if not silent: print("Final result: %s." % (paramstr % tuple(x)))
 
     if nparam == 1:
         return x[0]*img2

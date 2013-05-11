@@ -1250,15 +1250,15 @@ def covar_results(gpuinfo,data,threshold=0.85,mask=None):
     gpu_data.set(data)
     
     # precompute the dfts by running fft_interleaved as a batch. store in-place.
-    print "precomputing ffts"
+    #print "precomputing ffts"
     fft_N.execute(gpu_data.data,batch=frames)
-    print "done"
+    #print "done"
     
     # now iterate through the CCs, cross correlating each pair of dfts
     iter = 0
     total = frames**2/2
     for n in range(frames):
-        print n
+        #print n
 
         # get the first frame buffered
         slice_covar.execute(queue,(N,N),dft1.data,gpu_data.data,np.int32(0),np.int32(0),np.int32(n),np.int32(N))
@@ -1281,7 +1281,7 @@ def covar_results(gpuinfo,data,threshold=0.85,mask=None):
                 max_val = cla.max(corr).get()
                 cc[n,m] = max_val
                 cc[m,n] = max_val
-                print max_val
+                #print max_val
 
             iter += 1
 
