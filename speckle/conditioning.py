@@ -126,7 +126,7 @@ def remove_dust(data,dust_mask,dust_plan=None):
     assert data_in.shape[1:] == dust_mask.shape, "data_in and dust_mask are incommensurate: %s %s"%(data_in.shape,dust_mask.shape)
 
     # if the dust_plan doesnt exist, make it.
-    if dust_plan == None: dust_plan = plan_remove_dust_new(dust_mask)
+    if dust_plan == None: dust_plan = plan_remove_dust(dust_mask)
         
     # loop through the frames of data_in, removing the dust from each using the
     # same dust plan. interpolation is handled by grid_data from scipy.
@@ -186,16 +186,17 @@ def plan_remove_dust(mask):
         r1 = numpy.fft.ifft2(f1).real # transform to real space
         r2 = numpy.fft.ifft2(f2).real # transform to real space
         return numpy.clip(r1,0.,1.01)-numpy.clip(r2,0.,1.01) # take the difference
-        
-    # now expand by 1, 3, 5, 7, 9 pixels.
+    
+    # now do the expansions of the mask to set interpolation control points
     plan = numpy.zeros(mask2.shape,numpy.float32)
     for x in (1,4,7,10):
         expanded = _expand(x)
-        plan += expanded
-    
+        plan    += expanded
+
     # restore to original size and position.
     plan2 = numpy.zeros(mask.shape,numpy.uint8)
     plan2[bb[0]:bb[1],bb[2]:bb[3]] = plan.astype(numpy.uint8)
+    plan2 *= (1-mask.astype(numpy.uint8))
     
     return plan2
     

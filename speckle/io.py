@@ -374,7 +374,7 @@ def openimage(filename):
     
     import Image
     try: import scipy.misc.pilutil as smp
-    except ImportError: import scipy.pilutil as smp
+    except (ImportError,AttributeError): import scipy.misc as smp
     return smp.fromimage(Image.open(filename).convert("L"))
 
 def writefits(filename, img, headerItems={}, overwrite=None):
@@ -857,7 +857,7 @@ def write_image(filename, array, color_map='L'):
     """
 
     try: import scipy.misc.pilutil as smp
-    except ImportError: import scipy.pilutil as smp
+    except (AttributeError,ImportError): import scipy.misc as smp
     
     assert isinstance(array,numpy.ndarray), "in write_image, array must be ndarray but is %s"%type(array)
     assert array.ndim in (2,3), "in write_image, array must be 2d or 3d; is %s"%array.ndim
@@ -868,7 +868,7 @@ def write_image(filename, array, color_map='L'):
 
         im = smp.toimage(array)
         if color_map == None or color_map == 'L':
-             # greyscale
+            # greyscale
             smp.toimage(array).save(filename)
         else:
             im.putpalette(color_maps(color_map))
