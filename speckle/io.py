@@ -373,7 +373,8 @@ def openimage(filename):
         integer ndarray"""
     
     import Image
-    import scipy.misc as smp
+    try: import scipy.misc.pilutil as smp
+    except ImportError: import scipy.pilutil as smp
     return smp.fromimage(Image.open(filename).convert("L"))
 
 def writefits(filename, img, headerItems={}, overwrite=None):
@@ -855,7 +856,8 @@ def write_image(filename, array, color_map='L'):
         no return arguments.
     """
 
-    import scipy.misc as smp
+    try: import scipy.misc.pilutil as smp
+    except ImportError: import scipy.pilutil as smp
     
     assert isinstance(array,numpy.ndarray), "in write_image, array must be ndarray but is %s"%type(array)
     assert array.ndim in (2,3), "in write_image, array must be 2d or 3d; is %s"%array.ndim
@@ -1129,10 +1131,11 @@ def open_ds9_mask(filename, individual_regions = False, remove_intersections = F
         mask - a mask of the regions. If individual_regions is False, a binary
             mask is returned otherwise a region mask is returned.
     """
-    
+
     assert isinstance(individual_regions,(bool,int)),   "individual_regions must be boolean-evaluable"
     assert isinstance(remove_intersections,(bool,int)), "remove_intersections must be boolean-evaluable"
-    assert isinstance(force_reg_size,(type(None),int)), "force_size must be None or an integer size"
+    assert isinstance(force_reg_size,(type(None),int,tuple,list)), "force_size must be None, int, or iterable"
+    if isinstance(force_reg_size,(tuple,list)): assert len(force_reg_size) == 2, "force_reg_size must be of length 2"
     
     import re
     file_exp = re.compile("# Filename: ((?:\/[\w\.\-\ ]+)+)(?:(\[\w\])?)")
@@ -1153,9 +1156,12 @@ def open_ds9_mask(filename, individual_regions = False, remove_intersections = F
                     dim = get_fits_dimensions(afile, card)
                 except IOError:
                     if force_reg_size == None:
-                        dim = (1, 2048, 2048)
+                        dim = (1,2048,2048)
                     else:
-                        dim = (1,force_reg_size,force_reg_size)
+                        if isinstance(force_reg_size,(tuple,list)):
+                            dim = (1, force_reg_size[0], force_reg_size[1])
+                        else:
+                            dim = (1,force_reg_size,force_reg_size)
 
                 aline = f.readline()
                 continue

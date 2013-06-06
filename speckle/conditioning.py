@@ -684,9 +684,9 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
 
     # open merge and fit regions if necessary 
     if isinstance(fill_region, str):
-        fill_region = io.open(fill_region)
+        fill_region = io.open(fill_region,force_reg_size=data_to.shape)
     if isinstance(fit_region, str):
-        fit_region = io.open(fit_region)
+        fit_region = io.open(fit_region,force_reg_size=data_to.shape)
         
     # make the blender
     assert fill_region.shape == data_to.shape, "fill_region and data must be same shape"

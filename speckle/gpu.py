@@ -352,6 +352,9 @@ class common:
             return something
     
     def start(self):
+        # inits the gpu. this is the necessary method ONLY IF
+        # GPU.INIT WAS NOT CALLED EARLIER TO TURN ON THE GPU.
+        
         self.ints    = (int,np.int8,np.int16,np.int32,np.uint8)
         self.floats  = (float,np.float16,np.float32,np.float64)
         self.float2s = (complex,np.complex64,np.complex128)

@@ -51,11 +51,10 @@ def _apply_smooth(img, mask):
     if img.ndim == 3:
         assert mask.shape == img[0].shape, "image and mask must have the same x/y dimensions"
         result = np.zeros_like(img)
-        masksum = mask.sum()
         for i in range(img.shape[0]):
             # normalize result by number of pixels in the mask
-            result[i] = np.real(fftconvolve(img[i], mask))/(masksum)
-        return result
+            result[i] = np.real(fftconvolve(img[i], mask))
+        return result/mask.sum()
     else:
         assert mask.shape == img.shape, "image and mask must have the same x/y dimensions"
         # normalize result by number of pixels in the mask
