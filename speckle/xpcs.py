@@ -139,25 +139,25 @@ def g2_symm_norm(img, numtau, qAvg = ("circle", 10), fft=False):
     print("")
     return result
 
-def g2(img,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
+def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
     
     """ Calculate correlation function g_2. A variety of normalizations can be
     selected through the optional kwarg "norm".
     
     arguments:
-        img - 3d array
+        data - 3d array. g2 correlates along time axis (axis 0)
         numtau - tau to correlate. If a single number, all frame spacings
             from (0, numtau) will be calculated. If a list or tuple of length 2,
             calculate g2 within the range between those two values.
         norm - the normalization specification. See below for details.
-        qAvg - some norms require an average in the q coordinate. This requires
+        qAvg - some norms require an average over the q coordinate. This requires
             a 2-tuple of (shape,size). The possible types and the size parameter
             are:
             "square" - the parameter size is dimension of the square, in pixels
             "circle" - the size is the radius of the circle, in pixels
             "gaussian" - size is the FWHM of the gaussian, in pixels
-            Internally, this is calculated as a convolution of img with the
-            kernel specified here.
+            Internally, this average is calculated as a convolution of data with
+            the kernel specified here.
         fft - boolean specifying whether to calculate g2 through FFT methods or
             shift-multiply methods. If True, use FFT. Generally, FFT is faster,
             but for very large arrays a memory error might be created.
@@ -188,11 +188,11 @@ def g2(img,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
     import sys
     
     # check the norm specification
-    if norm == None: norm = "none"
+    if norm == None: norm = "plain"
     assert norm in ("borthwick","none","plain","standard","symmetric")
     
     # prep the data. make 3d and convert numtau to a sequence "tauvals"
-    img, fr, ys, xs = _convert_to_3d(img)
+    data, fr, ys, xs = _convert_to_3d(data)
     if numtau == None: numtau = int(round(fr/2))
     print numtau
     tauvals = _numtauToTauvals(numtau, maxtau=fr)
@@ -209,41 +209,34 @@ def g2(img,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
             avgSize = min(ys,xs)
 
         sys.stdout.write("calculating q-average (may take a while)\n")
-        IQ  = _averagingFunctions[avgType](img, avgSize)
+        IQ  = _averagingFunctions[avgType](data, avgSize)
         
     if norm in ("standard","plain","borthwick"):
-        IT  = _time_average(img)
+        IT  = _time_average(data)
         IT2 = IT*IT
         
     if norm in ("standard","borthwick"):
         IQT  = _time_average(IQ)
         IQT2 = IQT*IQT
         
-    if norm == "standard": img /= IQ # dont understand this but whatever
+    if norm == "standard": data /= IQ # dont understand this but whatever
         
-    # now compute the numerator of the g2 function. this is just an autocorrelation
-    # computed along the time axis.
+    # now compute the numerator of the g2 function; autocorrelate along t axis
     numerator = _g2_numerator(img,tauvals,fft=fft)
 
     # normalize the numerator. depending on the norm method different values are calculated.
     sys.stdout.write('normalizing\n')
-    if norm == "borthwick":
-        numerator *= IQT2/IT2
+    if norm   == "none":     pass # so just the numerator is returned
+    elif norm == "plain":    numerator /= IT2
+    elif norm == "standard": numerator *= IQT2/IT2
+    elif norm == "symmetric":
         for i, tau in enumerate(tauvals):
             numerator[i] /= (_time_average(IQ, 0, fr-tau)*_time_average(IQ, tau, fr))
             sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
             sys.stdout.flush()
-
-    if norm == "none":
-        pass # so just the numerator is returned
-        
-    if norm == "plain":
-        numerator /= IT2
-        
-    if norm == "standard":
+        sys.stdout.write('\n')
+    elif norm == "borthwick":
         numerator *= IQT2/IT2
-        
-    if norm == "symmetric":
         for i, tau in enumerate(tauvals):
             numerator[i] /= (_time_average(IQ, 0, fr-tau)*_time_average(IQ, tau, fr))
             sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
@@ -252,15 +245,15 @@ def g2(img,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
 
     return numerator
 
-def _g2_numerator(img,tauvals,fft=False):
+def _g2_numerator(data,tauvals,fft=False):
     """ Calculate the g2 numerator. This is handled the same regardless of
     normalization scheme. Two methods of calculation are available: via fft or
-    via shift-multiply-sum. In general, fft is faster and more memory intensive.
+    via shift-multiply-sum. In general, fft is faster and requires more memory.
     If tauvals is short, the overhead associated with setting up and slicing the
     fft arrays may make shift-multiply more efficient.
     
     inputs:
-        img - a (3d) array with time axis along 0. Presumably _make_3d takes
+        data - a (3d) array with time axis along 0. Presumably _make_3d takes
             care of this...
         tauvals - a sequence of numbers describing which frames to take
         fft - (optional) if True, calculate g2 using fft. if not, shift-multiply.
@@ -270,8 +263,8 @@ def _g2_numerator(img,tauvals,fft=False):
     
     """
     
-    assert img.ndim == 3, "g2_numerator: Must be a three dimensional image."
-    (fr, ys, xs) = img.shape
+    assert data.ndim == 3, "g2_numerator: Must be a three dimensional image."
+    (fr, ys, xs) = data.shape
     ntaus = len(tauvals)
     sys.stdout.write("making g2 numerator with %s taus\n" % ntaus)
     
@@ -279,9 +272,9 @@ def _g2_numerator(img,tauvals,fft=False):
         IDFT = np.fft.ifftn
         DFT = np.fft.fftn
         try:
-            img2       = np.zeros((2*fr,ys,xs),float)
-            img2[0:fr] = img
-            numerator  = abs(IDFT(abs(DFT(img2,axes=(0,)))**2,axes=(0,)))[0:fr] #autocorrelation
+            data2       = np.zeros((2*fr,ys,xs),float)
+            data2[0:fr] = data
+            numerator  = abs(IDFT(abs(DFT(data2,axes=(0,)))**2,axes=(0,)))[0:fr] #autocorrelation
             for f in range(fr): numerator[f] *= 1./(fr-f) # normalize to account for zero-padding
             return numerator[tauvals]
 
@@ -292,7 +285,7 @@ def _g2_numerator(img,tauvals,fft=False):
     if not fft:
         numerator = np.zeros((len(tauvals),ys,xs),np.float32)
         for i,tau in enumerate(tauvals):
-            numerator[i] = np.average(img[0:fr-tau] * img[tau:fr], axis=0)
+            numerator[i] = np.average(data[0:fr-tau] * data[tau:fr], axis=0)
             sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
             sys.stdout.flush()
         sys.stdout.write('\n')
