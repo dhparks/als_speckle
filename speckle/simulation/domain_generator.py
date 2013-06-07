@@ -3,7 +3,7 @@
 global use_gpu
 
 import numpy as np
-from .. import gpu, shape
+from .. import gpu, shape, io
 import sys, warnings, time
 w = sys.stdout.write
 common = gpu.common
@@ -53,8 +53,8 @@ class generator(common):
         
         # most of the arguments that come in need to be made into class variables to be accessible
         # to the other functions during the course of the simulation
-        self.alpha     = np.float32(.4)
-        self.m_turnon  = 5
+        self.alpha     = np.float32(.5)
+        self.m_turnon  = 1
         self.converged_at = 0.002
         self.converged = False
         self.cutoff    = 200
@@ -112,7 +112,7 @@ class generator(common):
         def _promote_spins(x):
             if use_gpu:
                 self._kexec('promote',self.domains_f,self.available,np.float32(x))
-            else: self.domains += self.available*x
+            else: self.domains_f += self.available*x
         
         if use_gpu:
             self._cl_copy(self.domains,self.incoming) # basically, just discard the imaginary component
@@ -120,9 +120,9 @@ class generator(common):
         
         # rescale the domains. this operates on the class variables so no arguments are passed.
         # self.domains_f stores the rescaled real-valued domains. the rescaled domains are bounded to the range +1 -1.
-        self._rescale_speckle()
+        self._rescale_speckle(iteration=iteration)
         if use_gpu: self._cl_copy(self.domains,self.domains_f)
-        else: self.domains_f = self.domains.real
+        else: self.domains_f = self.domains.real # _f for "float"
         
         _bound()
 
@@ -150,7 +150,7 @@ class generator(common):
             # now attempt to adjust the net magnetization in real space to achieve the target magnetization.
             net_m = self._sum(self.domains_f)
             needed_m = self.goal_m-net_m
-    
+
             if needed_m > 0:
                 _make_available(self.negwalls)
                 sites = self._sum(self.available,d=np.int32)
@@ -326,6 +326,51 @@ class generator(common):
         else: self.domains = np.fft.ifft2(self.fourier_domains)
         
         self.converged = False
+        
+    def kick2(self,amount):
+        """ If the simulation has reached an acceptable degree of convergence,
+        "kick" the speckle pattern so that the domains re-converge into a slightly
+        different configuration. For XPCS simuluations. """
+        
+        # fourier transform the domains. multiply the magnitude component
+        # by random*
+        
+        # set the kicker
+        kicker = 1+amount*np.random.randn(self.N,self.N).astype(np.float32)
+        kicker[kicker < 0] = 0
+        self.kicker = self._set(kicker,self.kicker)
+        
+        # form the fourier representation
+        if use_gpu: self._fft2(self.domains,self.fourier_domains)
+        else: self.fourier_domains = self._fft2(self.domains,self.fourier_domains)
+        
+        # multiply fourier_domains by the kicker
+        if use_gpu: self._cl_add(self.kicker,self.fourier_domains,self.fourier_domains)
+        else:       self.fourier_domains += self.kicker
+        
+        # inverse transform the domains, ending the kick
+        if use_gpu: self._fft2(self.fourier_domains,self.domains,inverse=True)
+        else: self.domains = np.fft.ifft2(self.fourier_domains)
+        
+        self.converged = False
+        
+    def kick_rs(self,amount):
+        kicker = 1+amount*np.random.randn(self.N,self.N).astype(np.float32)
+        kicker[kicker < 0] = 0
+        self.kicker = self._set(kicker,self.kicker)
+        if use_gpu: self._cl_mult(self.kicker,self.domains,self.domains)
+        else:       self.domains *= kicker
+        
+        self.converged = False
+        
+    def kick_rs2(self,amount):
+        kicker = 1+amount*np.random.randn(self.N,self.N).astype(np.float32)
+        kicker[kicker < 0] = 0
+        self.kicker = self._set(kicker,self.kicker)
+        if use_gpu: self._cl_add(self.kicker,self.domains,self.domains)
+        else:       self.domains += kicker
+        
+        self.converged = False
 
     def _blur(self):
         
@@ -388,7 +433,7 @@ class generator(common):
                 self.fourier_domains *= r
                 self.fourier_domains[0,0] = self.m0_1
     
-    def _rescale_speckle(self):
+    def _rescale_speckle(self,iteration=None):
         """ The heart of the algorithm. """
         
         # this function implements the fourier operation: rescaling the envelope
@@ -641,7 +686,7 @@ class generator(common):
         
         self.power = self._sum(self.domain_diff)/self.N2
         self.powerlist.append(self.power)
-        print self.power
+        #print iteration, self.power
         
         # set the convergence condition
         if self.power <= self.converged_at: self.converged = True
