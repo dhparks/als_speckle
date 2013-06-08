@@ -186,10 +186,10 @@ def rot_sym(speckles,uwplan=None,resize_to=360,get_back=('spectra_ds',)):
         # maybe despike and decompose
         if 'correlated_ds' in get_back or 'spectra_ds' in get_back:
             despiked = despike(autocorr.real,width=4)
-            spectrum_ds = abs(fft_decompose(despiked))
+            spectrum_ds = np.abs(fft_decompose(despiked))
         
         # decompose into cosine series with fft
-        spectrum = abs(fft_decompose(autocorr.real)) # I take the abs because there might be leakage into the imag component
+        spectrum = np.abs(fft_decompose(autocorr.real)) # I take the abs because there might be leakage into the imag component
         
         # add specified things to output
         if 'spectra'        in get_back: spectra[f]         = spectrum

@@ -105,7 +105,7 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
     # rescale the data
     if scaling != None:
         assert isinstance(scaling,(str,float))
-        mag, phase = abs(data), numpy.angle(data)
+        mag, phase = numpy.abs(data), numpy.angle(data)
         if isinstance(scaling, str): assert scaling in ('sqrt','log')
         if scaling == 'sqrt': mag = numpy.sqrt(mag)
         if scaling == 'log':  mag = numpy.log(mag/mag.min())
@@ -911,7 +911,7 @@ def complex_hls_image(array):
     # convert to hls
     array = array.astype(numpy.complex64)
 
-    l = abs(array)
+    l = numpy.abs(array)
     l *= 0.8/l.max()
     h = (numpy.angle(array)+numpy.pi)/(2*numpy.pi)
     s = 1.
@@ -947,7 +947,7 @@ def complex_hsv_image(array):
     hsv_b_map = numpy.array((1,1,3,0,0,2))
     
     # first, convert the complex to hsv
-    v = abs(array)
+    v = numpy.abs(array)
     v /= v.max()
 
     N = len(array)

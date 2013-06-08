@@ -296,7 +296,7 @@ def subtract_dark(data_in, dark, x=20):
     
     for n,frame in enumerate(data):
         scaled_dark = match_counts(frame,dark,region=match_region)
-        frame = abs(frame-scaled_dark)
+        frame = numpy.abs(frame-scaled_dark)
         data[n] = frame
         
     if was2d: data = data[0]
@@ -385,7 +385,7 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     # define some simple helper functions to improve readability
     rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
     def prep(x):
-        if use_mag_only: x = abs(x)
+        if use_mag_only: x = numpy.abs(x)
         if region != None: x = region*x
         return x
 
@@ -672,8 +672,8 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
         blur_kernel = shift(shape.gaussian(bounded.shape,(width,width),normalization=1.0))
     
         # two convolutions make the blender
-        expanded = numpy.clip(abs(convolve(bounded,grow_kernel)),0,1)
-        blurred = 1-abs(convolve(expanded,blur_kernel))
+        expanded = numpy.clip(numpy.abs(convolve(bounded,grow_kernel)),0,1)
+        blurred = 1-numpy.abs(convolve(expanded,blur_kernel))
 
         # embed the bounded convolutions inside the correct spot in an array of
         # the correct size to return and set pixels inside fill_region to

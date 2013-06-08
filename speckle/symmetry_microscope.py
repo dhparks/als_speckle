@@ -486,7 +486,7 @@ class microscope(common):
                 self._cl_mult(self.speckles,self.speckles,self.speckles)
             else:
                 self.far_field = np.fft.fft2(self.illuminated)
-                self.speckles  = abs(self.far_field)**2
+                self.speckles  = np.abs(self.far_field)**2
             self.speckle_time += time.time()-time0
                 
         def _resize():
@@ -542,7 +542,7 @@ class microscope(common):
             self._cl_mult(self.unwrapped,self.unwrapped,self.unwrapped)
             self.fftplan_correls.execute(self.unwrapped.data,batch=self.rows,inverse=True,wait_for_finish=True)
         else:
-            self.unwrapped = np.fft.ifft2(abs(np.fft.fft2(self.unwrapped,axes=(1,)))**2,axes=(1,))
+            self.unwrapped = np.fft.ifft2(np.abs(np.fft.fft2(self.unwrapped,axes=(1,)))**2,axes=(1,))
 
         
         _corr_norm() # normalize the autocorrelations

@@ -21,7 +21,7 @@ coords = tuple((numpy.random.rand(2,n_obj)*N).astype(int))
 sample[coords] = 1
 sample *= speckle.shape.circle((N,N),p_radius)
 
-make_speckles = lambda x: shift(abs(DFT(x))**2).real
+make_speckles = lambda x: shift(numpy.abs(DFT(x))**2).real
 speckles = make_speckles(sample)
 
 # Unwrap speckles. Here, I will first generate an unwrapping plan.

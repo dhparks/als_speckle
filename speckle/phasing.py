@@ -319,7 +319,7 @@ class phasing(common):
                 
             else:
                 
-                self.optimize_ac = np.fft.ifft2(abs(np.fft.fft2(self.optimize_ac))**2)
+                self.optimize_ac = np.fft.ifft2(np.abs(np.fft.fft2(self.optimize_ac))**2)
                 
         def _opt_iter(cl):
             
@@ -343,7 +343,7 @@ class phasing(common):
                 self._cl_sqrt(self.optimize_bl,self.optimize_bl2) # now a blurry modulus
 
             else:
-                temp = abs(np.fft.fft2(self.optimize_g*self.optimize_ac))
+                temp = np.abs(np.fft.fft2(self.optimize_g*self.optimize_ac))
                 power_out = np.sum(temp)
                 self.optimize_bl2 = np.sqrt(temp)
                 
@@ -356,7 +356,7 @@ class phasing(common):
 
             else:
                 diff = self.optimize_bl2-self.optimize_m
-                x = np.sum(abs(self.optimize_bl2-self.optimize_m)**2)
+                x = np.sum(np.abs(self.optimize_bl2-self.optimize_m)**2)
             
             return x
     
@@ -496,7 +496,7 @@ class phasing(common):
                 self._kexec(  'flip_f2', self.rl_p, self.rl_ph, shape=s) # precompute p-hat
 
             else:
-                self.rl_p  = abs(np.fft.fft2(self.rl_p))**2   # intensity
+                self.rl_p  = np.abs(np.fft.fft2(self.rl_p))**2   # intensity
                 self.rl_p /= self.rl_p.sum()
                 self.rl_p  = np.fft.fft2(self.rl_p).astype(d) # precomputed fft
                 self.rl_ph = self.rl_p[::-1,::-1]             # phat
@@ -684,7 +684,7 @@ class phasing(common):
                 
                 
             else:
-                self.rl_p  = abs(np.fft.fft2(self.rl_p))**2 # intensity
+                self.rl_p  = np.abs(np.fft.fft2(self.rl_p))**2 # intensity
                 self.rl_p  = np.fft.fft2(self.rl_p)         # precomputed fft
                 self.rl_ph = self.rl_p[::-1,::-1]              # phat
                 
@@ -826,8 +826,8 @@ class phasing(common):
     
         def _rl_cpu():
                 
-            self.ipsfr = self.ipsf[::-1,::-1]
-            self.rl_est = (abs(blurry)**2).astype(np.complex64)
+            self.ipsfr  = self.ipsf[::-1,::-1]
+            self.rl_est = (np.abs(blurry)**2).astype(np.complex64)
             self.rl_pc  = np.copy(self.rl_est)
             
             for i in range(iterations):
@@ -912,7 +912,7 @@ class phasing(common):
             
             # step one: convert to modulus
             if use_gpu: self._cl_abs(psi,div)
-            else      : div = abs(psi)
+            else      : div = np.abs(psi)
             
             # step two: if a transverse coherence estimate has been supplied
             # through the ipsf, use it to blur the modulus.
@@ -964,7 +964,7 @@ class phasing(common):
 
         def _fourier_constraint(data,div,mod,out):
             if use_gpu: self._kexec('fourier',data,div,mod,out)
-            else:            out = mod*data/abs(div)
+            else:            out = mod*data/np.abs(div)
             return out
                 
         def _hio(psi_in,psi_out,support):
@@ -1025,7 +1025,7 @@ def align_global_phase(data):
         
     for frame in data:
         x = frame.ravel()
-        e = lambda p: np.sum(abs((x*np.exp(complex(0,1)*p)).imag))
+        e = lambda p: np.sum(np.abs((x*np.exp(complex(0,1)*p)).imag))
         opt, val, conv, num = fminbound(e,0,2*np.pi,full_output=1)
         #print abs(x.imag).sum(),opt,abs((x*np.exp(complex(0,1)*opt)).imag).sum()
         frame *= np.exp(complex(0,1)*opt)
@@ -1076,9 +1076,9 @@ def prtf(estimates,N=None):
         print "  %s"%n
         estimate[:r,:c] = estimates[n]
         fourier = np.fft.fft2(estimate)
-        phase = fourier/abs(fourier)
+        phase = fourier/np.abs(fourier)
         phase_average += phase
-    prtf = shift(abs(phase_average/f))
+    prtf = shift(np.abs(phase_average/f))
     
     # unwrap and do the angular average
     import wrapping
@@ -1133,8 +1133,8 @@ def rftf(estimate,goal_modulus,hot_pixels=False,ipsf=None):
     # library, the goal_modulus will be centered either at (0,0) or (N/2,N/2).
     # aligning using align_frames is a bad idea because the reconstruction might
     # give a bad speckle pattern, throwing off alignment.
-    diff1 = np.sum(abs(fourier-goal_modulus))          # goal modulus at (0,0)
-    diff2 = np.sum(abs(shift(fourier)-goal_modulus))   # goal modulus at N/2
+    diff1 = np.sum(np.abs(fourier-goal_modulus))          # goal modulus at (0,0)
+    diff2 = np.sum(np.abs(shift(fourier)-goal_modulus))   # goal modulus at N/2
     
     if diff1 > diff2:
         fourier = shift(fourier)
@@ -1180,9 +1180,8 @@ def center_of_mass_average(imgs):
     # compute the COM of each frame, then add it to the running total
     total = np.zeros(imgs.shape[1:],imgs.dtype)
     for n,img in enumerate(imgs):
-        r, c = _com(abs(img))
-        if n == 0:
-            r0, c0 = _com(abs(img))
+        r, c = _com(np.abs(img))
+        if n == 0: r0, c0 = r,c
         dr, dc = r-r0, c-c0
         total += np.roll(np.roll(img,-dr,axis=0),-dc,axis=1)
         
@@ -1217,7 +1216,7 @@ def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshol
     assert isinstance(local_threshold,(float,int)),  "lobal_threshold must be a number (is %s)"%type(local_threshold)
     
     refined     = np.zeros_like(support)
-    average_mag = abs(average_mag) # just to be sure...
+    average_mag = np.abs(average_mag) # just to be sure...
     
     import shape,masking
     kernel  = np.fft.fftshift(shape.gaussian(support.shape,(blur,blur)))

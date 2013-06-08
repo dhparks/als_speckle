@@ -328,12 +328,12 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
         sigma: boundary locations are smoothed to avoid with jagged edges;
             this sets  the smoothing. float or int.
         return_type: Determines what can be returned.  This can be 'data'
-            (default), 'filter', which returns the filter or 'all', which
-            returns three items: (data, filter, boundary)
+            (default), 'flter', which returns the flter or 'all', which
+            returns three items: (data, flter, boundary)
         
     Returns:
         The return value depends on return_type, but the default is 'data'
-            which returns the apodized array. Other options are 'filter' or
+            which returns the apodized array. Other options are 'flter' or
             'all'.
     """
     
@@ -350,7 +350,7 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     was_complex = False
     if np.iscomplexobj(data):
         phase = np.angle(data)
-        data = abs(data)
+        data  = np.abs(data)
         was_complex = True
         
     convolve = lambda x,y: np.fft.ifft(np.fft.fft(x)*np.fft.fft(y))
@@ -382,33 +382,33 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
 
     # smooth the edge values by convolution with a gaussian
     kernel = np.fft.fftshift(shape.gaussian((ux,),(sigma,),normalization=1.0))
-    boundary = abs(convolve(boundary,kernel))-1
+    boundary = np.abs(convolve(boundary,kernel))-1
     
-    # now that the coordinates have been smoothed, build the filter as a series of 1d filters along the column (angle) axis
+    # now that the coordinates have been smoothed, build the flter as a series of 1d flters along the column (angle) axis
     x = np.outer(np.arange(R),np.ones(ux)).astype(float)/boundary
-    filter = _apodization_f(x,kt)
+    flter = _apodization_f(x,kt)
     
-    # rewrap the filter. align the filter to the data
+    # rewrap the flter. align the flter to the data
     rplan  = wrapping.wrap_plan(0,R)
-    filter = wrapping.wrap(filter,rplan)
+    flter  = wrapping.wrap(flter,rplan)
     
-    e_filter = np.zeros_like(data).astype(np.float32)
-    e_filter[0:filter.shape[0],0:filter.shape[1]] = filter
+    e_flter = np.zeros_like(data).astype(np.float32)
+    e_flter[0:flter.shape[0],0:flter.shape[1]] = flter
     
     data_mask   = np.where(data > 1e-6,1,0)
-    filter_mask = np.where(e_filter > 1e-6,1,0)
+    flter_mask = np.where(e_flter > 1e-6,1,0)
     
     rolls  = lambda d, r0, r1: np.roll(np.roll(d,r0,axis=0),r1,axis=1)
-    coords = conditioning.align_frames(filter_mask,align_to=data_mask,return_type='coordinates')[0]
-    filter = rolls(e_filter,coords[0],coords[1])
+    coords = conditioning.align_frames(flter_mask,align_to=data_mask,return_type='coordinates')[0]
+    flter  = rolls(e_flter,coords[0],coords[1])
 
     if was_complex: data *= np.exp(complex(0,1)*phase)
     
-    # return a filtered version of the data.
-    if return_type == 'filter': return filter
-    if return_type == 'data':   return filter*data
-    if return_type == 'all':    return filter*data,filter,boundary
-
+    # return a fltered version of the data.
+    if return_type == 'filter': return flter
+    if return_type == 'data':   return flter*data
+    if return_type == 'all':    return flter*data,flter,boundary
+    
 def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
     """ Calculates the acutance of a back propagated wave field. Right now it
     just does the acutance of the magnitude component.
@@ -449,7 +449,7 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
     import time
     acutance_list = []
     for n,frame in enumerate(data):
-        acutance_list.append(_acutance_calc(abs(frame).real,method,normalized,mask,exponent,bounds))
+        acutance_list.append(_acutance_calc(np.abs(frame).real,method,normalized,mask,exponent,bounds))
         
     # return the calculation
     return acutance_list
@@ -462,9 +462,9 @@ def _acutance_calc(data,method,normalized,mask,exponent,bounds=None):
         mask = mask[bounds[0]:bounds[1],bounds[2]:bounds[3]]
 
     if method == 'sobel':
-        from scipy.ndimage.filters import sobel
-        dx = abs(sobel(data,axis=-1))
-        dy = abs(sobel(data,axis=0))
+        from scipy.ndimage.flters import sobel
+        dx = np.abs(sobel(data,axis=-1))
+        dy = np.abs(sobel(data,axis=0))
                 
     if method == 'roll':
         dx = data-np.roll(data,1,axis=0)

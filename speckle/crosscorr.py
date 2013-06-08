@@ -334,7 +334,7 @@ def pairwise_covariances(data, save_memory=False):
     for n in range(frames):
         dft = np.fft.fft2(data[n].astype('float'))
         if not save_memory: dfts[n] = dft
-        ACs[n] = abs(crosscorr(dft,dft,already_fft=(0,1))).max()
+        ACs[n] = np.abs(crosscorr(dft,dft,already_fft=(0,1))).max()
           
     # calculate the pair-wise normalized covariances  
     covars = np.zeros((frames,frames),float)
@@ -347,7 +347,7 @@ def pairwise_covariances(data, save_memory=False):
             if save_memory: corr = crosscorr(data[j],data[k])
             else:
                 corr = crosscorr(dfts[j],dfts[k],already_fft=(0,1))
-                fill = covar(abs(corr).max(),ac,bc)
+                fill = covar(np.abs(corr).max(),ac,bc)
             covars[j,k] = fill
             covars[k,j] = fill
             
@@ -378,7 +378,7 @@ def alignment_coordinates(obj, ref, already_fft=()):
     
     # compute the cross correlation and find the location of the max
     corr = crosscorr(obj,ref,already_fft=already_fft)
-    cc_max = abs(corr).argmax()
+    cc_max = np.abs(corr).argmax()
     max_row,max_col = cc_max/cols,cc_max%cols
     
     # do modulo arithmetic to account for the fftshift in crosscorr and the
@@ -433,7 +433,7 @@ def rot_crosscorr(imgA, imgB, center, RRange):
     unwA = wrapping.unwrap(imgA, plan)
     unwB = wrapping.unwrap(imgB, plan)
 
-    cc = abs(crosscorr(unwA, unwB, axes=(1,)))
+    cc = np.abs(crosscorr(unwA, unwB, axes=(1,)))
     
     unwy, unwx = unwA.shape
     Rvals = range(Rstart, Rstop, Rstep)
@@ -531,7 +531,7 @@ def rot_memory(imgA, imgB, center, darks=None, qacfs=None, qacfdarks=None, Rvals
         arrays. This is similar to rot_CCF but avoids the unwrapping part since
         it's done already.
         """
-        cc = abs(crosscorr(A, B, axes=(1,)))
+        cc = np.abs(crosscorr(A, B, axes=(1,)))
     
         unwy, unwx = A.shape
         r, R, Rstep = RRange

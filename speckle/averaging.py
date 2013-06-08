@@ -121,7 +121,7 @@ def smooth_with_spline(img, nx, ny, order=3):
 
     # take absolute value if complex. map_coordinates doen't work
     # for some reason, map_coordinates crashes even if np.iscomplex().any() is false.
-    img = abs(img)
+    img = np.abs(img)
 
     reduced = map_coordinates(img, new_idx, order=order)
 
