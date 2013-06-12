@@ -898,11 +898,16 @@ class phasing(common):
         """ Do a single iteration of a phase retrieval algorithm.
         
         Arguments:
-            algorithm: can be either 'hio' or 'er'
-            beta: if using the hio algorithm, this sets the feeback parameter.
-                default is 0.8"""
+            algorithm: Can be any of the following
+                er   - error reduction
+                hio  - hybrid input/output
+                raar - relaxed averaged alternating reflectors
+                sf   - solvent flipping
+                dm   - difference map (uses elser's feedback recommendations)
 
-        assert algorithm in ('hio','er'), "real space enforcement algorithm %s is unknown"%algorithm
+            beta: For the algorithms with a feedback parameter (hio, raar, dm) this is that
+                parameter. The default value is 0.8"""
+
 
         # first, build some helper functions which abstract the cpu/gpu issue
         def _build_divisor():
@@ -962,42 +967,82 @@ class phasing(common):
                     
             return div
 
-        def _fourier_constraint(data,div,mod,out):
-            if use_gpu: self._kexec('fourier',data,div,mod,out)
-            else:            out = mod*data/np.abs(div)
+        def _fourier_constraint(data,out):
+            
+            # 1. fourier transform the data. store in psi_fourier
+            self.psi_fourier = self._fft2(self.psi_in,self.psi_fourier)
+            
+            # 2. from the data in psi_fourier, build the divisor. partial coherence
+            # correction is enabled by 1. supplying an estimate of ipsf (transverse
+            # coherence) 2. supplying an estimate of the spectrum (longitudinal
+            # coherence). currently the longitudinal correction runs only on the
+            # gpu codepath.
+            self.fourier_div = _build_divisor()
+            
+            # 3. execute the magnitude replacement
+            if use_gpu: self._kexec('fourier',data,self.fourier_div,self.modulus,self.psi_fourier)
+            else: self.psi_fourier = self.modulus*data/np.abs(self.fourier_div)
+
+            # 4. inverse fourier transform the new fourier estimate
+            out = self._fft2(self.psi_fourier,out,inverse=True) 
+            
             return out
                 
+        # define the algorithm functions
         def _hio(psi_in,psi_out,support):
             # hio algorithm, given psi_in and psi_out
             if use_gpu: self._kexec('hio',np.float32(beta),support,psi_in,psi_out,psi_in)
-            else:            psi_in = (1-support)*(psi_in-beta*psi_out)+support*psi_out
+            else:       psi_in = (1-support)*(psi_in-beta*psi_out)+support*psi_out
             return psi_in
             
         def _er(psi_in,psi_out,support):
             if use_gpu: self._kexec('er',support,psi_out,psi_in)
-            else           : psi_in = support*psi_in
+            else:       psi_in = support*psi_in
+            return psi_in
+        
+        def _raar(psi_in,psi_out,support):
+            if use_gpu: self._kexec('raar',beta,support,psi_in,psi_out,psi_in)
+            else:       psi_in = (1-support)*(beta*psi_in-(1-2*beta)*psi_out)+support*psi_out
+            return psi_in
+        
+        def _sf(psi_in,psi_out,support):
+            if use_gpu: self._kexec('sf',support,psi_in,psi_out,psi_in)
+            else:       psi_in = (1-support)*(-1*psi_in)+support*psi_out
+            return psi_in
+        
+        def _dm(psi_in,psi_out,support):
+            # difference map requires some additional fourier transforms. we have
+            # already formed the fourier projection of the estimate, but need
+            # to do it again on a modification of the estimate.
+            
+            # Elser's recommendations
+            gamma_m =  1./beta 
+            gamma_s = -gamma_m
+            
+            # make the modified estimate. enforce the fourier constraint in-place
+            if use_gpu: self._kexec('dm1',gamma_m,support,psi_in,psi_out,self.fourier_tmp)
+            else: self.fourier_tmp = support*psi_in-gamma_m*(1-support)*psi_in
+            self.fourier_tmp = _fourier_constraint(self.fourier_tmp,self.fourier_tmp)
+            
+            # enforce the real-space constraint
+            if use_gpu:
+                self._kexec('dm2',beta,gamma_s,support,psi_in,psi_out,self.fourier_tmp,psi_in)
+            else:
+                t1     = 2*psi_out-beta*psi_mod+beta*((1+gamma_s)*psi_out-gamma_s*psi_in)
+                t2     = psi_in-beta*psi_out
+                psi_in = support*t1+(1-support)*t2
             return psi_in
             
-        # now run an iteration of the phasing algorithms
-        # 1. fourier transform the data in psi_in, store the result in psi_fourier
-        self.psi_fourier = self._fft2(self.psi_in,self.psi_fourier)
-
-        # 2. from the data in psi_fourier, build the divisor. partial coherence
-        # correction is enabled by 1. supplying an estimate of ipsf (transverse
-        # coherence) 2. supplying an estimate of the spectrum (longitudinal
-        # coherence). currently the longitudinal correction runs only on the
-        # gpu codepath.
-        self.fourier_div = _build_divisor()
-
-        # 3. enforce the fourier constraint
-        self.psi_fourier = _fourier_constraint(self.psi_fourier,self.fourier_div,self.modulus,self.psi_fourier)
-
-        # 4. inverse fourier transform the new fourier estimate
-        self.psi_out = self._fft2(self.psi_fourier,self.psi_out,inverse=True)
+        # check algorithm request
+        algorithms = {'hio':_hio,'er':_er,'raar':_raar,'sf':_sf,'dm':_dm}
+        assert algorithm in algorithms.keys(), "real space enforcement algorithm %s is unknown"%algorithm
         
-        # 5. enforce the real space constraint. algorithm can be changed based on incoming keyword
-        if algorithm == 'hio': self.psi_in = _hio(self.psi_in,self.psi_out,self.support)
-        if algorithm == 'er':  self.psi_in = _er(self.psi_in,self.psi_out,self.support)
+        # 1. enforce the fourier constraint. this is the same for all algorithms. however,
+        # the way the constraint is satisfied depends on coherence information.
+        self.psi_out = _fourier_constraint(self.psi_in,self.psi_out)
+        
+        # 2. enforce the real space constraint. algorithm can be changed based on incoming keyword
+        self.psi_in = algorithms[algorithm](self.psi_in,self.psi_out,self.support)
 
 def align_global_phase(data):
     """ Phase retrieval is degenerate to a global phase factor. This function
