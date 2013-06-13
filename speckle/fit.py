@@ -296,7 +296,7 @@ class OneDimFit():
             # can't call self.residuals because its unravels it.
             # set values outside the mask to arbitrary large (larger than include_tol) so they don't get picked up.
             residuals = np.where(initial_mask, self.data - self.fit_function(), 1e30)
-            included_pts = np.where(abs(residuals) < include_tol)
+            included_pts = np.where(np.abs(residuals) < include_tol)
 
             best = "No"
             cs_len = len(included_pts[0]) + minpts
@@ -344,7 +344,7 @@ class OneDimPeak(OneDimFit):
         elif argmax == 0:
             argmax = 1
 
-        absdiff = abs(self.data - hm)
+        absdiff = np.abs(self.data - hm)
         left    = self.xvals[absdiff[:argmax].argmin()]
         right   = self.xvals[absdiff[argmax:].argmin()+argmax]
 
@@ -367,10 +367,10 @@ class TwoDimPeak(OneDimFit):
         hm = (self.data.max() - self.data.min())/2.0
         yargmax, xargmax = np.unravel_index(self.data.argmax(), self.data.shape)
 
-        lx = abs(self.data[yargmax,:xargmax-1] - hm).argmin()
-        rx = abs(self.data[yargmax,xargmax+1:] - hm).argmin()
-        ly = abs(self.data[:yargmax-1,xargmax] - hm).argmin()
-        ry = abs(self.data[yargmax+1:,xargmax] - hm).argmin()
+        lx = np.abs(self.data[yargmax,:xargmax-1] - hm).argmin()
+        rx = np.abs(self.data[yargmax,xargmax+1:] - hm).argmin()
+        ly = np.abs(self.data[:yargmax-1,xargmax] - hm).argmin()
+        ry = np.abs(self.data[yargmax+1:,xargmax] - hm).argmin()
         return abs(lx - rx), abs(ly-ry)
 
 class TwoDimDonutPeak(OneDimFit):
@@ -400,9 +400,9 @@ class TwoDimDonutPeak(OneDimFit):
         elif argmax == 0:
             argmax = 1
 
-        absdiff = abs(data - hm)
-        left = xvals[absdiff[np.argwhere(xvals < argmax)].argmin()]
-        right = xvals[absdiff[np.argwhere(xvals > argmax)].argmin()]
+        absdiff = np.abs(data - hm)
+        left    = xvals[absdiff[np.argwhere(xvals < argmax)].argmin()]
+        right   = xvals[absdiff[np.argwhere(xvals > argmax)].argmin()]
 
         return abs(left-right)
 
@@ -583,7 +583,7 @@ class LorentzianSq(OneDimPeak):
     def guess_parameters(self):
         self.params = np.zeros(4)
         
-        self.params[3] = abs(self.data).min()              # bg
+        self.params[3] = np.abs(self.data).min()        # bg
         self.params[0] = self.data.max() - self.params[3]  # scale
         self.params[1] = self.data.argmax()                # center x0
         
@@ -619,7 +619,7 @@ class LorentzianSqBlurred(OneDimPeak):
     def guess_parameters(self):
         self.params = np.zeros(5)
         
-        self.params[3] = abs(self.data).min()              # bg
+        self.params[3] = np.abs(self.data).min()        # bg
         self.params[0] = self.data.max() - self.params[3]  # scale
         self.params[1] = self.data.argmax()                # center x0
         
@@ -785,21 +785,10 @@ def linear(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = Linear(data, mask, weighted)
     fit.fit()
@@ -818,21 +807,10 @@ def decay_exp_beta_sq(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = DecayExpBetaSq(data, mask, weighted)
     fit.fit()
@@ -851,22 +829,12 @@ def decay_exp_beta(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
+
     fit = DecayExpBeta(data, mask, weighted)
     fit.fit()
     return fit
@@ -884,21 +852,10 @@ def decay_exp(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = DecayExp(data, mask, weighted)
     fit.fit()
@@ -917,21 +874,10 @@ def gaussian(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = Gaussian(data, mask, weighted)
     fit.fit()
@@ -950,21 +896,10 @@ def lorentzian(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = Lorentzian(data, mask, weighted)
     fit.fit()
@@ -983,21 +918,10 @@ def lorentzian_sq(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = LorentzianSq(data, mask, weighted)
     fit.fit()
@@ -1019,21 +943,10 @@ def lorentzian_sq_blurred(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = LorentzianSqBlurred(data, mask, weighted)
     fit.fit()
@@ -1052,21 +965,10 @@ def gaussian_2d(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = Gaussian2D(data, mask, weighted)
     fit.fit()
@@ -1088,21 +990,10 @@ def gaussian_donut_2d(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = GaussianDonut2D(data, mask, weighted)
     fit.fit()
@@ -1123,21 +1014,10 @@ def lorentzian_donut_2d(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = LorentzianDonut2D(data, mask, weighted)
     fit.fit()
@@ -1158,21 +1038,10 @@ def lorentzian_donut_2d_sq(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = LorentzianDonut2DSq(data, mask, weighted)
     fit.fit()
@@ -1191,21 +1060,10 @@ def lorentzian_2d(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = Lorentzian2D(data, mask, weighted)
     fit.fit()
@@ -1224,21 +1082,10 @@ def lorentzian_2d_sq(data, mask=None, weighted=False):
             important than others. Default is False.
 
     returns:
-        result - A fit class that contains information about the final fit. This
-            object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        result - a fit class that contains the final fit.  This object has
+            various self descriptive parameters, the most useful is
+            result.final_params_errors, which contains a parameter+fit map of
+            the final fitted values.
     """
     fit = Lorentzian2DSq(data, mask, weighted)
     fit.fit()
@@ -1255,22 +1102,8 @@ def gaussian_3d(data, mask=None, weighted=False):
             None.
 
     returns:
-        A dictionary of fitted result classes.  The dictionary is indexed by the
-        frame number. Each result is a fit class that contains information about
-        the final fit. This object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        A dictionary of fitted results.  The dictionary is indexed by the frame
+            number.
     """
     return _3d_fit(data, Gaussian2D, mask)
 
@@ -1287,22 +1120,8 @@ def lorentzian_3d(data, mask=None, weighted=False):
             None.
 
     returns:
-        A dictionary of fitted result classes.  The dictionary is indexed by the
-        frame number. Each result is a fit class that contains information about
-        the final fit. This object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        A dictionary of fitted results.  The dictionary is indexed by the frame
+            number.
     """
     return _3d_fit(data, Lorentzian2D, mask)
 
@@ -1317,22 +1136,8 @@ def lorentzian_3d_sq(data, mask=None, weighted=False):
             None.
 
     returns:
-        A dictionary of fitted result classes.  The dictionary is indexed by the
-        frame number. Each result is a fit class that contains information about
-        the final fit. This object has various self descriptive parameters:
-            result.funtional - Function that was fitted
-            result.final_params - Final fitted parameters.
-            result.final_errors - Final errors.
-            result.final_params_errors - Dictionary of final fittted parameters
-                with errors.
-            result.final_residuals - final residuals (data - final_evaluated).
-
-            Other parameters in result:
-            result.final_Rsquared - Final R^2 value.
-            result.final_evaluated - Final evaluated fit value
-            result.final_chisq - Final chi^2.
-            result.final_variance - Final variance.
-            result.final_fn_evaluations - Total number of function evaluations.
+        A dictionary of fitted results.  The dictionary is indexed by the frame
+            number.
     """
     return _3d_fit(data, Lorentzian2DSq, mask)
 

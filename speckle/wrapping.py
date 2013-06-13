@@ -42,7 +42,7 @@ def unwrap_plan(r, R, center, modulo=None, target='cpu'):
     phi = np.ones_like(r)*np.arange(ucols)*2*np.pi/ucols
     r += ur
     
-    y = r*np.sin(phi)+center[1]
+    y = r*np.sin(phi)+center[0]
     x = r*np.cos(phi)+center[1]
     
     if modulo != None:
@@ -104,7 +104,7 @@ def unwrap(array,plan,interpolation_order=3,modulo=None):
             invoking unwrap_plan(), or the 3-tuple (r, R, center).  The former
             method is useful if you only need to call unwrap() many times with
             the same 3-tuple values.
-        interpolation_order - coordinate transformation interpolation order.
+        interpolation_order - (optional) coordinate transformation interpolation order.
             0 is nearest neighbor.
             1 is linear/bilinear
             3 is cubic/bicubic (default)
