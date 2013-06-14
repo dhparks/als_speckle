@@ -91,10 +91,42 @@ class phasing(common):
         self.float2s   = (complex,np.complex64,np.complex128)
         self.iterables = (list,tuple,np.ndarray)
 
-    def iterate(self,iterations,silent=True):
+    def iterate(self,iterations,order=None,silent=True):
     
         """ Run iterations. This is the primary method for the class. When the
         iterations terminate, the result is copied to self.save_buffer.
+        
+        required input:
+            iterations -- The total number of iterations to run
+            
+        optional input:
+            order -- A specification of which algorithms to run. Currently, this
+                code supports the following algorithms:
+                
+                hio, er, sf, raar, dm
+
+                The order should be an iterable of entries, each entry
+                giving an algorithm and then a number of iterations. Example:
+                
+                order = (('hio',5),('er',5),('sf',1))
+                
+                tells the program to do 5 iterations of hio, 5 iterations of er
+                and finally 1 iteration of sf. The sequence is looped until
+                the total given number of iterations is reached. The number of
+                iterations described within order DOES NOT have to be a divisor
+                of iterations passed to iterate(). So, the above example order
+                could be combined with iterations = 13 to give
+                
+                hio, hio, hio, hio, hio, er, er, er, er, er, sf, hio, hio
+                
+                at which point the program finishes.
+                
+                Default value is (('hio',99),('er',1))
+                
+            silent - (default True) If set to True, outputs the iteration
+                number. Can also be set to an integer value, in which case
+                the iteration number is printed out every int(silent) iterations.
+                This is useful to monitor progress.
         
         The keyword argument silent (default True) can be set to False, in which
         case every iteration spits out an update, or a number, in which case
@@ -110,12 +142,25 @@ class phasing(common):
                print "buffer  state: "+str(self.buffer_state)
             
         iterations = int(iterations)
-       
+        
+        # build the iteration list
+        assert isinstance(order,(type(None),list,tuple)), "spec must be iterable"
+        if order==None: order = (('dm',99),('er',1))
+        order_list = []
+        for entry in order:
+            try:
+                t = str(entry[0])
+                i = int(entry[1])
+            except:
+                print "entry %s in iterate(spec) is improperly formatted"
+                exit()
+            for j in range(i):
+                order_list.append(t)
+        k = len(order_list)
+                
         for iteration in range(iterations):
-            
-            # run the algorithm for a single iteration
-            if (iteration+1)%100 != 0: self._iteration('hio',iteration=iteration)
-            else:                      self._iteration('er')
+
+            self._iteration(order_list[iteration%k],iteration=iteration)
 
             # print an update to the terminal so that it doesnt look like a crash
             if silent != True:
@@ -908,6 +953,7 @@ class phasing(common):
             beta: For the algorithms with a feedback parameter (hio, raar, dm) this is that
                 parameter. The default value is 0.8"""
 
+        import io
 
         # first, build some helper functions which abstract the cpu/gpu issue
         def _build_divisor():
@@ -970,7 +1016,7 @@ class phasing(common):
         def _fourier_constraint(data,out):
             
             # 1. fourier transform the data. store in psi_fourier
-            self.psi_fourier = self._fft2(self.psi_in,self.psi_fourier)
+            self.psi_fourier = self._fft2(data,self.psi_fourier)
             
             # 2. from the data in psi_fourier, build the divisor. partial coherence
             # correction is enabled by 1. supplying an estimate of ipsf (transverse
@@ -980,11 +1026,11 @@ class phasing(common):
             self.fourier_div = _build_divisor()
             
             # 3. execute the magnitude replacement
-            if use_gpu: self._kexec('fourier',data,self.fourier_div,self.modulus,self.psi_fourier)
-            else: self.psi_fourier = self.modulus*data/np.abs(self.fourier_div)
+            if use_gpu: self._kexec('fourier',self.psi_fourier,self.fourier_div,self.modulus,self.psi_fourier)
+            else: self.psi_fourier = self.modulus*self.psi_fourier/np.abs(self.fourier_div)
 
             # 4. inverse fourier transform the new fourier estimate
-            out = self._fft2(self.psi_fourier,out,inverse=True) 
+            out = self._fft2(self.psi_fourier,out,inverse=True)
             
             return out
                 
@@ -1002,7 +1048,7 @@ class phasing(common):
         
         def _raar(psi_in,psi_out,support):
             if use_gpu: self._kexec('raar',beta,support,psi_in,psi_out,psi_in)
-            else:       psi_in = (1-support)*(beta*psi_in-(1-2*beta)*psi_out)+support*psi_out
+            else:       psi_in = (1-support)*(beta*psi_in+(1-2*beta)*psi_out)+support*psi_out
             return psi_in
         
         def _sf(psi_in,psi_out,support):
@@ -1020,7 +1066,7 @@ class phasing(common):
             gamma_s = -gamma_m
             
             # make the modified estimate. enforce the fourier constraint in-place
-            if use_gpu: self._kexec('dm1',gamma_m,support,psi_in,psi_out,self.fourier_tmp)
+            if use_gpu: self._kexec('dm1',gamma_m,support,psi_in,self.fourier_tmp)
             else: self.fourier_tmp = support*psi_in-gamma_m*(1-support)*psi_in
             self.fourier_tmp = _fourier_constraint(self.fourier_tmp,self.fourier_tmp)
             
@@ -1028,7 +1074,7 @@ class phasing(common):
             if use_gpu:
                 self._kexec('dm2',beta,gamma_s,support,psi_in,psi_out,self.fourier_tmp,psi_in)
             else:
-                t1     = 2*psi_out-beta*psi_mod+beta*((1+gamma_s)*psi_out-gamma_s*psi_in)
+                t1     = 2*psi_out-beta*self.fourier_tmp+beta*((1+gamma_s)*psi_out-gamma_s*psi_in)
                 t2     = psi_in-beta*psi_out
                 psi_in = support*t1+(1-support)*t2
             return psi_in
