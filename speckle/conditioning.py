@@ -5,7 +5,7 @@ and simulated data through the same analytical functions.
 Author: Daniel Parks (dhparks@lbl.gov)
 Author: Keoki Seu (kaseu@lbl.gov)
 """
-import numpy
+import numpy,time
 from . import masking, io, shape, crosscorr
 
 def remove_dust_old(data_in,dust_mask,dust_plan=None):
@@ -118,16 +118,23 @@ def remove_dust(data,dust_mask,dust_plan=None):
         assert dust_mask.shape == dust_plan.shape, "dust_mask and dust_plan must have same shape"
     assert dust_mask.shape[0] == dust_mask.shape[1], "currently only support square arrays"
     
+    try:
+        import numexpr
+        have_numexpr = True
+    except ImportError:
+        have_numexpr = False
+    
     # check that dust_mask and data_in are commensurate
     was_2d = False
     if data_in.ndim == 2:
         was_2d = True
         data_in.shape = (1,)+tuple(data_in.shape)
     assert data_in.shape[1:] == dust_mask.shape, "data_in and dust_mask are incommensurate: %s %s"%(data_in.shape,dust_mask.shape)
+    dust_mask = dust_mask.astype('>f4')
 
     # if the dust_plan doesnt exist, make it.
-    if dust_plan == None: dust_plan = plan_remove_dust(dust_mask)
-        
+    if dust_plan == None: dust_plan = plan_remove_dust_new(dust_mask)
+
     # loop through the frames of data_in, removing the dust from each using the
     # same dust plan. interpolation is handled by grid_data from scipy.
     from scipy.interpolate import griddata
@@ -156,7 +163,12 @@ def remove_dust(data,dust_mask,dust_plan=None):
         interpolated[ymin-1:ymax+1,xmin-1:xmax+1] = interpolation
         interpolated = numpy.nan_to_num(interpolated)
         
-        data_in[n] = interpolated*dust_mask+frame*(1-dust_mask)
+        if have_numexpr:
+            fill = numexpr.evaluate("interpolated*dust_mask+frame*(1-dust_mask)")
+        else:
+            fill = interpolated*dust_mask+frame*(1-dust_mask)
+        
+        data_in[n] = fill
         
     if was_2d: data_in.shape = data_in.shape[1:]
         
@@ -179,24 +191,23 @@ def plan_remove_dust(mask):
     # precompute the fourier transforms for the convolutions
     kf = numpy.fft.fft2(kernel)
     df = numpy.fft.fft2(mask2)
-
+    
     def _expand(x):
         f1 = df*kf**x     # expand by x
         f2 = df*kf**(x-1) # expand by x-1
         r1 = numpy.fft.ifft2(f1).real # transform to real space
         r2 = numpy.fft.ifft2(f2).real # transform to real space
         return numpy.clip(r1,0.,1.01)-numpy.clip(r2,0.,1.01) # take the difference
-    
-    # now do the expansions of the mask to set interpolation control points
+        
+    # now expand by 1, 3, 5, 7, 9 pixels.
     plan = numpy.zeros(mask2.shape,numpy.float32)
     for x in (1,4,7,10):
         expanded = _expand(x)
-        plan    += expanded
-
+        plan += expanded
+    
     # restore to original size and position.
     plan2 = numpy.zeros(mask.shape,numpy.uint8)
     plan2[bb[0]:bb[1],bb[2]:bb[3]] = plan.astype(numpy.uint8)
-    plan2 *= (1-mask.astype(numpy.uint8))
     
     return plan2
     
@@ -262,7 +273,7 @@ def plan_remove_dust_old(mask):
     # doesn't matter for this purpose
     return tuple(set(PixelIDStrings))
 
-def subtract_dark(data_in, dark, x=20):
+def subtract_dark(data_in, dark, x=20, return_type='data'):
     """Subtract a background file. The data and dark files may have been
     collected under different acquisition parameters so this tries to scale
     the dark file appropriately in the region [:x,:x].
@@ -272,11 +283,15 @@ def subtract_dark(data_in, dark, x=20):
         dark - dark file. Must be an ndarray or None.  Defaults to None.  In
             this case only the DC component is subtracted.
         x - amount from the data edge that should be used for counts matching.
+        return_type - (optional) default is 'data', which retur
 
     returns:
         data - the background-subtracted data.
+        parameters - if return_type == 'all', this functions returns a tuple
+            (data, parameters) where data is the background-subtracted data and
+            parameters are the fit parameters.
     """
-    
+
     # check types
     assert isinstance(data_in,numpy.ndarray), "data must be an array"
     assert data_in.ndim in (2,3), "data must be 2d or 3d"
@@ -295,11 +310,14 @@ def subtract_dark(data_in, dark, x=20):
         was2d = True
     
     for n,frame in enumerate(data):
-        scaled_dark = match_counts(frame,dark,region=match_region)
+        scaled_dark,x = match_counts(frame,dark,region=match_region,return_type='all')
         frame = numpy.abs(frame-scaled_dark)
         data[n] = frame
         
     if was2d: data = data[0]
+    
+    if return_type == 'data': return data
+    if return_type == 'all': return (data, x)
     
     return data
 
@@ -385,7 +403,7 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
     # define some simple helper functions to improve readability
     rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
     def prep(x):
-        if use_mag_only: x = numpy.abs(x)
+        if use_mag_only: x = abs(x)
         if region != None: x = region*x
         return x
 
@@ -439,7 +457,7 @@ def align_frames(data,align_to=None,region=None,use_mag_only=False,return_type='
             result = result[0]
         return result
 
-def match_counts(img1, img2, region=None, nparam=3, silent=True):
+def match_counts(img1, img2, region=None, nparam=3, silent=True, return_type='data'):
     """ Match the counts between two images. There are options to match in a
         region of interest and the number of fitting parameters to be used.
 
@@ -460,34 +478,49 @@ def match_counts(img1, img2, region=None, nparam=3, silent=True):
         img2 - a scaled img2 such that the counts in region match.
     """
     import scipy.optimize
-
+    
+    try:
+        import numexpr
+        have_numexpr = True
+    except ImportError:
+        have_numexpr = False
     def diff3(c, img1, img2):
         """ minimize (I1 - d1) - s(I2-d2)
             = I1 - s*I2 + (s*d2 - d1)
         """
         (s, d1, d2) = c
-        if d1 < 0 or d2 < 0:
-            return 1e30
-        dif = (img1 - d1 - s*(img2 - d2))**2
-        return dif.sum()
+        if d1 < 0 or d2 < 0: return 1e30
+        if have_numexpr:
+            dif = numexpr.evaluate("(img1 - d1 - s*(img2 - d2))**2")
+            dif = numexpr.evaluate("sum(dif)")
+        else:
+            dif = ((img1 - d1 - s*(img2 - d2))**2).sum()
+        return dif
 
     def diff2(c, img1, img2):
         """ minimize I1 - s(I2-d2)
             = I1 - s*(I2 - d2)
         """
         (s, d2) = c
-        if d2 < 0:
-            return 1e30
-        dif = (img1 - s*(img2 - d2))**2
-        return dif.sum()
+        if d2 < 0: return 1e30
+        if have_numexpr:
+            dif = numexpr.evaluate("(img1 - s*(img2 - d2))**2")
+            dif = numexpr.evaluate("sum(dif)")
+        else:
+            dif = ((img1 - s*(img2 - d2))**2).sum()
+        return dif
 
     def diff1(c, img1, img2):
         """ minimize I1 - s*I2
             = I1 - s*I2
         """
         (s) = c
-        dif = (img1 - s*img2)**2
-        return dif.sum()
+        if have_numexpr:
+            dif = numexpr.evaluate("(img1 - s*img2)**2")
+            dif = numexpr.evaluate("sum(dif)")
+        else:
+            dif = ((img1 - s*img2)**2).sum()
+        return dif
 
     assert isinstance(img1, numpy.ndarray) and img1.ndim == 2, "img1 must be a 2d ndarray."
     assert isinstance(img2, numpy.ndarray) and img2.ndim == 2, "img2 must be a 2d ndarray."
@@ -545,11 +578,14 @@ def match_counts(img1, img2, region=None, nparam=3, silent=True):
     if not silent: print("Final result: %s." % (paramstr % tuple(x)))
 
     if nparam == 1:
-        return x[0]*img2
+        data_return = x[0]*img2
     elif nparam == 2:
-        return x[0]*(img2 - x[1])
+        data_return = x[0]*(img2 - x[1])
     else:
-        return x[0]*(img2 - x[2]) + x[1]
+        data_return = x[0]*(img2 - x[2]) + x[1]
+        
+    if return_type == 'data': return data_return
+    if return_type == 'all':  return (data_return, x)
 
 def open_dust_mask(path):
     """ Open a dust mask.
@@ -672,8 +708,8 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
         blur_kernel = shift(shape.gaussian(bounded.shape,(width,width),normalization=1.0))
     
         # two convolutions make the blender
-        expanded = numpy.clip(numpy.abs(convolve(bounded,grow_kernel)),0,1)
-        blurred = 1-numpy.abs(convolve(expanded,blur_kernel))
+        expanded = numpy.clip(abs(convolve(bounded,grow_kernel)),0,1)
+        blurred = 1-abs(convolve(expanded,blur_kernel))
 
         # embed the bounded convolutions inside the correct spot in an array of
         # the correct size to return and set pixels inside fill_region to

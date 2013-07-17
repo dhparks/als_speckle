@@ -139,7 +139,7 @@ class common:
             if d2 == 'complex64':
                 func = 'divide_f2_f2'
                 assert d3 == 'complex64', "complex / complex = complex"
-         
+                
         self._kexec(func,arg1,arg2,out)
         
     def _cl_map2d(self,in1,out,x_plan,y_plan):
@@ -195,6 +195,8 @@ class common:
                     except AttributeError: pass
                 if s != None:
                     try:
+                        a.isgpu
+                        s = a.shape
                         assert s == a.shape, "arrays are incommensurate %s %s"%(s,a.shape)
                     except AttributeError: pass
 
@@ -227,7 +229,7 @@ class common:
                 arg1 = in2
                 arg2 = in1
                 if d1 == 'float32':   func = 'multiply_s_f'
-                if d2 == 'complex64': func = 'multiply_s_f2'
+                if d1 == 'complex64': func = 'multiply_s_f2'
                 
         except AttributeError: # this means in1 is a scalar
             assert d1 == 'float32'
@@ -276,7 +278,8 @@ class common:
         
         assert isinstance(name,str), "name is %s"%name
         
-        # build the command from name and *args
+        # build the command from name and *args and **kwargs. right now the only
+        # kwarg is shape, but other options can be added.
         if 'shape' in kwargs:
             shape = kwargs['shape']
             assert isinstance(shape,tuple)
@@ -313,7 +316,7 @@ class common:
             cmd2 = "self.%s = build_kernel_file(self.context, self.device, self.kp+'common_%s.cl')"%(name,name)
             
             try:
-                exec(cmd1) 
+                exec(cmd1)
             except IOError:
                 try:
                     exec(cmd2)
@@ -332,8 +335,8 @@ class common:
         GPUs, memory is allocated first. For CPUs, allocation gets handled
         dynamically by the interpreter. """
 
-        assert what.shape == where.shape
-        assert what.dtype == where.dtype
+        assert what.shape == where.shape, "incompatible shapes %s %s"%(what.shape,where.shape)
+        assert what.dtype == where.dtype, "incompatible types %s %s"%(what.dtype,where.dtype)
         if self.use_gpu:
             import pyopencl.array as cla
             where.set(what,queue=self.queue)
@@ -363,6 +366,7 @@ class common:
             import string
             self.kp = string.join(__file__.split('/')[:-1],'/')+'/kernels/'
             self.context,self.device,self.queue,self.platform = init()
+            self.gpu_info = self.context,self.device,self.queue,self.platform
             return True # becomes the new self.use_gpu
         except:
             print "couldnt init gpu, reverting to cpu"

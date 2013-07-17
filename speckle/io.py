@@ -50,11 +50,13 @@ def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimite
     """
     
     # define extension types to control switching
-    img_exts  = ('jpg', 'jpeg', 'gif', 'png', 'bmp', )
-    fits_exts = ('fits', 'fit', )
-    txt_exts  = ('txt', 'csv', )
-    pck_exts  = ('pck', )
+    img_exts     = ('jpg', 'jpeg', 'gif', 'png', 'bmp', )
+    fits_exts    = ('fits', 'fit', )
+    txt_exts     = ('txt', 'csv', )
+    pck_exts     = ('pck', )
+    zip_exts     = ('zip','gz',) # assume these are actually fits files
     ds9mask_exts = ('reg', )
+    fits_exts += zip_exts
     all_exts = img_exts + fits_exts + txt_exts + pck_exts + ds9mask_exts
 
     # get extension from filename
@@ -69,7 +71,7 @@ def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimite
     if ext in pck_exts:  return load_pickle(filename)
     if ext in ds9mask_exts: return open_ds9_mask(filename,force_reg_size=force_reg_size)
 
-def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None,scaling=None):
+def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None,scaling=None,do_zip=False):
     """ Save components of an array as desired filetype specified by file
     extension. This is a wrapper to save_fits, save_image, write_text_array.
     
@@ -90,6 +92,10 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
             operates only on the magnitude component of the data.
             available scales are 'sqrt','log', or a float which is interpreted
             as a power (ie, 0.5 reproduces sqrt).
+        zip - if True, will run the system gz command on the saved output,
+            which replaces it with a zip file. useful for fits files with
+            large spaces of zeros, for example. This will remove the original
+            file following the protocol of the standard gzip utility.
 
     returns:
         nothing. Will throw an exception if something wrong happens.
@@ -122,6 +128,26 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
         if header == {}: header = ''
         if ext == 'csv': write_text_array(filename,data,header=header,delimiter=',')
         else: write_text_array(filename,data,header=header)
+        
+    if do_zip:
+        
+        try:
+            import gzip, os, glob
+            
+            base = filename.split('.')[0]
+            matches = glob.glob('%s*.*'%base)
+            
+            for match in matches:
+                if match.split('.')[-1] != 'gz':
+                    f_in  = _open(match, 'rb')
+                    f_out = gzip.open(match+'.gz', 'wb')
+                    f_out.writelines(f_in)
+                    f_out.close()
+                    f_in.close()
+                    os.remove(match) # get rid of the unzipped file
+            
+        except ImportError:
+            print "no support on this system; maybe no gzip library?"
 
 #
 ############### Text ########################
@@ -373,8 +399,7 @@ def openimage(filename):
         integer ndarray"""
     
     import Image
-    try: import scipy.misc.pilutil as smp
-    except (ImportError,AttributeError): import scipy.misc as smp
+    import scipy.misc.pilutil as smp
     return smp.fromimage(Image.open(filename).convert("L"))
 
 def writefits(filename, img, headerItems={}, overwrite=None):
@@ -856,8 +881,7 @@ def write_image(filename, array, color_map='L'):
         no return arguments.
     """
 
-    try: import scipy.misc.pilutil as smp
-    except (AttributeError,ImportError): import scipy.misc as smp
+    import scipy.misc.pilutil as smp
     
     assert isinstance(array,numpy.ndarray), "in write_image, array must be ndarray but is %s"%type(array)
     assert array.ndim in (2,3), "in write_image, array must be 2d or 3d; is %s"%array.ndim
@@ -868,7 +892,7 @@ def write_image(filename, array, color_map='L'):
 
         im = smp.toimage(array)
         if color_map == None or color_map == 'L':
-            # greyscale
+             # greyscale
             smp.toimage(array).save(filename)
         else:
             im.putpalette(color_maps(color_map))
@@ -994,7 +1018,6 @@ def complex_hsv_image(array):
 
     return (numpy.dstack((r,g,b))*255).astype(numpy.uint8)
 
-    
 def color_maps(map):
     """ List of colormaps.  Used for image output.
 

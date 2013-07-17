@@ -26,7 +26,7 @@ def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0):
     assert isinstance(threshold, (int, float)), "threshold must be int or float"
     mask = np.where(data > threshold, 1, 0)
     rows, cols = mask.shape
-    
+
     aw = np.argwhere(mask)
     (rmin, cmin) = aw.min(0)
     (rmax, cmax) = aw.max(0) + 1
@@ -108,16 +108,17 @@ def take_masked_pixels(data, mask):
         
     returns:
         if data is 2d, a 1d array of selected pixels
-        if data is 2d, a 2d array where axis 0 is the frame axis
+        if data is 3d, a 2d array where axis 0 is the frame axis
     """
     assert isinstance(data, np.ndarray) and data.ndim in (2, 3), "data must be 2d or 3d array"
-    assert isinstance(mask, np.ndarray) and mask.ndim == 2, "mask must be 2d array"
     if data.ndim == 2:
         assert data.shape == mask.shape, "data and mask must be same shape"
     else: # data.ndim == 3
         assert data[0].shape == mask.shape, "data and mask must be same shape"
 
     # find which pixels to take (ie, which are not masked)
+    assert isinstance(mask, np.ndarray) and mask.ndim == 2, "mask must be 2d array"
+
     indices = np.nonzero(np.where(mask > 1e-6, 1, 0))
 
     # return the requested pixels
@@ -128,6 +129,44 @@ def take_masked_pixels(data, mask):
         for i, fr in enumerate(data):
             result[i] = fr[indices]
         return result
+
+def put_masked_pixels(data,mask):
+    """ This function is the functional inverse of take_masked_pixels.
+    Whereas that function takes a 2d or 3d array and a corresponding mask and
+    returns a 1d list of values from the mask, this function takes the 1d list
+    of values and the mask and returns filled 2d or 3d array. If the same mask
+    was applied to a sequence of frames, this attempts to undo that operation.
+    The reason for this function is you might want to take some pixels to speed
+    an operation (such as background subtraction), then put them back in order.
+    
+    arguments:
+        data: 1d or 2d list of values of any type
+        mask: 2d or 3d mask saying where those values came from
+        
+    returns:
+        data put back into the shape of mask
+    """
+    
+    assert isinstance(mask, np.ndarray) and mask.ndim in (2,3), "mask must be 2d or 3d array"
+    assert isinstance(data, np.ndarray) and data.ndim in (1,2), "data must be 1d or 2d array"
+
+    if data.ndim == 1: nf = 1
+    if data.ndim == 2: nf = data.shape[0]
+    
+    ms = mask.shape
+    mr = mask.ravel()
+    indices = np.nonzero(np.where(mr > 1e-6,1,0))[0]
+
+    # slice each frame out of the data, embed in a list of zeros, and reshape
+    toreturn  = np.zeros((nf,)+ms,data.dtype)
+    for n in range(nf):
+        tmp          = np.zeros(mask.size,data.dtype)
+        tmp[indices] = np.copy(data[n,:])
+        toreturn[n]  = tmp.reshape(ms)
+    
+    # return the reshaped data
+    if nf == 1: toreturn = toreturn[0]
+    return toreturn
     
 def trace_object(data_in, start, detect_val=None, return_type='detected'):
     """ Using a floodfill algorithm (basically, the paintbuck tool in software
