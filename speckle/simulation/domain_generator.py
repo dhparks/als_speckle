@@ -29,14 +29,14 @@ class generator(common):
     5. Repeat 4 until convergence is reached: foo.converged = True
     """
     
-    def __init__(self,force_cpu=False):
+    def __init__(self,force_cpu=False,gpu_info=None):
         global use_gpu
         
         # load the gpu if available
         # keep context, device, queue, platform, and kp in the superset namespace.
         if use_gpu:
             common.project = 'domains'
-            use_gpu = self.start() 
+            use_gpu = self.start(gpu_info) 
         if force_cpu: use_gpu = False
         common.use_gpu = use_gpu # tell the methods in common which device we're using
 
@@ -68,6 +68,24 @@ class generator(common):
         self.envelope_state = 0
         self.ggr_state = 0
              
+    def check_convergence(self,iteration):
+        
+        def _diff():
+            if use_gpu: self._kexec('absdiff',self.incoming,self.domains_f,self.domain_diff)
+            else: self.domain_diff = abs(self.incoming-self.domains_f)
+
+        _diff()
+        
+        self.power = self._sum(self.domain_diff)/self.N2
+        self.powerlist.append(self.power)
+        #print iteration, self.power
+        
+        # set the convergence condition
+        if self.power <= self.converged_at: self.converged = True
+        if iteration > self.cutoff: self.converged = True
+
+        if 'converged' in self.returnables_list and self.converged: self.returnables['converged'] = self.get(self.domains_f)
+
     def get(self,something):
         if use_gpu: return something.get()
         else: return something
@@ -299,6 +317,7 @@ class generator(common):
             # this indicates space has also been allocated for self.domains
             if supplied == None: supplied = np.random.rand(self.N,self.N)-0.5
             self.domains = self._set(supplied.astype(np.complex64),self.domains)
+            self.converged = False
             
     def kick(self,amount):
         """ If the simulation has reached an acceptable degree of convergence,
@@ -537,9 +556,7 @@ class generator(common):
                 print "requested returnable %s is unrecognized and will be ignored"%r
             else:
                 self.returnables_list.append(r)
-     
 
-    
         # simple kernels written as pyopencl objects
         self.ggr_promote_spins = EK(self.context, # differs from above in that a different output is used: unify later?
             "float *domains,"
@@ -675,22 +692,4 @@ class generator(common):
         e = abs(buffer_average-self.goal_m)
         #print "    %.6e, %.3e"%(spa,e)
         return e
-
-    def check_convergence(self,iteration):
-        
-        def _diff():
-            if use_gpu: self._kexec('absdiff',self.incoming,self.domains_f,self.domain_diff)
-            else: self.domain_diff = abs(self.incoming-self.domains_f)
-
-        _diff()
-        
-        self.power = self._sum(self.domain_diff)/self.N2
-        self.powerlist.append(self.power)
-        #print iteration, self.power
-        
-        # set the convergence condition
-        if self.power <= self.converged_at: self.converged = True
-        if iteration > self.cutoff: self.converged = True
-
-        if 'converged' in self.returnables_list and self.converged: self.returnables['converged'] = self.get(self.domains_f)
 

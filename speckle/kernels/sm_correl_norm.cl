@@ -17,7 +17,7 @@ __kernel void execute(
     
     if (mode == 0){ //wochner
 	float2 a = in[index];
-	mag = native_sqrt(a.x*a.x+a.y+a.y);
+	mag = hypot(a.x,a.y);
 	out[index] = (float2)(mag*v-1,0);
     }
 	

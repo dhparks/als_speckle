@@ -7,7 +7,7 @@
 global use_gpu
 
 import numpy as np
-import wrapping,masking,gpu,sys,time,warnings
+import wrapping,masking,gpu,sys,time,warnings,io
 w = sys.stdout.write
 common = gpu.common
 shift = np.fft.fftshift
@@ -25,14 +25,14 @@ except ImportError:
 
 class microscope(common):
     
-    def __init__(self,force_cpu=False):
+    def __init__(self,force_cpu=False,gpu_info=None):
         global use_gpu
         
         # load the gpu if available
         # keep context, device, queue, platform, and kp in the superset namespace.
         if use_gpu:
             common.project = 'sm'
-            use_gpu = self.start() 
+            use_gpu = self.start(gpu_info) 
         if force_cpu: use_gpu = False
         common.use_gpu = use_gpu # tell the methods in common which device we're using
 
@@ -341,7 +341,7 @@ class microscope(common):
         self.counter += 1
         self.master_time += time.time()-time0
 
-    def status(self):
+    def status(self,spaces):
         """ Report on the status of the microscope vis-a-vis what required
         elements have been loaded. These attributes can all be accessed
         externally (if the right words are known!) . This just gives
@@ -349,22 +349,25 @@ class microscope(common):
         
         ro = {0:'no',1:'partial',2:'complete'}
         
-        sys.stdout.write("Microscope status\n")
-        sys.stdout.write("  device: %s\n"%(self.compute_device))
-        sys.stdout.write("  required elements\n")
-        sys.stdout.write("    sample: %s\n"%ro[self.sample_state])
-        sys.stdout.write("    ilmntn: %s\n"%ro[self.illumination_state])
-        sys.stdout.write("    unwrap: %s\n"%ro[self.unwrap_state])
-        sys.stdout.write("  can scan? %s\n"%self.can_run_scan)
-        sys.stdout.write("  optional elements\n")
-        sys.stdout.write("    ipsf:   %s\n"%ro[self.ipsf_state])
-        sys.stdout.write("    blockr: %s\n"%ro[self.blocker_state])
-        sys.stdout.write("  decisisions\n")
+        spacer = ''
+        for n in range(spaces): spacer += " "
+        
+        sys.stdout.write(spacer+"Microscope status\n")
+        sys.stdout.write(spacer+"  device: %s\n"%(self.compute_device))
+        sys.stdout.write(spacer+"  required elements\n")
+        sys.stdout.write(spacer+"    sample: %s\n"%ro[self.sample_state])
+        sys.stdout.write(spacer+"    ilmntn: %s\n"%ro[self.illumination_state])
+        sys.stdout.write(spacer+"    unwrap: %s\n"%ro[self.unwrap_state])
+        sys.stdout.write(spacer+"  can scan? %s\n"%self.can_run_scan)
+        sys.stdout.write(spacer+"  optional elements\n")
+        sys.stdout.write(spacer+"    ipsf:   %s\n"%ro[self.ipsf_state])
+        sys.stdout.write(spacer+"    blockr: %s\n"%ro[self.blocker_state])
+        sys.stdout.write(spacer+"  decisions\n")
         if self.ipsf_state == 2:
-            sys.stdout.write("    * Because ipsf is specified, speckle will be blurred\n")
+            sys.stdout.write(spacer+"    * Because ipsf is specified, speckle will be blurred\n")
         if self.resize_speckles:
-            sys.stdout.write("    * Because illlumination and ipsf are different sizes,\n")
-            sys.stdout.write("      speckle will be resized before blurring.\n")
+            sys.stdout.write(spacer+"    * Because illlumination and ipsf are different sizes,\n")
+            sys.stdout.write(spacer+"      speckle will be resized before blurring.\n")
         
     def timings(self):
         sys.stdout.write("slice time:    %.3e (%.2f %%)\n"%(self.slice_time,self.slice_time/self.master_time*100))
@@ -526,6 +529,7 @@ class microscope(common):
                 self.rowaverage = np.outer(r,c)
                 
         def _corr_norm():
+            
             if use_gpu: self._kexec('correl_norm',self.unwrapped,self.rowaverage,self.unwrapped,np.int32(0),shape=(512,self.rows))
             else:
                 self.unwrapped /= (self.rowaverage**2)
@@ -541,6 +545,7 @@ class microscope(common):
             self._cl_abs(self.unwrapped,self.unwrapped)
             self._cl_mult(self.unwrapped,self.unwrapped,self.unwrapped)
             self.fftplan_correls.execute(self.unwrapped.data,batch=self.rows,inverse=True,wait_for_finish=True)
+            
         else:
             self.unwrapped = np.fft.ifft2(np.abs(np.fft.fft2(self.unwrapped,axes=(1,)))**2,axes=(1,))
 
@@ -580,7 +585,7 @@ class microscope(common):
             rolls = lambda d,r0,r1: np.roll(np.roll(d,-r0,axis=0),-r1,axis=1)
             assert s[0] >= i and s[1] >= i
             
-            self.sliced = rolls(self.sample,top_row,left_col)[s[0]/2-j:s[0]/2+j,s[1]/2-j:s[1]/2+j]
+            self.sliced = rolls(self.sample,np.int32(top_row),np.int32(left_col))[s[0]/2-j:s[0]/2+j,s[1]/2-j:s[1]/2+j]
             
         if 'sample' in self.returnables_list: self.returnables['sample'] = self.get(self.sample).real
         if 'sliced' in self.returnables_list: self.returnables['sliced'] = self.get(self.sliced).real
@@ -607,3 +612,13 @@ class microscope(common):
         if 'unwrapped' in self.returnables_list: self.returnables['unwrapped'] = self.get(self.unwrapped).real
 
         
+def concentrations(data_in):
+    frames, rows, cols = data_in.shape
+    data  = np.abs(np.copy(data_in))
+    powers = np.sum(data,axis=-1)          # sum along the component-value axis
+    out    = np.zeros((rows,frames),float) # the concentrations
+    q2     = (data.transpose()/powers.transpose()).transpose()
+    c2     = (q2**2).sum(axis=-1).transpose()
+    return c2, powers.transpose()
+        
+    de

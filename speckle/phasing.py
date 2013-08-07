@@ -1118,7 +1118,7 @@ def rftf(estimate,goal_modulus,hot_pixels=False,ipsf=None,rftfq=False):
     # form the speckle pattern
     new = np.zeros(goal_modulus.shape,estimate.dtype)
     new[0:estimate.shape[0],0:estimate.shape[1]] = estimate
-    fourier = abs(np.fft.fft2(new))
+    fourier = np.abs(np.fft.fft2(new))
     N = goal_modulus.shape[0]
     
     if ipsf != None:

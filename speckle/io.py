@@ -399,7 +399,16 @@ def openimage(filename):
         integer ndarray"""
     
     import Image
-    import scipy.misc.pilutil as smp
+    
+    try:
+        import scipy.misc.pilutil as smp
+    except AttributeError:
+        try:
+            import scipy.misc as smp
+        except:
+            print "cant import image tools"
+            exit()
+            
     return smp.fromimage(Image.open(filename).convert("L"))
 
 def writefits(filename, img, headerItems={}, overwrite=None):
@@ -813,9 +822,14 @@ def load_pickle(filename):
     returns:
         the data in the pickle file
     """
-    import pickle
+    try:
+        import cPickle as pickle
+    except:
+        import pickle
+    
     with _open(filename,'rb') as f:
-        return pickle.load(f)
+        x = pickle.load(f)
+        return x
     
 def save_pickle(path,data):
     """ Load a pickled file.
@@ -827,7 +841,10 @@ def save_pickle(path,data):
     returns:
         no return value.  It throws an error if it is not successful.
     """
-    import pickle
+    try:
+        import cPickle as pickle
+    except:
+        import pickle
     with _open(path,'wb') as f:
         pickle.dump(data,f)
 
@@ -881,7 +898,14 @@ def write_image(filename, array, color_map='L'):
         no return arguments.
     """
 
-    import scipy.misc.pilutil as smp
+    try:
+        import scipy.misc.pilutil as smp
+    except AttributeError:
+        try:
+            import scipy.misc as smp
+        except:
+            print "cant import image tools"
+            exit()
     
     assert isinstance(array,numpy.ndarray), "in write_image, array must be ndarray but is %s"%type(array)
     assert array.ndim in (2,3), "in write_image, array must be 2d or 3d; is %s"%array.ndim
@@ -1082,7 +1106,8 @@ _save_maps = {
     "real": numpy.real,
     "imag": numpy.imag,
     "complex_hls": complex_hls_image,
-    "complex_hsv": complex_hsv_image
+    "complex_hsv": complex_hsv_image,
+    "complexhsv": complex_hsv_image
 }
 
 def _process_components(components):

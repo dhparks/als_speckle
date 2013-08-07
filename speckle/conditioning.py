@@ -273,7 +273,7 @@ def plan_remove_dust_old(mask):
     # doesn't matter for this purpose
     return tuple(set(PixelIDStrings))
 
-def subtract_dark(data_in, dark, x=20, return_type='data'):
+def subtract_dark(data_in, dark, match_region=20, return_type='data'):
     """Subtract a background file. The data and dark files may have been
     collected under different acquisition parameters so this tries to scale
     the dark file appropriately in the region [:x,:x].
@@ -299,8 +299,13 @@ def subtract_dark(data_in, dark, x=20, return_type='data'):
     assert dark.ndim == 2, "dark must be 2d"
     assert data_in.shape[-2:] == dark.shape, "dark and data must be commensurate"
 
-    match_region = numpy.zeros(dark.shape,numpy.uint8)
-    match_region[:x,:x] = 1
+    if isinstance(match_region,int):
+        match_region = numpy.zeros(dark.shape,numpy.uint8)
+        match_region[:x,:x] = 1
+        
+    if isinstance(match_region,str):
+        assert match_region.split('.')[-1] == '.reg'
+        match_region = io.open(match_region,force_reg_size=data_in.shape).astype(numpy.bool)
     
     data = numpy.copy(data_in)
     

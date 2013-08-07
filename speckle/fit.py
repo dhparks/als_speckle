@@ -63,6 +63,10 @@ class OneDimFit():
             if weighted: self.mask = mask
 
         self.ys, self.xs = data.shape
+        
+        # this is a dictionary to help hold output from the fit, instead of
+        # requiring users to know which attributes to call
+        self.output = {} 
 
     def fit_function(self):
         """ This needs to be filled out by the super() function
@@ -149,7 +153,17 @@ class OneDimFit():
             self.final_params_errors[v] = (optimized[k], self.final_errors[k])
             
         self.final_evaluated = self.fit_function()
-
+        
+        # add stuff to the output dictionary
+        self.output['fit_parameters'] = self.final_params
+        self.output['residuals']      = self.final_residuals
+        self.output['chisq']          = self.final_chisq
+        self.output['variance']       = self.final_variance
+        self.output['num_evals']      = self.final_fn_evaulations
+        self.output['jacobian']       = self.final_jacobian
+        self.output['errors']         = self.final_errors
+        self.output['evaluated']      = self.final_evaluated
+        
     def format_results(self, header=True, outfile=None):
         """ Format the final, fitting data for printing or writing to disk.
 

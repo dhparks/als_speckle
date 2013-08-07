@@ -354,7 +354,7 @@ class common:
         if not self.use_gpu:
             return something
     
-    def start(self):
+    def start(self,gpu_info=None):
         # inits the gpu. this is the necessary method ONLY IF
         # GPU.INIT WAS NOT CALLED EARLIER TO TURN ON THE GPU.
         
@@ -365,8 +365,11 @@ class common:
         try:
             import string
             self.kp = string.join(__file__.split('/')[:-1],'/')+'/kernels/'
-            self.context,self.device,self.queue,self.platform = init()
-            self.gpu_info = self.context,self.device,self.queue,self.platform
+            if gpu_info == None:
+                self.context,self.device,self.queue,self.platform = init()
+                self.gpu_info = self.context,self.device,self.queue,self.platform
+            else:
+                self.gpu_info = gpu_info
             return True # becomes the new self.use_gpu
         except:
             print "couldnt init gpu, reverting to cpu"
@@ -489,7 +492,7 @@ def init():
 
     # Beginning 1 March 2013 this sleep command is necessary to prevent the GPU driver
     # from hanging. The underlying cause is unknown.
-    time.sleep(1)
+    time.sleep(0.5)
         
     if d_success:
         try:
