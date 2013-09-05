@@ -5,7 +5,7 @@ Author: Daniel Parks (dparks@uoregon.edu)
 
 import numpy as np
 
-def unwrap_plan(r, R, center, modulo=None, target='cpu'):
+def unwrap_plan(r, R, center, columns=None, modulo=None, target='cpu'):
     """ Make the array which constitutes the unwrap plan. This is then passed
     to the actual unwrap function along with the array to be unwrapped.
     Generating a separate plan results in serious speed improvements if the
@@ -15,6 +15,10 @@ def unwrap_plan(r, R, center, modulo=None, target='cpu'):
         r - the interior radius if the unwrapping annulus. float or int.
         R - the exterior radius of the unwrapping annulus. float or int.
         center - a 2-tuple of integers giving the center of the annulus.
+        columns - number of columns in the unwrapped array. By default, the data
+            is not resampled after unwrapping and the number of columns is
+            2*pi*R. For large images or 3d arrays, this number of columns might
+            be too large.
         modulo - if put the coordinates through a modulo operation of this
             value. This is intended for use in unwrapping machine-centered
             speckle without requiring a fftshift. Generally, this should be the
@@ -37,7 +41,8 @@ def unwrap_plan(r, R, center, modulo=None, target='cpu'):
     assert ur >= 0, "inner radius must be >= 0"
 
     # setup up polar arrays
-    ucols = int(2*np.pi*uR)
+    if columns == None: ucols = int(2*np.pi*uR)
+    else: ucols = columns
     r,c = np.indices((uR-ur,ucols),float)
     phi = np.ones_like(r)*np.arange(ucols)*2*np.pi/ucols
     r += ur
@@ -116,6 +121,7 @@ def unwrap(array,plan,interpolation_order=3,modulo=None):
     import scipy.ndimage
 
     assert isinstance(array,np.ndarray),  "input data must be ndarray"
+    assert array.ndim in (2,3), "input data must be 2d or 3d"
     assert interpolation_order in range(6), "interpolation order must be 0-5"
     if not isinstance(plan,np.ndarray):
         assert len(plan) == 3, "unwrap plan must be a len 2 list/tuple/set or a ndarray"
@@ -125,19 +131,30 @@ def unwrap(array,plan,interpolation_order=3,modulo=None):
     # separate plan into coordinate map and (r,R)
     R,r = plan[:,-1]
     plan = plan[:,:-1]
+    rows, cols = R-r, len(plan[0])/(R-r)
     
-    l1,l2 = array.shape
+    # cast dimensions
+    was_2d = True
+    if array.ndim == 3: was_2d = False
+    if array.ndim == 2: array.shape = (1,)+array.shape
+    
+    l0,l1,l2 = array.shape
     ymax = plan[0].max()
     xmax = plan[1].max()
     
     assert ymax <= l1 and xmax <= l2, "max unwrapped coordinates fall outside array.\ndid you use the correct plan for this array size?"
-    
-    # unwrap
-    unwrapped = scipy.ndimage.map_coordinates(array,plan,order=interpolation_order)
-    
-    # the unwrapped version is 1d. reshape into the correct 2d arrangement (this is why the plan needs r and R)
-    unwrapped.shape = (R-r,len(plan[0])/(R-r))
-    plan.shape = (2,R-r,len(plan[0])/(R-r))
+
+    # unwrap each frame. reshape, then store in unwrapped
+    unwrapped = np.zeros((array.shape[0],int(rows),int(cols)),np.float32)
+    for nf in range(array.shape[0]):
+        uw = scipy.ndimage.map_coordinates(array[nf],plan,order=interpolation_order)
+        uw.shape = (R-r,len(plan[0])/(R-r))
+        unwrapped[nf] = uw
+
+    # restore the shape of the array if it was 2d
+    if was_2d:
+        array.shape = array.shape[1:]
+        unwrapped   = unwrapped[0]
 
     return unwrapped
 

@@ -8,5 +8,5 @@ __kernel void execute(
 	// pull the components into registers
 	float a = in[i].x;
 	float b = in[i].y;
-	out[i] = (float2)(native_sqrt(a*a+b*b),0);
+	out[i] = (float2)(hypot(a,b),0);
     }

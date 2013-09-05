@@ -71,7 +71,7 @@ def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimite
     if ext in pck_exts:  return load_pickle(filename)
     if ext in ds9mask_exts: return open_ds9_mask(filename,force_reg_size=force_reg_size)
 
-def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None,scaling=None,do_zip=False):
+def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None,scaling=None,do_zip=False,append_component=False):
     """ Save components of an array as desired filetype specified by file
     extension. This is a wrapper to save_fits, save_image, write_text_array.
     
@@ -96,9 +96,14 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
             which replaces it with a zip file. useful for fits files with
             large spaces of zeros, for example. This will remove the original
             file following the protocol of the standard gzip utility.
+        append_component - if True, will append the component name to the
+            end of the file. For example, a filename of "data.fits" with
+            components=['mag'] will save as 'data_mag.fits'. If false, will
+            just save as "data.fits"; in this case it is the user's
+            responsibility to understand and remember what was saved.
 
     returns:
-        nothing. Will throw an exception if something wrong happens.
+        nothing. Will raise an exception if something wrong happens.
     """
     
     assert isinstance(data,numpy.ndarray), "data must be a numpy array"
@@ -113,8 +118,9 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
         assert isinstance(scaling,(str,float))
         mag, phase = numpy.abs(data), numpy.angle(data)
         if isinstance(scaling, str): assert scaling in ('sqrt','log')
-        if scaling == 'sqrt': mag = numpy.sqrt(mag)
-        if scaling == 'log':  mag = numpy.log(mag/mag.min())
+        if scaling == 'linear': pass
+        if scaling == 'sqrt':   mag = numpy.sqrt(mag)
+        if scaling == 'log':    mag = numpy.log(mag/mag.min())
         if isinstance(scaling,float): mag = mag**scaling
         data = mag*numpy.exp(complex(0,1)*phase)
     
@@ -122,8 +128,8 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
     assert len(filename.split('.')) >= 2, "filename appears to have no extension"
     ext = filename.split('.')[-1]
     assert ext in img_exts or ext in fits_exts or ext in txt_exts, "ext \"%s\" not recognized"%ext
-    if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map)
-    if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite)
+    if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map,append_component=append_component)
+    if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite,append_component=append_component)
     if ext in txt_exts:
         if header == {}: header = ''
         if ext == 'csv': write_text_array(filename,data,header=header,delimiter=',')
@@ -590,7 +596,7 @@ def open_photon_counting_fits(filename, correct=False, sort=False, quiet=True):
 
     return data
 
-def save_fits(filename, img, header={}, components=['mag'], overwrite=None):
+def save_fits(filename, img, header={}, components=['mag'], overwrite=None,append_component=True):
     """ Save components of an array as a fits file.
     
     arguments:
@@ -613,7 +619,10 @@ def save_fits(filename, img, header={}, components=['mag'], overwrite=None):
         filename = filename.replace("." + ext, "")
 
     for c in _process_components(components):
-        writefits(filename + "_" + c + ".fits", _save_maps[c](img), header, overwrite)
+        if append_component:
+            writefits(filename + "_" + c + ".fits", _save_maps[c](img), header, overwrite)
+        else:
+            writefits(filename+".fits", _save_maps[c](img), header, overwrite)
 
 def open_fits_header(filename, card=0):
     """    Open just the header from a filename.
@@ -852,7 +861,7 @@ def save_pickle(path,data):
 ############### PNG #########################
 #
     
-def save_image(filename, img, components=['mag'], color_map='L'):
+def save_image(filename, img, components=['mag'], color_map='L',append_component=True):
     """ Save components of an array as an image using PIL.  The type of image
     depends on the extension of the filename.
 
@@ -881,7 +890,10 @@ def save_image(filename, img, components=['mag'], color_map='L'):
         ext = 'png'
 
     for c in _process_components(components):
-        write_image(filename + "_" + c + "." + ext, _save_maps[c](img), color_map) 
+        if append_component:
+            write_image(filename + "_" + c + "." + ext, _save_maps[c](img), color_map)
+        else:
+            write_image(filename + "." + ext, _save_maps[c](img), color_map)
 
 def write_image(filename, array, color_map='L'):
     """Write an image to disk as an image.  The image type depends on the

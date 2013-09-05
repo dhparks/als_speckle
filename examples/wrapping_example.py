@@ -28,8 +28,13 @@ speckles = make_speckles(sample)
 # When unwrapping a single speckle pattern, the plan can also be built for you
 # behind the scenes. However, if unwrapping many speckle patterns with the
 # same parameters, pre-building a plan is MUCH faster.
-uwplan = speckle.wrapping.unwrap_plan(unwrap_r,unwrap_R,(N/2,N/2))
+uwplan = speckle.wrapping.unwrap_plan(unwrap_r,unwrap_R,(N/2,N/2),columns=360)
 unwrapped = speckle.wrapping.unwrap(speckles,uwplan)
+
+# the same unwrap plan can also be applied to a 3d array, in which case all
+# the frames are unwrapped individually
+speckles_3d  = numpy.array([speckles,speckles*numpy.random.rand(N,N),speckles*2])
+unwrapped_3d = speckle.wrapping.unwrap(speckles_3d,uwplan)
 
 # Now rewrap! Here, I will bypass building an explicit plan and instead just
 # pass in the values of r and R; a plan will be created behind the scenes.
@@ -55,6 +60,7 @@ angular_decomposition = output['spectra'] # this is the same result as spectrum 
 speckle.io.save('unwrapping sample.fits',sample)
 speckle.io.save('unwrapping speckle.fits',speckles)
 speckle.io.save('unwrapped speckle.fits',unwrapped)
+speckle.io.save('unwrapped speckle_3d.fits',unwrapped_3d)
 speckle.io.save('re-wrapped speckle.fits',wrapped)
 speckle.io.save('angular spectrum.fits',spectrum)
 speckle.io.save('angular correlation.fits',angular_correlation)

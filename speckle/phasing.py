@@ -791,7 +791,7 @@ class phasing(common):
             if use_gpu: self._cl_abs(psi,div)
             else:
                 if have_numexpr: div = numexpr.evaluate("abs(psi)")
-                else:            div = abs(psi)
+                else:            div = np.abs(psi)
             
             # step two: if a transverse coherence estimate has been supplied
             # through the ipsf, use it to blur the modulus.
@@ -804,7 +804,7 @@ class phasing(common):
                     # square
                     self._cl_mult(div,div,div)
                 
-                    # convolve
+                    # convolve. abs fixes leakage into imag component
                     self._convolvef(div,psf,div)
                     self._cl_abs(div,div)
 
@@ -814,15 +814,15 @@ class phasing(common):
                 else:
                     
                     if have_numexpr:
-                        div  = numexpr.evaluate("psi**2")
+                        div  = numexpr.evaluate("div**2")
                         div2 = np.fft.fft2(div)
                         div  = numexpr.evaluate("div2*psf")
                         div  = np.fft.ifft2(div)
                         div  = numexpr.evaluate("sqrt(abs(div))")
                     else:
-                        div = psi**2
+                        div = div**2
                         div = np.fft.ifft2(np.fft.fft2(div)*psf)
-                        div = np.sqrt(abs(div))
+                        div = np.sqrt(np.abs(div))
                     
             # step three: if a longitudinal coherence estimate has been supplied
             # through the spectrum, use it to blur the modulus.
