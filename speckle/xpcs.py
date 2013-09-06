@@ -165,23 +165,23 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
     returns:
         g2 - correlation function for numtau values 
     
-    The following normalizations and their fomulas are available [<>_t (<>_q) 
+    The following g_2(q,tau) normalizations and their fomulas are available [<>_t (<>_q) 
     indicates averaging over variable t (q)]:
     
         1. "borthwick" from Matthew Borthwick's thesis (pg 120):
-        g_2 (q, tau) = < I(q,t) * I(q, t+tau) >_t / (<I(q,t)>_q,left * <I(q,t)>_q,right) * <I(q, t)>_q,t^2/<I(q, t)>_t^2
+        < I(q,t) * I(q, t+tau) >_t / (<I(q,t)>_q,left * <I(q,t)>_q,right) * <I(q, t)>_q,t^2/<I(q, t)>_t^2
     
         2. "none" no normalization is applied. NOT RECOMMENDED.
-        g_2 (q, tau) = < I(q,t) * I(q, t+tau) >_t 
+        < I(q,t) * I(q, t+tau) >_t 
     
         3. "plain" this is the canonical g2 function:
-        g_2 (q, tau) = < I(q,t) * I(q, t+tau) >_t / <I(q,t)>_t^2
+        < I(q,t) * I(q, t+tau) >_t / <I(q,t)>_t^2
 
         4. "standard"
-        g_2 (q, tau) = < I(q,t) * I(q, t+tau) / (<I(q,t)>_q * <I(q,t+tau)>_q) >_t * <I(q,t)>_q,t^2 / <I(q,t)>_t^2
+        < I(q,t) * I(q, t+tau) / (<I(q,t)>_q * <I(q,t+tau)>_q) >_t * <I(q,t)>_q,t^2 / <I(q,t)>_t^2
     
         5. "symmetric" The left (right) average time over frames 1:numtau (fr-numtau:fr).
-        g_2 (q, tau) = < I(q,t) * I(q, t+tau) >_t / (<I(q,t)>_q,left * <I(q,t)>_q,right)
+        < I(q,t) * I(q, t+tau) >_t / (<I(q,t)>_q,left * <I(q,t)>_q,right)
 
     """ 
     
@@ -196,7 +196,7 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
     if numtau == None: numtau = int(round(fr/2))
     print numtau
     tauvals = _numtauToTauvals(numtau, maxtau=fr)
-    
+
     # depending on the normalization type, prep the normalizing factors
     if norm in ("symmetric","standard","borthwick"):
         
@@ -212,8 +212,10 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
         IQ  = _averagingFunctions[avgType](data, avgSize)
         
     if norm in ("standard","plain","borthwick"):
+        print "here"
         IT  = _time_average(data)
         IT2 = IT*IT
+        print "done with time average"
         
     if norm in ("standard","borthwick"):
         IQT  = _time_average(IQ)
@@ -221,9 +223,17 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
         
     if norm == "standard": data /= IQ # dont understand this but whatever
         
-    # now compute the numerator of the g2 function; autocorrelate along t axis
-    numerator = _g2_numerator(img,tauvals,fft=fft)
-
+    # now compute the numerator of the g2 function; autocorrelate along t axis.
+    # if the dataset is large, computing the fft in a single pass may be
+    # inefficient as it no longer fits in memory. for this reason, the data
+    # is broken into 8x8 pixel tiles and correlated in batches.
+    import time
+    t0 = time.time()
+    if fft: ts = 8
+    if not fft: ts = 128
+    numerator = _g2_numerator(data,tauvals,fft=fft,tile_size=ts)
+    print time.time()-t0
+    
     # normalize the numerator. depending on the norm method different values are calculated.
     sys.stdout.write('normalizing\n')
     if norm   == "none":     pass # so just the numerator is returned
@@ -245,7 +255,7 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
 
     return numerator
 
-def _g2_numerator(data,tauvals,fft=False):
+def _g2_numerator(data,tauvals,fft=False,tile_size=64):
     """ Calculate the g2 numerator. This is handled the same regardless of
     normalization scheme. Two methods of calculation are available: via fft or
     via shift-multiply-sum. In general, fft is faster and requires more memory.
@@ -266,30 +276,68 @@ def _g2_numerator(data,tauvals,fft=False):
     assert data.ndim == 3, "g2_numerator: Must be a three dimensional image."
     (fr, ys, xs) = data.shape
     ntaus = len(tauvals)
-    sys.stdout.write("making g2 numerator with %s taus\n" % ntaus)
-    
-    if fft:
-        IDFT = np.fft.ifftn
-        DFT = np.fft.fftn
-        try:
-            data2       = np.zeros((2*fr,ys,xs),float)
-            data2[0:fr] = data
-            numerator  = abs(IDFT(abs(DFT(data2,axes=(0,)))**2,axes=(0,)))[0:fr] #autocorrelation
-            for f in range(fr): numerator[f] *= 1./(fr-f) # normalize to account for zero-padding
-            return numerator[tauvals]
+    assert fft in (True,False,1,0), "fft must be boolean-like"
 
-        except:
-            print "making g2 numerator with fft failed. fall back to shift-multiply."
-            fft = False
-            
+    if fft:
+        # pre-allocate
+        data2 = np.zeros((2*fr,tile_size,tile_size),np.float32)
+        IDFT  = np.fft.ifftn
+        DFT   = np.fft.fftn
+        norm  = np.ones((fr,tile_size,tile_size),np.float32)
+        for f in range(fr): norm[f] *= 1./(fr-f)
+        
     if not fft:
-        numerator = np.zeros((len(tauvals),ys,xs),np.float32)
-        for i,tau in enumerate(tauvals):
-            numerator[i] = np.average(data[0:fr-tau] * data[tau:fr], axis=0)
-            sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
-            sys.stdout.flush()
-        sys.stdout.write('\n')
-        return numerator
+        try:
+            import numexpr
+            have_numexpr = True
+        except ImportError:
+            have_numexpr = False
+        
+    def _calc(data_in,fft):
+
+        if fft:
+            data2[0:fr,0:data_in.shape[1],0:data_in.shape[2]] = data_in
+            numerator   = np.abs(IDFT(np.abs(DFT(data2,axes=(0,)))**2,axes=(0,)))[0:fr] #autocorrelation
+            numerator  *= norm
+            return numerator[tauvals,:data_in.shape[1],:data_in.shape[2]], fft
+                
+        if not fft:
+            numerator = np.zeros((len(tauvals),)+data_in.shape[1:],np.float32)
+            for i,tau in enumerate(tauvals):
+                a = data_in[0:fr-tau]
+                b = data_in[tau:fr]
+                
+                if have_numexpr: prod = numexpr.evaluate("a*b")
+                else: prod = a*b
+ 
+                numerator[i] = np.average(prod, axis=0)
+                #numerator[i] = np.average(data_in[0:fr-tau] * data_in[tau:fr], axis=0)
+                #sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
+                #sys.stdout.flush()
+            #sys.stdout.write('\n')
+            return numerator, fft
+        
+    # if the input array is very large, calculating the correlation function for
+    # all pixels at the same time is prohibitive due to memory restrictions.
+    # for this reason, the g2_numerator is calculated within a series of tiles.
+    output = np.zeros((ntaus,ys,xs),np.float32)
+    xcoords, ycoords = [], []
+    
+    i = 0
+    import itertools
+    for ny in range(ys/tile_size+1): ycoords.append((ny*tile_size, min((ny+1)*tile_size,ys))) # ymin, ymax
+    for nx in range(xs/tile_size+1): xcoords.append((nx*tile_size, min((nx+1)*tile_size,xs))) # xmin, xmax
+
+    for y, x in itertools.product(ycoords, xcoords):
+        ymin, ymax = y
+        xmin, xmax = x
+        if ymin != ymax and xmin != xmax:
+            result, fft = _calc(data[:,ymin:ymax,xmin:xmax],fft)
+            output[:,ymin:ymax,xmin:xmax] = result
+                
+    return output
+            
+    
 
 def g2_symm_borthwick_norm(img, numtau, qAvg = ("circle", 10), fft=False):
     """ calculate correlation function g_2 with Matt Borthwick's symmetric
