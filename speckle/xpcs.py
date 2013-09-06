@@ -194,7 +194,6 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
     # prep the data. make 3d and convert numtau to a sequence "tauvals"
     data, fr, ys, xs = _convert_to_3d(data)
     if numtau == None: numtau = int(round(fr/2))
-    print numtau
     tauvals = _numtauToTauvals(numtau, maxtau=fr)
 
     # depending on the normalization type, prep the normalizing factors
@@ -212,10 +211,8 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
         IQ  = _averagingFunctions[avgType](data, avgSize)
         
     if norm in ("standard","plain","borthwick"):
-        print "here"
         IT  = _time_average(data)
         IT2 = IT*IT
-        print "done with time average"
         
     if norm in ("standard","borthwick"):
         IQT  = _time_average(IQ)
@@ -227,12 +224,9 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
     # if the dataset is large, computing the fft in a single pass may be
     # inefficient as it no longer fits in memory. for this reason, the data
     # is broken into 8x8 pixel tiles and correlated in batches.
-    import time
-    t0 = time.time()
     if fft: ts = 8
     if not fft: ts = 128
     numerator = _g2_numerator(data,tauvals,fft=fft,tile_size=ts)
-    print time.time()-t0
     
     # normalize the numerator. depending on the norm method different values are calculated.
     sys.stdout.write('normalizing\n')
@@ -323,7 +317,6 @@ def _g2_numerator(data,tauvals,fft=False,tile_size=64):
     output = np.zeros((ntaus,ys,xs),np.float32)
     xcoords, ycoords = [], []
     
-    i = 0
     import itertools
     for ny in range(ys/tile_size+1): ycoords.append((ny*tile_size, min((ny+1)*tile_size,ys))) # ymin, ymax
     for nx in range(xs/tile_size+1): xcoords.append((nx*tile_size, min((nx+1)*tile_size,xs))) # xmin, xmax
