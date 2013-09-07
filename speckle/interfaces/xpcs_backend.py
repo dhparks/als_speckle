@@ -1,9 +1,11 @@
 # core
 import numpy as np
 import time
+import itertools
+import os
 
 # common libs
-import speckle
+from .. import io, xpcs, fit, wrapping
 
 # matplotlib
 import matplotlib.pyplot as plt
@@ -11,7 +13,7 @@ import matplotlib.pyplot as plt
 # from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg # turn this on to embed a matplotlib Figure object in a Tk canvas instance
 int_types = (int,np.int8,np.int16,np.int32,np.int64)
 
-class xpcs():
+class xpcs_backend():
     """ Class for xpcs methods, intended for use with graphical interface.
     However, can also be used for commandline or script operations. """
     
@@ -21,6 +23,7 @@ class xpcs():
         self.plottables = {}
         self.figure = plt.figure()
         self.g2plot = self.figure.add_subplot(111)
+        self.plot_id = 0
 
     def open_data(self,path):
         
@@ -38,7 +41,7 @@ class xpcs():
         self.data_path = path
 
         # first, check the shape
-        self.data_shape = speckle.io.get_fits_dimensions(path)
+        self.data_shape = io.get_fits_dimensions(path)
         
         if len(self.data_shape) !=  3:
             pass
@@ -49,65 +52,122 @@ class xpcs():
             # raise the same error
             
         # now open the first frame
-        self.first_frame = speckle.io.openframe(path,frame=0)
+        self.first_frame = wrapping.resize(io.openframe(path,frame=0),(512,512))
         self.frames = self.data_shape[0]
         
-    def new_region(self,coords):
-        """ Slice the data as selected in the GUI. Then compute the g2 function
-        for the region. Normalization is standard.
+        # remove everything in the static images folder
+        files = os.listdir('static/images')
+        for f in files: os.remove(os.path.join('static/images',f))
+        
+        # resize, then save the color and scale permutations of first_frame.
+        linr = self.first_frame
+        sqrt = np.sqrt(self.first_frame)
+        log  = np.log(self.first_frame/self.first_frame.min())
+        
+        for color in ('L','B','A'):
+            io.save('static/images/data_linear_%s.jpg'%(color),linr, color_map=color, append_component=False, overwrite=True)
+            io.save('static/images/data_sqrt_%s.jpg'%(color),  sqrt, color_map=color, append_component=False, overwrite=True)
+            io.save('static/images/data_log_%s.jpg'%(color),   log,  color_map=color, append_component=False, overwrite=True)
 
-        coords is a 4-tuple of (rmin, rmax, cmin, cmax).
-        """
+    def add_region(self,uid,coords,color):
         
-        ########## Get the data
-        
-        assert isinstance(coords,tuple)
-        assert len(coords) == 4
-        for n in coords: assert isinstance(n,int_types)
-        
-        rmin, rmax, cmin, cmax = coords
-        rows = rmax-rmin
-        cols = cmax-cmin
-        
-        # region dict holds all the information and analysis for the selected
-        # region. region_dict is accessed through dictionary self.regions
+        # instantiate a new instance of the region class
         this_region = region()
+        this_region.unique_id = uid
         
-        # loop through the number of frames, opening only the relevant portion.
-        data = np.zeros((self.frames,rows,cols),np.float32)
-        for f in range(self.frames):
-            data[f] = speckle.io.openframe(self.data_path,frame=f)[rmin:rmax,cmin:cmax]
-        this_region.data = data
-        print "opened"
-    
-        ########## Calculate g2
-        qave    = self._qave(data)                  # calculate the q-average for the current region data
-        #tave    = self._tave(data)                 # calculate the t-average for the current region data
-        #qtave   = self._tave(qave)                 # calculate the q-t-average for the current region data
-        #numer   = self._fft_numerator(qave)        # calculate the numerator of all the g2 functions with fft
-        g2      = speckle.xpcs.g2_plain_norm(qave,self.frames).ravel()  # calculate the g2 function. THIS FUNCTION CAN CHANGE
-        print "g2"
+        # populate the new region with incoming spec
+        this_region.rmin = coords[0]
+        this_region.rmax = coords[1]
+        this_region.cmin = coords[2]
+        this_region.cmax = coords[3]
         
-        this_region.g2 = g2
+        this_region.color = color
         
-        ########## Fit g2 to a known form
-        to_fit    = np.zeros((2,self.frames),np.float32)
-        to_fit[0] = np.arange(self.frames).astype(np.float32)
-        to_fit[1] = g2
-        exp_fit   = speckle.fit.decay_exp_beta(to_fit.transpose())
-        print "fit"
+        # when .changed is True, prior to plotting we have to recalculate:
+        # intensity, g2, fit
+        this_region.changed = True
         
-        this_region.fit_vals   = exp_fit.final_evaluated
-        this_region.fit_params = exp_fit.final_params
+        self.regions[uid] = this_region
+        
+    def update_region(self,uid,coords):
+        
+        self.regions[uid].rmin = coords[0]
+        self.regions[uid].rmax = coords[1]
+        self.regions[uid].cmin = coords[2]
+        self.regions[uid].cmax = coords[3]
+        self.regions[uid].changed = True
+        
+    def recalculate(self):
+        
+        # iterate through the regions. when one is encountered with
+        # .changed == True, recalculate the intensity, g2, and fit to g2.
+        
+        for region_key in self.regions.keys():
             
-        # done with analysis, add region to master dictionary
-        region_key  = '%s,%s,%s,%s'%coords
-        this_region.region_key = region_key
-        self.regions[region_key] = this_region
-        print "done"
-
-        print self.regions[region_key].data.shape
+            this_region = self.regions[region_key]
+            
+            if this_region.changed:
+                
+                # get the data
+                data  = io.open(self.data_path)[:,this_region.rmin:this_region.rmax,this_region.cmin:this_region.cmax].astype(np.float32) 
+                
+                # calculate g2(tau) for each pixel, then average over pixels
+                g2all = xpcs.g2(data)
+                g2    = self._qave(g2all)
+            
+                # run the fit
+                to_fit    = np.array([np.arange(len(g2)),g2])
+                exp_fit   = fit.decay_exp_beta(to_fit.transpose())
+                
+                # add the data to the region
+                this_region.g2         = g2
+                this_region.intensity  = self._qave(data)
+                this_region.fit_vals   = exp_fit.final_evaluated
+                this_region.fit_params = exp_fit.final_params
+                
+                this_region.changed = False
         
+    def dump(self):
+        # save a csv of the current g2 calculations
+        
+        keys = ['tau',]+self.regions.keys()
+        print keys
+        
+        g2_array    = np.zeros((1+len(self.regions),self.frames/2),np.float32)
+        g2_array[0] = np.arange(self.frames/2)
+        for n,key in enumerate(keys[1:]):
+            g2_array[n+1] = self.regions[key].g2
+        g2_array = g2_array.transpose()
+
+        self.csv_path = 'static/csv/g2_%s.csv'%(int(time.time()))
+        
+        outf = open(self.csv_path,'w')
+        outf.write(','.join(keys)+"\n")
+        for row in g2_array:
+            out_row = ",".join("{0}".format(n) for n in row)
+            outf.write(out_row+"\n")
+        outf.close()
+        
+    def plot(self):
+        
+        # declare the plot
+        f = plt.figure()
+        g = f.add_subplot(111)
+        
+        print len(self.regions.keys())
+        
+        # plot g2 and fits
+        for region_key in self.regions.keys():
+            
+            this_region = self.regions[region_key]
+            x = np.arange(len(this_region.g2))
+            g.plot(x,this_region.g2,'-',color=this_region.color)
+            g.plot(x,this_region.fit_vals,'--',color=this_region.color)
+            
+        self.g2_path = 'static/images/g2plot_%s.png'%(int(time.time()))
+        f.savefig(self.g2_path)
+        plt.clf()
+
     def _fft_numerator(self,data):
         # embed the data in an array of twice the length
         # calculate the autocorrelation along the frame axis.
@@ -138,75 +198,29 @@ class xpcs():
     def _qave(self,data):
         assert data.ndim > 1
         for n in range(data.ndim-1):
-            data = np.mean(data,axis=-1)
+            data = np.average(data,axis=-1)
         return data
     
     def _tave(self,data):
         return np.mean(data,axis=0)
 
-    def clear_data(self,regions=None):
-        """ Forcibly clear the specified regions from memory.
+    def new_background(self,params):
+        # resave self.first_frame as a new image for interface presentation
         
-        Note to self for gpu:
-            region_dict[key].data.release()
-            del region_dict[data_key]
-            
-        if the key remains in the dictionary, attempts to access the data
-        will cause a segmentation fault.
-            
-        """
+        scaling, color, path = params
         
-        if regions == None: regions = self.regions.keys()
-        
+        # rescale
         try:
-            for region in keys():
-                
-                region_dict = self.regions[region]
-                data_keys = region_dict.keys()
-                for data_key in data_keys:
-                    #
-                    del region_dict[data_key]
-                
-                del self.regions[region]
-
-        except KeyError:
-            print "region not in dictionary"
-            
-    def add_to_plot(self,region,what):
+            power   = float(scaling)
+            to_save = self.first_frame**power
+        except:
+            pass
+        if scaling == 'sqrt':   to_save = np.sqrt(self.first_frame)
+        if scaling == 'log':    to_save = np.log(self.first_frame)
+        if scaling == 'linear': to_save = self.first_frame
         
-        assert what in ('data','fit')
-        assert region in self.regions.keys()
-        
-        this_region = self.regions[region]
-        
-        x = np.arange(self.frames)
-        if what == 'data':
-            self.g2plot.loglog(x,this_region.g2)              # plot data
-            this_region.g2_plot_n = len(self.g2plot.lines)-1  # record number of plot
-        if what == 'fit':
-            self.g2plot.loglog(x,this_region.fit_vals)
-            this_region.fit_plot_n = len(self.g2plot.lines)-1
- 
-    def remove_from_plot(self,region,what):
-        
-        assert region in self.regions.keys()
-        assert what in ('data','fit')
-        
-        this_region = self.regions[region]
-        
-        # get the location of the plot in the self.g2plot.lines list
-        if what == 'data': n = this_region.g2_plot_n
-        if what == 'fit':  n = this_region.fit_plot_n
-        
-        # remove the plt and update the listing
-        del self.g2plot.lines[n]
-        n = None
-        
-        # now we need to find those plots with higher number, and decrement them
-        for key in self.regions.keys():
-            a_region = self.regions[key]
-            if a_region.g2_plot_n  > n: a_region.g2_plot_n  += -1
-            if a_region.fit_plot_n > n: a_region.fit_plot_n += -1
+        # save
+        io.save(path,to_save,color_map=color,append_component=False,overwrite=True)
         
 class region():
     """ empty class for holding various attributes of a selected region.
@@ -219,13 +233,23 @@ class region():
     """
     
     def __init__(self):
-    
-        self.data     = None
-        self.g2       = None
-        self.fit_vals = None
+
+        # identity
+        self.unique_id = None
+        self.color     = None
+        self.changed   = None
+        
+        # coordinates
+        self.rmin = None
+        self.rmax = None
+        self.cmin = None
+        self.cmax = None
+        
+        # data
+        self.intensity  = None
+        self.g2         = None
         self.fit_params = None
-        self.g2_plot_n = None
-        self.fit_plot_n = None
+        self.fit_vals   = None
     
         
         

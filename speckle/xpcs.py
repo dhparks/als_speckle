@@ -249,7 +249,7 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
 
     return numerator
 
-def _g2_numerator(data,tauvals,fft=False,tile_size=64):
+def _g2_numerator(data,tauvals,fft=False,tile_size=8):
     """ Calculate the g2 numerator. This is handled the same regardless of
     normalization scheme. Two methods of calculation are available: via fft or
     via shift-multiply-sum. In general, fft is faster and requires more memory.
@@ -288,15 +288,15 @@ def _g2_numerator(data,tauvals,fft=False,tile_size=64):
             have_numexpr = False
         
     def _calc(data_in,fft):
-
+        ds = data_in.shape
+    
         if fft:
-            data2[0:fr,0:data_in.shape[1],0:data_in.shape[2]] = data_in
-            numerator   = np.abs(IDFT(np.abs(DFT(data2,axes=(0,)))**2,axes=(0,)))[0:fr] #autocorrelation
-            numerator  *= norm
-            return numerator[tauvals,:data_in.shape[1],:data_in.shape[2]], fft
+            data2[:fr,:ds[1],:ds[2]] = data_in
+            numerator = norm*np.abs(IDFT(np.abs(DFT(data2,axes=(0,)))**2,axes=(0,)))[:fr]
+            return numerator[tauvals,:ds[1],:ds[2]], fft
                 
         if not fft:
-            numerator = np.zeros((len(tauvals),)+data_in.shape[1:],np.float32)
+            numerator = np.zeros((len(tauvals),)+ds[1:],np.float32)
             for i,tau in enumerate(tauvals):
                 a = data_in[0:fr-tau]
                 b = data_in[tau:fr]
