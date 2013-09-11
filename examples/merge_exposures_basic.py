@@ -34,7 +34,6 @@ blocker_in += 400+15*numpy.random.randn(N,N)
 # are out of alignment because moving the blocker perturbs the CCD cantilever.
 # So, simulate the data becoming out of alignment.
 r1, r2 = int(numpy.random.randn()*5), int(numpy.random.randn()*5)
-print r1, r2
 blocker_in  = numpy.roll(numpy.roll(blocker_in,r1,0),r2,1)
 
 ### data merging section ###
@@ -48,14 +47,14 @@ blocker_in  = numpy.roll(numpy.roll(blocker_in,r1,0),r2,1)
 
 fill_region  = speckle.shape.circle((N,N),1.2*R+5,AA=0)
 match_region = speckle.shape.square((N,N),32,center=(N/2,N/2+2*R+16+2))
-merged       = speckle.conditioning.merge(blocker_in,blocker_out,fill_region,fit_region=match_region)
+merged       = speckle.conditioning.merge(blocker_in,blocker_out,
+                                          fill_region,fit_region=match_region)
 
 # now I will align the data prior to merging, which should give
 # a much better result. we will align by cross-correlation method in the
 # match_region.
-merged2 = speckle.conditioning.merge(blocker_in,blocker_out,fill_region,fit_region=match_region,align=True)
-
-
+merged2 = speckle.conditioning.merge(blocker_in,blocker_out,fill_region,
+                                     fit_region=match_region,align=True)
 
 ### output section
 speckle.io.save('blocker_in.fits',  blocker_in)
