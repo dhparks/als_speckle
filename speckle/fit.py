@@ -163,6 +163,8 @@ class OneDimFit():
         self.output['jacobian']       = self.final_jacobian
         self.output['errors']         = self.final_errors
         self.output['evaluated']      = self.final_evaluated
+        self.output['functional']     = self.functional
+        self.output['params_map']     = self.params_map
         
     def format_results(self, header=True, outfile=None):
         """ Format the final, fitting data for printing or writing to disk.

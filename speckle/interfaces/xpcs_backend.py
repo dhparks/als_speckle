@@ -24,6 +24,7 @@ class xpcs_backend():
         self.figure = plt.figure()
         self.g2plot = self.figure.add_subplot(111)
         self.plot_id = 0
+        self.form ='decayexpbeta'
 
     def open_data(self,path):
         
@@ -39,6 +40,7 @@ class xpcs_backend():
         """
 
         self.data_path = path
+        self.data_id   = int(time.time())
 
         # first, check the shape
         self.data_shape = io.get_fits_dimensions(path)
@@ -65,9 +67,9 @@ class xpcs_backend():
         log  = np.log(self.first_frame/self.first_frame.min())
         
         for color in ('L','B','A'):
-            io.save('static/images/data_linear_%s.jpg'%(color),linr, color_map=color, append_component=False, overwrite=True)
-            io.save('static/images/data_sqrt_%s.jpg'%(color),  sqrt, color_map=color, append_component=False, overwrite=True)
-            io.save('static/images/data_log_%s.jpg'%(color),   log,  color_map=color, append_component=False, overwrite=True)
+            io.save('static/images/data_linear_%s_%s.jpg'%(color,self.data_id),linr, color_map=color, append_component=False, overwrite=True)
+            io.save('static/images/data_sqrt_%s_%s.jpg'%(color,self.data_id),  sqrt, color_map=color, append_component=False, overwrite=True)
+            io.save('static/images/data_log_%s_%s.jpg'%(color,self.data_id),   log,  color_map=color, append_component=False, overwrite=True)
 
     def add_region(self,uid,coords,color):
         
@@ -88,6 +90,7 @@ class xpcs_backend():
         this_region.changed = True
         
         self.regions[uid] = this_region
+        self.newest       = uid
         
     def update_region(self,uid,coords):
         
@@ -108,46 +111,88 @@ class xpcs_backend():
             
             if this_region.changed:
                 
+                print this_region.unique_id
+                
                 # get the data
                 data  = io.open(self.data_path)[:,this_region.rmin:this_region.rmax,this_region.cmin:this_region.cmax].astype(np.float32) 
                 
                 # calculate g2(tau) for each pixel, then average over pixels
-                g2all = xpcs.g2(data)
+                g2all = np.nan_to_num(xpcs.g2(data))
                 g2    = self._qave(g2all)
+                #g2std = self._qstdev(g2all)
             
                 # run the fit
-                to_fit    = np.array([np.arange(len(g2)),g2])
-                exp_fit   = fit.decay_exp_beta(to_fit.transpose())
+                to_fit = np.array([np.arange(len(g2)),g2])
+                mask = 10**(g2-1)
+                if self.form == 'decayexpbeta': fitted = fit.decay_exp_beta(to_fit.transpose(),mask=mask,weighted=True)
+                if self.form == 'decayexp':     fitted = fit.decay_exp(to_fit.transpose(),mask=mask,weighted=True)
+                self.functional = fitted.functional
+                self.fit_keys   = fitted.params_map
                 
                 # add the data to the region
                 this_region.g2         = g2
                 this_region.intensity  = self._qave(data)
-                this_region.fit_vals   = exp_fit.final_evaluated
-                this_region.fit_params = exp_fit.final_params
+                this_region.fit_vals   = fitted.final_evaluated
+                this_region.fit_params = fitted.final_params
                 
                 this_region.changed = False
         
     def dump(self):
+        
         # save a csv of the current g2 calculations
+        keys = ['tau',]
+        print self.regions.keys()
+        for key in self.regions.keys():
+            keys.append(key)
+            keys.append(key+"_fit")
         
-        keys = ['tau',]+self.regions.keys()
-        print keys
+        g2_array = np.zeros((1+2*len(self.regions),self.frames/2),np.float32)
         
-        g2_array    = np.zeros((1+len(self.regions),self.frames/2),np.float32)
-        g2_array[0] = np.arange(self.frames/2)
-        for n,key in enumerate(keys[1:]):
-            g2_array[n+1] = self.regions[key].g2
+        to_dump = []
+        for n,key in enumerate(keys):
+            if "group" in key:
+                if "_fit" in key:     to_append = self.regions[key.replace("_fit","")].fit_vals
+                if "_fit" not in key: to_append = self.regions[key].g2
+            if 'group' not in key:
+                to_append = np.arange(self.frames/2)+1
+                
+            #print key, to_append, len(to_append)
+            g2_array[n] = np.array(to_append)
+  
         g2_array = g2_array.transpose()
 
-        self.csv_path = 'static/csv/g2_%s.csv'%(int(time.time()))
+        self.file_id = int(time.time())
+
+        self.g2_csv_path = 'static/csv/g2_%s.csv'%self.file_id
         
-        outf = open(self.csv_path,'w')
+        outf = open(self.g2_csv_path,'w')
         outf.write(','.join(keys)+"\n")
         for row in g2_array:
             out_row = ",".join("{0}".format(n) for n in row)
             outf.write(out_row+"\n")
         outf.close()
         
+        # now save a csv of the current fit parameters
+        self.fit_csv_path = 'static/csv/fit_%s.csv'%self.file_id
+        
+        # from the fit_params, get a list of the param names. also turn
+        # the dictionary into a list to preserve order.
+        keys, vals = [], []
+        vals = []
+        for key in self.fit_keys:
+            keys.append(key)
+            vals.append(self.fit_keys[key])
+        header = 'group,'+','.join(vals)+'\n'
+
+        outf = open(self.fit_csv_path,'w')
+        outf.write(header)
+        for key in self.regions.keys():
+            r = self.regions[key]
+            row = str(r.unique_id)
+            for key in keys: row += ',%.3f'%(r.fit_params[key])
+            outf.write(row+'\n')
+        outf.close()
+ 
     def plot(self):
         
         # declare the plot
@@ -197,9 +242,14 @@ class xpcs_backend():
         
     def _qave(self,data):
         assert data.ndim > 1
-        for n in range(data.ndim-1):
-            data = np.average(data,axis=-1)
-        return data
+        aves = np.zeros(data.shape[0],np.float32)
+        for n, frame in enumerate(data): aves[n] = np.average(frame)
+        return aves
+    
+    def _qstdev(self,data):
+        assert data.ndim == 3
+        stdevs = np.zeros(data.shape[0],np.float32)
+        for n, frame in enumerate(data): stdevs[n] = np.std(frame)
     
     def _tave(self,data):
         return np.mean(data,axis=0)

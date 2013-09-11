@@ -647,7 +647,7 @@ def find_center(data, return_type='coords'):
     if return_type == 'data': return rolls(data,int(r0),int(r1))
     if return_type == 'coords': return int(data.shape[0]/2.0-r0), int(data.shape[1]/2.0-r1)
 
-def merge(data_to, data_from, fill_region, fit_region=None, width=10):
+def merge(data_to, data_from, fill_region, fit_region=None, width=10, align=False):
     """ Merge together two images (data_to, data_from) into a single
     high-dynamic-range image. A primary use of this function is to stitch a pair
     of images taken in transmission: one with the blocker in, one with the
@@ -679,6 +679,12 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
             but for better merging of thin features such as the blocker wire a
             smaller value may be appropriate.  If width <= 0, a hard merge is
             conducted (no blending).
+        align -- (optional) If true, attempts to align data_to and data_from
+            through a cross-correlation within fit_region. Requires fit_region
+            to be specified. Generally, this method has a good chance of success
+            only when the misalignment of the dataset is minor. For more extreme
+            misalignment, the user must perform a coarse alignment prior to
+            merging.
              
     returns:
         an array with data smoothly blended between data_to and data_from.
@@ -723,6 +729,7 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
         blender[r_min:r_max, c_min:c_max] = blurred*(1-bounded)
 
         return blender
+        
 
     # open merge and fit regions if necessary 
     if isinstance(fill_region, str):
@@ -733,6 +740,20 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10):
     # make the blender
     assert fill_region.shape == data_to.shape, "fill_region and data must be same shape"
     blender = _make_blender(fill_region,width)
+    
+    # if requested, align the data
+    if align:
+        rolls = lambda d, r0, r1: numpy.roll(numpy.roll(d,r0,axis=0),r1,axis=1)
+        
+        # slice the data out of fit_region
+        bb = masking.bounding_box(fit_region)
+        d1 = data_from[bb[0]:bb[1],bb[2]:bb[3]]
+        d2 = data_to[bb[0]:bb[1],bb[2]:bb[3]]
+        d3 = numpy.array([d1,d2])
+        
+        # align using cross-correlation method
+        coords  = align_frames(d3,return_type='coordinates')[1]
+        data_to = rolls(data_to,coords[0],coords[1])
     
     # scale the data to reconcile acquisition times etc
     if fit_region != None:
