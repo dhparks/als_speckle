@@ -74,7 +74,7 @@ acutance1 = speckle.propagate.acutance(back1)
 # note that I am apodizing the pinhole/support, NOT the data. In analyzing the
 # result from a CDI experiment, the recovered support should be used. The
 # default values for apodize should be ok, but you might try setting kt=x
-# (where x is between 0 and 1) in apodize (default is kt=0.1)
+# (where x is between 0 and 1) in apodize (default is kt=0.1) differently
 print "backward propagating + acutance (apodized)"
 apodizer  = speckle.propagate.apodize(aperture)
 apodized  = apodizer*propagated

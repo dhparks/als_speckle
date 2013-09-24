@@ -370,6 +370,7 @@ class common:
                 self.gpu_info = self.context,self.device,self.queue,self.platform
             else:
                 self.gpu_info = gpu_info
+                self.context,self.device,self.queue,self.platform = self.gpu_info
             return True # becomes the new self.use_gpu
         except:
             print "couldnt init gpu, reverting to cpu"

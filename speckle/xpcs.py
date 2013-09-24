@@ -9,6 +9,10 @@ Authors: Keoki Seu (kaseu@lbl.gov), Daniel Parks (dhparks@lbl.gov)
 import numpy as np
 import sys
 from . import averaging
+import math
+
+# keep a record of gpu fft plans
+fftplans = {}
 
 def _convert_to_3d(img):
     """ get image shape and reshape image to three dimensional (if necessary).
@@ -139,7 +143,7 @@ def g2_symm_norm(img, numtau, qAvg = ("circle", 10), fft=False):
     print("")
     return result
 
-def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
+def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None):
     
     """ Calculate correlation function g_2. A variety of normalizations can be
     selected through the optional kwarg "norm".
@@ -161,7 +165,12 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
         fft - boolean specifying whether to calculate g2 through FFT methods or
             shift-multiply methods. If True, use FFT. Generally, FFT is faster,
             but for very large arrays a memory error might be created.
-            
+        gpu_info - for fast calculation of the g2 function, a gpu context
+            can be passed to this function. This requires the gpu context
+            to be created outside of this function's invocation, typically
+            though speckle.gpu.init(). If gpu_info is supplied, fft methods are
+            automatically used and the value of the fft argument is overridden.
+
     returns:
         g2 - correlation function for numtau values 
     
@@ -226,8 +235,11 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
     # is broken into 8x8 pixel tiles and correlated in batches.
     if fft: ts = 8
     if not fft: ts = 128
-    numerator = _g2_numerator(data,tauvals,fft=fft,tile_size=ts)
     
+    t0 = time.time()
+    numerator = _g2_numerator(data,tauvals,fft=fft,tile_size=ts,gpu_info=gpu_info)
+
+    t1 = time.time()
     # normalize the numerator. depending on the norm method different values are calculated.
     sys.stdout.write('normalizing\n')
     if norm   == "none":     pass # so just the numerator is returned
@@ -246,10 +258,11 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True):
             sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
             sys.stdout.flush()
         sys.stdout.write('\n')
+    t2 = time.time()
 
     return numerator
 
-def _g2_numerator(data,tauvals,fft=False,tile_size=8):
+def _g2_numerator(data,tauvals,fft=True,tile_size='auto',gpu_info=None):
     """ Calculate the g2 numerator. This is handled the same regardless of
     normalization scheme. Two methods of calculation are available: via fft or
     via shift-multiply-sum. In general, fft is faster and requires more memory.
@@ -271,66 +284,184 @@ def _g2_numerator(data,tauvals,fft=False,tile_size=8):
     (fr, ys, xs) = data.shape
     ntaus = len(tauvals)
     assert fft in (True,False,1,0), "fft must be boolean-like"
-
-    if fft:
-        # pre-allocate
-        data2 = np.zeros((2*fr,tile_size,tile_size),np.float32)
-        IDFT  = np.fft.ifftn
-        DFT   = np.fft.fftn
-        norm  = np.ones((fr,tile_size,tile_size),np.float32)
-        for f in range(fr): norm[f] *= 1./(fr-f)
-        
-    if not fft:
-        try:
-            import numexpr
-            have_numexpr = True
-        except ImportError:
-            have_numexpr = False
-        
-    def _calc(data_in,fft):
-        ds = data_in.shape
     
+    if tile_size == 'auto':
+        tile_size = _tune_tile_size(fft,fr)
+
+
+    # cpu code path
+    if gpu_info == None:
+        
         if fft:
-            data2[:fr,:ds[1],:ds[2]] = data_in
-            numerator = norm*np.abs(IDFT(np.abs(DFT(data2,axes=(0,)))**2,axes=(0,)))[:fr]
-            return numerator[tauvals,:ds[1],:ds[2]], fft
-                
-        if not fft:
-            numerator = np.zeros((len(tauvals),)+ds[1:],np.float32)
-            for i,tau in enumerate(tauvals):
-                a = data_in[0:fr-tau]
-                b = data_in[tau:fr]
-                
-                if have_numexpr: prod = numexpr.evaluate("a*b")
-                else: prod = a*b
- 
-                numerator[i] = np.average(prod, axis=0)
-                #numerator[i] = np.average(data_in[0:fr-tau] * data_in[tau:fr], axis=0)
-                #sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
-                #sys.stdout.flush()
-            #sys.stdout.write('\n')
-            return numerator, fft
-        
-    # if the input array is very large, calculating the correlation function for
-    # all pixels at the same time is prohibitive due to memory restrictions.
-    # for this reason, the g2_numerator is calculated within a series of tiles.
-    output = np.zeros((ntaus,ys,xs),np.float32)
-    xcoords, ycoords = [], []
-    
-    import itertools
-    for ny in range(ys/tile_size+1): ycoords.append((ny*tile_size, min((ny+1)*tile_size,ys))) # ymin, ymax
-    for nx in range(xs/tile_size+1): xcoords.append((nx*tile_size, min((nx+1)*tile_size,xs))) # xmin, xmax
-
-    for y, x in itertools.product(ycoords, xcoords):
-        ymin, ymax = y
-        xmin, xmax = x
-        if ymin != ymax and xmin != xmax:
-            result, fft = _calc(data[:,ymin:ymax,xmin:xmax],fft)
-            output[:,ymin:ymax,xmin:xmax] = result
-                
-    return output
+            # pre-allocate
+            data2 = np.zeros((2*fr,tile_size,tile_size),np.float32)
+            IDFT  = np.fft.ifftn
+            DFT   = np.fft.fftn
+            norm  = np.ones((fr,tile_size,tile_size),np.float32)
+            for f in range(fr): norm[f] *= 1./(fr-f)
             
+        if not fft:
+            try:
+                import numexpr
+                have_numexpr = True
+            except ImportError:
+                have_numexpr = False
+            
+        def _calc(data_in,fft):
+            ds = data_in.shape
+        
+            if fft:
+                data2[:fr,:ds[1],:ds[2]] = data_in
+                numerator = norm*np.abs(IDFT(np.abs(DFT(data2,axes=(0,)))**2,axes=(0,)))[:fr]
+                tr = numerator[tauvals,:ds[1],:ds[2]]
+                return numerator[tauvals,:ds[1],:ds[2]], fft
+                    
+            if not fft:
+                numerator = np.zeros((len(tauvals),)+ds[1:],np.float32)
+                for i,tau in enumerate(tauvals):
+                    a = data_in[0:fr-tau]
+                    b = data_in[tau:fr]
+                    
+                    if have_numexpr: prod = numexpr.evaluate("a*b")
+                    else: prod = a*b
+     
+                    numerator[i] = np.average(prod, axis=0)
+                    #numerator[i] = np.average(data_in[0:fr-tau] * data_in[tau:fr], axis=0)
+                    #sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
+                    #sys.stdout.flush()
+                #sys.stdout.write('\n')
+                return numerator, fft
+            
+        # if the input array is very large, calculating the correlation function for
+        # all pixels at the same time is prohibitive due to memory restrictions.
+        # for this reason, the g2_numerator is calculated within a series of tiles.
+        
+        output = np.zeros((ntaus,ys,xs),np.float32)
+        xcoords, ycoords = [], []
+        
+        import itertools
+        for ny in range(ys/tile_size+1): ycoords.append((ny*tile_size, min((ny+1)*tile_size,ys))) # ymin, ymax
+        for nx in range(xs/tile_size+1): xcoords.append((nx*tile_size, min((nx+1)*tile_size,xs))) # xmin, xmax
+
+        for y, x in itertools.product(ycoords, xcoords):
+            ymin, ymax = y
+            xmin, xmax = x
+            if ymin != ymax and xmin != xmax:
+                result, fft = _calc(data[:,ymin:ymax,xmin:xmax],fft)
+                output[:,ymin:ymax,xmin:xmax] = result
+               
+        return output
     
+    # gpu code path
+    if gpu_info != None:
+        
+        # try loading the necessary gpu libraries
+        try:
+            import gpu
+            import string
+            import pyopencl as cl
+            import pyopencl.array as cla
+            from pyfft.cl import Plan
+        except ImportError:
+            print "couldnt load gpu libraries, falling back to cpu xpcs"
+            _g2_numerator(data,tauvals,fft=fft,tile_size=tile_size,gpu_info=None)
+        
+        # check gpu_info
+        assert len(gpu_info) == 4, "gpu_info in xpcs.g2 improperly specified"
+        context, device, queue, platform = gpu_info
+   
+        # if the number of frames is not a power of two, find the next power of
+        # 2 larger than twice the number of frames.
+        p2 = ((fr & (fr - 1)) == 0)
+        if p2:     L = int(2*p2)
+        if not p2: L = int(2**(math.floor(math.log(2*fr,2))+1))
+        
+        # build the 1 kernel necessary for the correlation
+        kp   = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/' # kernel path
+        abs2 = gpu.build_kernel_file(context, device, kp+'common_abs2_f2_f2.cl')
+        
+        # if the plan for this size does not exist, create the plan
+        global fftplans
+        if L not in fftplans.keys():
+            fftplan     = Plan((L,),queue=queue)
+            fftplans[L] = fftplan
+        else:
+            fftplan = fftplans[L]
+            
+        # create data on the gpu. because it is possible that the array being
+        # correlated is very large, do the data in chunks. this will require
+        # several transfers...
+        chunk_size = 1024 # best size on Tesla
+        chunks, rem = (ys*xs)/chunk_size, (ys*xs)%chunk_size
+
+        # reshape the data into conformity with gpu_data
+        cpu_data  = data.reshape(fr,ys*xs).transpose()
+        to_return = np.zeros((ys*xs,fr/2),np.float32)
+        
+        # perform the calculation. 1. transfer data. 2. fft. 3. square.
+        # 4. ifft 5. transfer data. (6) repeat for next chunk. finish with
+        # remainder chunk.
+        t0 = time.time()
+        
+        if chunks > 0:
+            gpu_data1 = cla.empty(queue, (chunk_size, L), np.complex64)
+            tmp       = np.zeros((chunk_size,L),np.complex64)
+
+            for chunk in range(chunks):
+                tmp[:,:fr] = cpu_data[chunk*chunk_size:(chunk+1)*chunk_size]
+                gpu_data1.set(tmp,queue=queue)
+                fftplan.execute(gpu_data1.data,wait_for_finish=True,batch=chunk_size)
+                abs2.execute(queue,(int(chunk_size*L),),gpu_data1.data,gpu_data1.data)
+                fftplan.execute(gpu_data1.data,wait_for_finish=True,batch=chunk_size,inverse=True)
+                to_return[chunk*chunk_size:(chunk+1)*chunk_size] = np.abs(gpu_data1.get()[:,:fr/2])
+
+        if rem > 0:
+            c         = np.zeros((rem,L),np.complex64)
+            c[:,:fr]  = cpu_data[-rem:]
+            gpu_data2 = cla.to_device(queue, c)
+            fftplan.execute(gpu_data2.data,wait_for_finish=True,batch=rem)
+            abs2.execute(queue,(int(rem*L),),gpu_data2.data,gpu_data2.data)
+            fftplan.execute(gpu_data2.data,wait_for_finish=True,batch=rem,inverse=True)
+            to_return[-rem:] = np.abs(gpu_data2.get()[:,:fr/2])
+        
+        # normalize
+        to_return *= 1./(fr-np.arange(fr/2))
+        return to_return.transpose().reshape((fr/2,ys,xs))
+
+# opt_xx_tile are global variables which are set once by _tune_tile_size
+opt_fft_tile = None
+opt_sm_tile  = None
+def _tune_tile_size(data):
+    
+    global opt_fft_tile
+    global opt_sm_tile
+    
+    import time
+    print "tuning"
+    
+    times     = []
+    test_data = np.random.rand(nf,260,260)
+    print test_data.shape
+    tauvals   = np.arange(nf/2)
+    
+    if fft and opt_fft_tile != None:
+        return opt_fft_tile
+    if fft and opt_fft_tile == None:
+
+        tiles = (4,8,16,32,64,128)
+        for ts in tiles:
+            t0 = time.time()
+            test_data = np.random.rand(nf,260,260)
+            out = _g2_numerator(test_data,tauvals,tile_size=ts)
+            times.append(time.time()-t0)
+            
+        print times
+
+        #exit()
+        #return opt_fft_tile
+    
+    if not fft: return 128
+
 
 def g2_symm_borthwick_norm(img, numtau, qAvg = ("circle", 10), fft=False):
     """ calculate correlation function g_2 with Matt Borthwick's symmetric

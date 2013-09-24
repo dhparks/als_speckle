@@ -71,7 +71,7 @@ def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimite
     if ext in pck_exts:  return load_pickle(filename)
     if ext in ds9mask_exts: return open_ds9_mask(filename,force_reg_size=force_reg_size)
 
-def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None,scaling=None,do_zip=False,append_component=False):
+def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None,scaling=None,do_zip=False,append_component=True):
     """ Save components of an array as desired filetype specified by file
     extension. This is a wrapper to save_fits, save_image, write_text_array.
     

@@ -258,11 +258,12 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
             hsv_convert.execute(queue,store.shape,store.data,image_buffer.data,maxval).wait()
 
             # now convert to pil objects
-            import scipy.misc.pilutil as smp
+            import scipy.misc as smp
             images = []
             image_buffer = image_buffer.get()
             for image in image_buffer: images.append(smp.toimage(image))
         
+            print "here"
             return store.get(), images # done
         
         else:
@@ -298,7 +299,7 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         if im_convert:
             
             # now convert frames to pil objects
-            import scipy.misc.pilutil as smp
+            import scipy.misc as smp
             import io
             images = []
             for frame in store:
@@ -309,13 +310,87 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         
         if not im_convert: return store
 
-def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
+def apodize(data_in, sigma=3, threshold = 0.01):
+    
+    """ Apodizes a 2d array to suppress Fresnel ringing from an aperture
+    during back-propagation. The algorithm is straightforward: a binary
+    image of the aperture (data_in) is convolved with a gaussian with stdevs
+    (sigma, sigma). The convolution is then scaled so that it remains 1 at the
+    center of data_in and approaches 0 at the edge.
+    
+    Required arguments:
+        data_in: should be a 2d numpy array of the data to be apodized. If
+            it is the raw data and not a binary image of the aperture, the optional
+            argument threshold should also be supplied.
+        
+    Optional arguments:
+        sigma: degree of blurring (pixels)
+        threshold: the data must be binarized before the apodizer is calculated.
+            This is done by numpy.where(data_in/data_in.max > threshold, 1, 0)
+        
+    Returns:
+        0. The apodizing filter
+        1. The apodized data.
+        If data_in is a binarized image of the aperture, 0 and 1 should be
+        identical.
+    """
+    
+    # check types
+    assert isinstance(data_in,np.ndarray),    "data must be an array"
+    assert data_in.ndim == 2,                 "data must be 2d"
+    
+    try: sigma = float(sigma)
+    except: print "couldnt cast sigma to float"; exit()
+    
+    try: threshold = float(threshold)
+    except: print "couldnt cast threshold to float"; exit()
+    
+    ad    = np.abs(data_in)
+    data2 = np.where(ad/ad.max() > threshold, 1, 0)
+    
+    import math
+    sig2  = math.floor(sigma)+1
+    
+    # ensure that the array is even
+    r0, c0 = data2.shape
+    if r0%2 == 1: data2 = np.vstack([data2,np.zeros((1,data2.shape[1]),data2.dtype)])
+    if c0%2 == 1: data2 = np.hstack([data2,np.zeros((data2.shape[0],1),data2.dtype)])
+    
+    # now pad the array sufficiently to ensure cyclic boundary conditions
+    # don't matter (much)
+    r1, c1 = data2.shape
+    r_pad  = np.zeros((2*sig2,data2.shape[1]),data2.dtype)
+    data2  = np.vstack([data2,r_pad])
+    data2  = np.vstack([r_pad,data2])
+    c_pad  = np.zeros((data2.shape[0],2*sig2),data2.dtype)
+    data2  = np.hstack([data2,c_pad])
+    data2  = np.hstack([c_pad,data2])
+    c = lambda x,y: np.fft.ifft2(np.fft.fft2(x)*np.fft.fft2(y))
+    
+    # convolve
+    kernel     = np.fft.fftshift(shape.gaussian(data2.shape,(sigma,sigma)))
+    convolved  = np.abs(c(kernel,data2))
+    convolved *= data2
+    
+    # rescale
+    min_val    = convolved[np.nonzero(convolved)].min()
+    convolved -= min_val*data2
+    convolved /= convolved.max()
+    
+    # slice out the original, unpadded region
+    convolved  = convolved[2*sig2:2*sig2+r0,2*sig2:2*sig2+c0]
+
+    # return
+    return convolved, data_in*convolved
+
+
+def apodize_old(data_in,kt=.1,threshold=0.01,sigma=2,return_type='data'):
     """ Apodizes a 2d array so that upon back propagation ringing from the
     aperture is at least somewhat suppressed. The steps this function follows
     are as follows:
         # 1. unwrap the data
         # 2. find the boundary at each angle
-        # 3. do a 1d filter along each angle
+        # 3. do a 1d blur along each angle
         # 4. rewrap
 
     Required arguments:
@@ -336,7 +411,7 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
             which returns the apodized array. Other options are 'flter' or
             'all'.
     """
-    
+
     data = np.copy(data_in)
     
     # check types
@@ -355,18 +430,34 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
         
     convolve = lambda x,y: np.fft.ifft(np.fft.fft(x)*np.fft.fft(y))
 
-    # find the center of mass
-    N,M       = data.shape
-    rows,cols = np.indices((N,M),float)
-    av_row    = np.sum(data*rows)/np.sum(data)
-    av_col    = np.sum(data*cols)/np.sum(data)
+    # select a subregion of data corresponding to a bounding box; embed
+    # it in a padding region of zeros. make sure it is square!
+    import masking, math
+    bbox    = masking.bounding_box(data)
+    sliced  = data[bbox[0]:bbox[1],bbox[2]:bbox[3]]
     
+    r, c    = sliced.shape
+    L       = max(r,c)
+    if L%2 == 1: L += 1
+    r2 = (L+8)/2-math.floor(r/2)
+    c2 = (L+8)/2-math.floor(c/2)
+    
+    embed = np.zeros((L+8,L+8),sliced.dtype)
+    embed[r2:r2+r,c2:c2+c] = sliced
+
+    # find the center of mass
+    N,M       = embed.shape
+    rows,cols = np.indices((N,M),float)
+    av_row    = np.sum(embed*rows)/np.sum(embed)
+    av_col    = np.sum(embed*cols)/np.sum(embed)
+
     # determine the maximum unwrapping radius
-    R = int(min([av_row,len(data)-av_row,av_col,len(data)-av_col]))
+    r, c = embed.shape
+    R = int(min([av_row,r-av_row,av_col,c-av_col]))
     
     # unwrap the data
     unwrap_plan = wrapping.unwrap_plan(0,R,(av_col,av_row)) # very important to set r = 0!
-    unwrapped   = wrapping.unwrap(data,unwrap_plan)
+    unwrapped   = wrapping.unwrap(embed,unwrap_plan)
     ux          = unwrapped.shape[1]
     u_der       = unwrapped-np.roll(unwrapped,-1,axis=0)
     
@@ -378,7 +469,7 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     for col in range(ux):
         u_der_col = u_der[:,col]
         ave = np.sum(u_der_col[:-1]*indices)/np.sum(u_der_col[:-1])
-        boundary[col] = ave
+        boundary[col] = ave+1
 
     # smooth the edge values by convolution with a gaussian
     kernel = np.fft.fftshift(shape.gaussian((ux,),(sigma,),normalization=1.0))
@@ -388,14 +479,14 @@ def apodize(data_in,kt=.1,threshold=0.01,sigma=5,return_type='data'):
     x = np.outer(np.arange(R),np.ones(ux)).astype(float)/boundary
     flter = _apodization_f(x,kt)
     
-    # rewrap the flter. align the flter to the data
+    # rewrap the flter. align the filter to the data
     rplan  = wrapping.wrap_plan(0,R)
     flter  = wrapping.wrap(flter,rplan)
     
-    e_flter = np.zeros_like(data).astype(np.float32)
+    e_flter = np.zeros_like(embed).astype(np.float32)
     e_flter[0:flter.shape[0],0:flter.shape[1]] = flter
     
-    data_mask   = np.where(data > 1e-6,1,0)
+    data_mask  = np.where(embed > 1e-6,1,0)
     flter_mask = np.where(e_flter > 1e-6,1,0)
     
     rolls  = lambda d, r0, r1: np.roll(np.roll(d,r0,axis=0),r1,axis=1)
@@ -462,7 +553,7 @@ def _acutance_calc(data,method,normalized,mask,exponent,bounds=None):
         mask = mask[bounds[0]:bounds[1],bounds[2]:bounds[3]]
 
     if method == 'sobel':
-        from scipy.ndimage.flters import sobel
+        from scipy.ndimage.filters import sobel
         dx = np.abs(sobel(data,axis=-1))
         dy = np.abs(sobel(data,axis=0))
                 
