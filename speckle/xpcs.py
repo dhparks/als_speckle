@@ -235,11 +235,9 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None):
     # is broken into 8x8 pixel tiles and correlated in batches.
     if fft: ts = 8
     if not fft: ts = 128
-    
-    t0 = time.time()
+
     numerator = _g2_numerator(data,tauvals,fft=fft,tile_size=ts,gpu_info=gpu_info)
 
-    t1 = time.time()
     # normalize the numerator. depending on the norm method different values are calculated.
     sys.stdout.write('normalizing\n')
     if norm   == "none":     pass # so just the numerator is returned
@@ -258,7 +256,6 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None):
             sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
             sys.stdout.flush()
         sys.stdout.write('\n')
-    t2 = time.time()
 
     return numerator
 
@@ -401,7 +398,6 @@ def _g2_numerator(data,tauvals,fft=True,tile_size='auto',gpu_info=None):
         # perform the calculation. 1. transfer data. 2. fft. 3. square.
         # 4. ifft 5. transfer data. (6) repeat for next chunk. finish with
         # remainder chunk.
-        t0 = time.time()
         
         if chunks > 0:
             gpu_data1 = cla.empty(queue, (chunk_size, L), np.complex64)
