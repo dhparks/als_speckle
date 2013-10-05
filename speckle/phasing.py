@@ -6,7 +6,7 @@
 global use_gpu
 
 import numpy as np
-import wrapping,masking,gpu,sys,time
+import wrapping,masking,gpu,sys,time,io
 w = sys.stdout.write
 common = gpu.common
 
@@ -54,23 +54,24 @@ class phasing(common):
         load() - load data into the class
         optimize_gaussian_coherence() - try to optimize the ipsf assuming
             the coherence function is gaussian
-        richardson_lucy() - implements richardson-lucy deconvolution
-        richardsona_lucy_clark() - implements richardson-lucy deconvolution 
-            specifically for the algorithm found in Clark et al Nat. Comm 2012.
+        optimize_coherence(): attempt to optimize the coherence function using
+            one of two methods. first, an estimate can be made using richardson-
+            lucy deconvolution. second, an estimate can be made assuming that
+            the coherence function is gaussian in form.
         seed() - make a complex random number to use as the initial guess
         status() - reports the current status of the reconstruction
         
     Probably the richardson_lucy() method should be removed.
     """
     
-    def __init__(self,force_cpu=False):
+    def __init__(self,force_cpu=False,gpu_info=None):
         global use_gpu
-        
+
         # load the gpu if available
         # keep context, device, queue, platform, and kp in the parent namespace (still available to self)
         if use_gpu:
             common.project = 'phasing'
-            use_gpu = self.start() 
+            use_gpu = self.start(gpu_info) 
         if force_cpu: use_gpu = False
         common.use_gpu = use_gpu # tell the methods in common which device we're using
 
@@ -229,8 +230,8 @@ class phasing(common):
         # than modulus in all dimensions (or equally sized to modulus)
         if support != None:
             
-            assert support.ndim == 2
-            assert support.shape[0] == support.shape[1]
+            assert support.ndim == 2, "support is %s-dim"%support.ndim
+            assert support.shape[0] == support.shape[1], "support shape is %s %s, must be square"%(support.shape)
             support = support.astype(np.float32)
             support *= 1./support.max()
 
@@ -241,7 +242,7 @@ class phasing(common):
             self.support = self._set(support,self.support)
             
             # make the new bounding region. do not yet allocate memory for the buffer.
-            bounds = masking.bounding_box(support,force_to_square=False,pad=4)
+            bounds = masking.bounding_box(support,force_to_square=False,pad=10)
             self.r0, self.rows = bounds[0], int(bounds[1]-bounds[0])
             self.c0, self.cols = bounds[2], int(bounds[3]-bounds[2])
 
@@ -1090,7 +1091,7 @@ def gpu_prtf(gpuinfo,estimates,N=None,silent=True,prtfq=False):
     if not prtfq:
         return prtf
 
-def rftf(estimate,goal_modulus,hot_pixels=False,ipsf=None,rftfq=False):
+def rftf(estimate,goal_modulus,hot_pixels=False,ipsf=None,rftfq=False,scale=False):
     """ Calculates the RTRF in coherent imaging which in analogy to
     crystallography attempts to quantify the Fourier error to determine
     the correctness of a reconstructed image. In contrast to the PRTF,
@@ -1104,9 +1105,20 @@ def rftf(estimate,goal_modulus,hot_pixels=False,ipsf=None,rftfq=False):
         estimate: the averaged reconstruction
         goal_modulus: the fourier modulus of the speckles being reconstructed
         
+    Optional inputs:
+        hot_pixels: if True, will remove hot pixels from the error function.
+        ipsf: If not none, will incorporate the supplied inverse point-spread
+            function (ie coherence function) into the rftf by blurring the
+            intensity of the average speckle.
+        rftfq: If true, will return both the 2d rftf as an array as well as the
+            azimuthal average
+        scale: If true, will rescale the RFTF from its typical min/max range
+            of [1/sqrt(2),1] to [0,1]
+        
     Returns:
         rtrf: a 2d array of the RTRF at each reciprocal space value
-        rtrf_q : a 1d array of rtrf averaged in annuli using unwrap
+        rtrf_q : a 1d array of rtrf averaged in annuli using unwrap, but only
+            when rftfq=True.
     """
     
     assert isinstance(estimate,np.ndarray), "estimate must be ndarray"
@@ -1153,8 +1165,13 @@ def rftf(estimate,goal_modulus,hot_pixels=False,ipsf=None,rftfq=False):
     # calculate the rtrf from the error
     import wrapping
     rftf = np.sqrt(1./(1+error))
-    if hot_pixels: rftf = conditioning.remove_hot_pixels(rftf,threshold=1.1)
     
+    if scale:
+        x    = 1./np.sqrt(2)
+        rftf = (rftf-x)/(1-x)
+    
+    if hot_pixels: rftf = conditioning.remove_hot_pixels(rftf,threshold=1.1)
+
     if rftfq:
         unwrapped = wrapping.unwrap(rftf,(0,N/2,(N/2,N/2)))
         rftf_q    = np.average(unwrapped,axis=1)
@@ -1311,6 +1328,7 @@ def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshol
     average_mag = np.abs(average_mag) # just to be sure...
     
     import shape,masking
+    print "in refine_support, blur %s"%blur
     kernel  = np.fft.fftshift(shape.gaussian(support.shape,(blur,blur)))
     kernel *= 1./kernel.sum()
     kernel  = np.fft.fft2(kernel)
@@ -1318,11 +1336,11 @@ def refine_support(support,average_mag,blur=3,local_threshold=.2,global_threshol
     
     # find all the places where the blurred image passes the global threshold test
     global_passed = np.where(blurred > blurred.max()*global_threshold,1,0)
-    
+
     # now find all the local parts of the support, and conduct local thresholding on each
     parts = masking.find_all_objects(support)
     part_sums = np.ndarray(len(parts),float)
-
+    
     for n,part in enumerate(parts):
         current      = blurred*part
         local_passed = np.where(current > current.max()*local_threshold, 1, 0)
