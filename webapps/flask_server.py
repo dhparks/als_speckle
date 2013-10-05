@@ -1,11 +1,9 @@
-from flask import Flask, jsonify, request, redirect, send_from_directory, url_for, json
+from flask import Flask, jsonify, request, redirect, send_from_directory, json
 from werkzeug import secure_filename
 import os
 app = Flask(__name__)
 import time
 
-import sys
-sys.path.insert(0,'../pycommon')
 import speckle, numpy
 
 # if everything is present for a gpu, turn it on
@@ -37,11 +35,7 @@ def upload_file():
     if request.method == 'POST':
         
         project = request.files.keys()[0]
-        
-        print "loading"
         file = request.files[project]
-        print "done"
-        
         success = False
         
         if file and allowed_file(file.filename):

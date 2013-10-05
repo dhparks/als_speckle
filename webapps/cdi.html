@@ -142,10 +142,10 @@
     <div id="container">
 
 	<div id="controls">
-	    <div id="filecontrols" class="controls">
+	    <!--<div id="filecontrols" class="controls">
 		&nbsp;Blocker size
 		<Input type="text" id="blocker" size=5 name="blocker" placeholder="Blocker"/>
-	    </div>
+	    </div>-->
 	</div>
     
 	<div id="topdivs">
@@ -157,9 +157,7 @@
 	<div id="bottomdivs">
 	    <div id="rftf" class="bottomdiv"></div>
 	    <div id="acutance" class="bottomdiv"></div>
-	    
-	    
-	    
+
 	</div>
 	
     </div>
@@ -551,7 +549,7 @@ var userFunctions = {
 		front.acutance.data = data.map(function (d) {return {x:parseFloat(d.z),y:parseFloat(d.acutance)}})
 		
 		// define new scales
-		front.acutance.xScale = d3.scale.linear().range([0, front.acutance.width]).domain([-front.acutance.zmax,front.acutance.zmax]);
+		front.acutance.xScale = d3.scale.linear().range([0, front.acutance.width]).domain([front.acutance.zmin,front.acutance.zmax]);
 		front.acutance.yScale = d3.scale.linear().range([front.acutance.height, 0]).domain([0,1]);
 		
 		// now draw the plot; component functions are broken up for readability
@@ -1103,10 +1101,10 @@ var starts = {
 		    {'type':'text','id':'swblur','placeholder':'Blur (px)','size':7},
 		    {'type':'text','id':'swthreshold','placeholder':'Threshold','size':7}],
 		'propagation':[
-		    {'type':'text','id':'energy','placeholder':'Energy (eV)','size':10,'value':500},
-		    {'type':'text','id':'zmin','placeholder':'Zmin (um)','size':10,'value':-150},
-		    {'type':'text','id':'zmax','placeholder':'Zmax (um)','size':10,'value':150},
-		    {'type':'text','id':'pitch','placeholder':'Pitch (nm)','size':10,'value':25},],
+		    {'type':'text','id':'energy','placeholder':'Energy (eV)','size':10},
+		    {'type':'text','id':'zmin','placeholder':'Zmin (um)','size':10},
+		    {'type':'text','id':'zmax','placeholder':'Zmax (um)','size':10},
+		    {'type':'text','id':'pitch','placeholder':'Pitch (nm)','size':10},],
 		'blocker':[
 		    {'type':'text','id':'blockerpower','placeholder':'Power','size':10,}, 
 		]
