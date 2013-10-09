@@ -134,6 +134,10 @@
   stroke-opacity: .5;
   stroke-width: 1.25px;
 }
+
+.fieldr {background:red;}
+.fieldg {background:lime;}
+.field0 {background:none;}
     
 </style>
 </head>
@@ -349,6 +353,46 @@ var userFunctions = {
 	if (what === "reconstructAgain") {userFunctions.reconstruct(true)}
 	if (what === "breadCrumb") {userFunctions.presentNewData(who)}
 	if (what === "propagate") {userFunctions.propagate()}
+	if (what === "download") {userFunctions.download()}
+    },
+    
+    download: function () {
+	
+	var backend  = function (callback) {
+	    // send a command to the imaging backend to save the current
+	    // selection to a zipfile on disk
+	    
+	    $.getJSON(
+		'cdi/download',
+		{'reconstructionId':front.reconstruction.selectedRound},
+		function (results) { console.log(results); callback(null)}
+	    );
+	};
+	
+	var frontend = function (error) {
+	    
+	    if (error != null) {
+		console.log("ajax error in download")
+		console.log(error)
+	    };
+	    
+	    var name = "reconstruction_"+front.dataId+"_"+front.reconstruction.selectedRound+"_zipped.gz"
+	    var fileId = "static/imaging/fits/"+name;
+	    
+	    var save = document.createElement('a');
+	    save.href = fileId;
+	    save.target = '_blank';
+	    save.download = name;
+
+	    var event = document.createEvent('Event');
+	    event.initEvent('click', true, true);
+	    save.dispatchEvent(event);
+	    (window.URL || window.webkitURL).revokeObjectURL(save.href)
+ 
+	}
+	
+	queue().defer(backend).await(frontend)
+	
     },
     
     propagate: function () {
@@ -496,8 +540,6 @@ var userFunctions = {
 	    // propagation
 	    
 	    var coords = front.reconstruction.regions[front.reconstruction.regionId].coords
-	    front.acutance.zmin = parseInt(z1);
-	    front.acutance.zmax = parseInt(z2);
 	    var ap = 1;
 	    
 	    // format the request
@@ -569,7 +611,17 @@ var userFunctions = {
 	};
 
 	var e = $('#energy').val(), p = $('#pitch').val(), z1 = $('#zmin').val(), z2 = $('#zmax').val();
-    	if (e != '' && p != '' && z1 != '' && z2 != '') {
+	
+	var typesOK = !(isNaN(parseFloat(e)) || isNaN(parseFloat(p)) || isNaN(parseFloat(z1)) || isNaN(parseFloat(z2)))
+	
+	// save zmin and zmax to the front tracker. if zmin > zmax, reverse the assignment
+	var z3 = parseInt(z1);
+	var z4 = parseInt(z2);
+	if (z3 > z4) {front.acutance.zmin = z4; front.acutance.zmax = z3};
+	if (z4 > z3) {front.acutance.zmin = z3; front.acutance.zmax = z4};
+	if (z4 === z3) {typesOK = false};
+
+    	if (e != '' && p != '' && z1 != '' && z2 != '' && typesOK) {
 	    userFunctions.lock()
 	    queue().defer(backend).await(frontend)};
 
@@ -890,21 +942,25 @@ var userFunctions = {
 		$.getJSON(url, params, success)
 	    };
 
-	    var i = $('#iterations').val();
-	    var r = $('#rounds').val();
-	    var n = $('#numtrials').val();
-	    var s = $('#swblur').val();
-	    var t = $('#swthreshold').val();
-	    
+	    var i = parseInt($('#iterations').val());
+	    var r = parseInt($('#rounds').val());
+	    var n = parseInt($('#numtrials').val());
+	    var s = parseFloat($('#swblur').val());
+	    var t = parseFloat($('#swthreshold').val());
+
 	    // enforce defaults not displayed in html boxes
 	    params = {}
-	    params.iterations = (i==='')?100:i;
-	    params.numtrials  = (n==='')?2:n;
-	    params.sw_sigma   = (s==='')?2.0:s;
-	    params.sw_cutoff  = (t==='')?0.12:t;
-	    params.rounds     = (r==='')?1:r;
+	    params.iterations = (isNaN(i))?100:i;
+	    params.numtrials  = (isNaN(n))?2:n;
+	    params.sw_sigma   = (isNaN(s))?2.0:s;
+	    params.sw_cutoff  = (isNaN(t))?0.12:t;
+	    params.rounds     = (isNaN(r))?1:r;
 	    
-	    if (front.hologram.hasSupport) {
+	    // check the types of all params
+	    var typesOK = !(isNaN(params.iterations) || isNaN(params.rounds) || isNaN(params.numtrials) || isNaN(params.sw_sigma) || isNaN(params.sw_cutoff));
+	    console.log(params)
+	    
+	    if (front.hologram.hasSupport && typesOK) {
 		
 		console.log("here")
 
@@ -917,6 +973,7 @@ var userFunctions = {
 	// prepends the reconstruct action with a call to backend.makesupport,
 	// which resets the reconsturction. the second runs the reconstruction
 	// directly, which simply continues the reconstruction
+
 	if (front.hologram.hasSupport) {
 	    if (skip) {runRounds()}
 	    else {queue().defer(sendSupport).await(runRounds)}};
@@ -943,7 +1000,15 @@ var userFunctions = {
 	    var width = (front.sizes.x+4)*nDivs+(nDivs-1)*2;
 	    d3.select("#container").transition().duration(150).style("margin-left",-width/2)
 	}
-    }
+    },
+    
+    validateField: function (id) {
+	var who  = document.getElementById(id);
+	var what = who.value;
+	if (isNaN(what))  {who.className="fieldr"};
+	if (!isNaN(what)) {who.className="fieldg"};
+	if (what==='')    {who.className="field0"};
+	}, 
 }
 
 var starts = {
@@ -1083,7 +1148,8 @@ var starts = {
 	var buttons = [
 	    {x:fx-bs-s,y:s,action:"propagate",paths:[[{x:bs1,y:bs2},{x:bs3,y:bs2}],[{x:bs2,y:bs1},{x:bs3,y:bs2},{x:bs2,y:bs3}]]},
 	    {x:s,y:fx-bs-s,action:"reconstructAgain",paths:[[{x:bs1,y:bs2},{x:bs3,y:bs2}],[{x:bs2,y:bs1},{x:bs2,y:bs3}]]},
-	    {x:fx-2*(bs+s),y:s,action:"newRegion",paths:[[{x:bs1,y:bs1},{x:bs3,y:bs1},{x:bs3,y:bs3},{x:bs1,y:bs3},{x:bs1,y:bs1-1}],]},
+	    {x:fx-2*(bs+s),y:s,action:"newRegion",paths:[[{x:bs1,y:bs1},{x:bs3,y:bs1},{x:bs3,y:bs3},{x:bs1,y:bs3},{x:bs1,y:bs1-1}]]},
+	    {x:bs+2*s,y:fx-bs-s,action:"download",paths:[[{y:bs1,x:bs2},{y:bs3,x:bs2}],[{y:bs2,x:bs1},{y:bs3,x:bs2},{y:bs2,x:bs3}]]}
 	];
 	    
 	buttons.forEach(function (d) {starts.buttons(d,'#reconstructionButtons','reconstructionButtons')});
@@ -1093,18 +1159,19 @@ var starts = {
     
     controls: function (forWhat) {
 	
+	var o = "onkeyup", f = "userFunctions.validateField(this.id)"
 	var specs = {
 		'reconstruction':[
-		    {'type':'text','id':'rounds','placeholder':'Rounds','size':5},
-		    {'type':'text','id':'numtrials','placeholder':'Trials','size':5},
-		    {'type':'text','id':'iterations','placeholder':'Iterations','size':7},
-		    {'type':'text','id':'swblur','placeholder':'Blur (px)','size':7},
-		    {'type':'text','id':'swthreshold','placeholder':'Threshold','size':7}],
+		    {'type':'text','id':'rounds','placeholder':'Rounds','size':5,"onkeyup":f},
+		    {'type':'text','id':'numtrials','placeholder':'Trials','size':5,"onkeyup":f},
+		    {'type':'text','id':'iterations','placeholder':'Iterations','size':7,"onkeyup":f},
+		    {'type':'text','id':'swblur','placeholder':'Blur (px)','size':7,"onkeyup":f},
+		    {'type':'text','id':'swthreshold','placeholder':'Threshold','size':7,"onkeyup":f}],
 		'propagation':[
-		    {'type':'text','id':'energy','placeholder':'Energy (eV)','size':10},
-		    {'type':'text','id':'zmin','placeholder':'Zmin (um)','size':10},
-		    {'type':'text','id':'zmax','placeholder':'Zmax (um)','size':10},
-		    {'type':'text','id':'pitch','placeholder':'Pitch (nm)','size':10},],
+		    {'type':'text','id':'energy','placeholder':'Energy (eV)','size':10,"onkeyup":f},
+		    {'type':'text','id':'zmin','placeholder':'Zmin (um)','size':10,"onkeyup":f},
+		    {'type':'text','id':'zmax','placeholder':'Zmax (um)','size':10,"onkeyup":f},
+		    {'type':'text','id':'pitch','placeholder':'Pitch (nm)','size':10,"onkeyup":f},],
 		'blocker':[
 		    {'type':'text','id':'blockerpower','placeholder':'Power','size':10,}, 
 		]

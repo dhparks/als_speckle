@@ -1,9 +1,12 @@
 ### backend for iterative imaging and back-propagation interface
-import os, time, numpy, Image, math
+import numpy
+import speckle
+import time
+import os
 import scipy.misc as smp
-io.set_overwrite(True)
-
-from .. import phasing, wrapping, shape, conditioning, io, propagate, masking
+import Image
+import math
+speckle.io.set_overwrite(True)
 
 class backend():
 
@@ -12,7 +15,7 @@ class backend():
         # this class receives gpu info from the flask_server, which
         # is the original instantiator of the gpu context.
         
-        self.machine = phasing.phasing(gpu_info=gpu_info)
+        self.machine = speckle.phasing.phasing(gpu_info=gpu_info)
         
         self.reconstructions = {}
         self.modulus = None
@@ -34,18 +37,18 @@ class backend():
             # unwrap self.rs_data and integrate radially. define a blocker which
             # blocks 90% or 95% of the total power of the inverted hologram.
             
-            uwp = wrapping.unwrap_plan(0,self.data_shape[0]/2,(self.data_shape[0]/2,self.data_shape[1]/2),columns=360)
-            uw  = wrapping.unwrap(numpy.abs(self.rs_data),uwp)
+            uwp = speckle.wrapping.unwrap_plan(0,self.data_shape[0]/2,(self.data_shape[0]/2,self.data_shape[1]/2),columns=360)
+            uw  = speckle.wrapping.unwrap(numpy.abs(self.rs_data),uwp)
             rad = numpy.sum(uw,axis=1)*numpy.arange(uw.shape[0])
             
             r_power = numpy.sum(rad)
             r_cut   = numpy.abs(numpy.cumsum(rad)/r_power-power).argmin()
             
-            self.blocker = 1-shape.circle(self.data_shape,r_cut)
+            self.blocker = 1-speckle.shape.circle(self.data_shape,r_cut)
             
         if power > 1:
             
-            self.blocker = 1-shape.circle(self.data_shape,power)
+            self.blocker = 1-speckle.shape.circle(self.data_shape,power)
             
     def save_zoom_images(self):
             
@@ -59,9 +62,9 @@ class backend():
             sqrt = numpy.sqrt(mag)
             logd = numpy.log((mag-mag.min())/mag.max()*1000+1)
       
-            #self.rs_image_linear = io.complex_hsv_image(linr)
-            #self.rs_image_sqrt   = io.complex_hsv_image(sqrt*numpy.exp(complex(0,1)*phase))
-            self.rs_image_log    = io.complex_hsv_image(logd*numpy.exp(complex(0,1)*phase))
+            #self.rs_image_linear = speckle.io.complex_hsv_image(linr)
+            #self.rs_image_sqrt   = speckle.io.complex_hsv_image(sqrt*numpy.exp(complex(0,1)*phase))
+            self.rs_image_log    = speckle.io.complex_hsv_image(logd*numpy.exp(complex(0,1)*phase))
             
             imgs = {'logd':smp.toimage(self.rs_image_log)}
             n    = 0
@@ -99,7 +102,7 @@ class backend():
         def _invert():
             
             # center the speckle pattern. roll to corner. invert
-            data = conditioning.find_center(self.fourier_data,return_type='data')
+            data = speckle.conditioning.find_center(self.fourier_data,return_type='data')
             rolled = numpy.fft.fftshift(data)
             return numpy.fft.fftshift(numpy.fft.fft2(rolled)), rolled
         
@@ -117,7 +120,7 @@ class backend():
         # open the data and get the shape. if the data is trivially 3d,
         # convert trivially to 2d. if the data is substantively 3d, convert
         # to 2d by averaging along the frame axis.
-        fourier_data = io.open(path).astype(numpy.float32)
+        fourier_data = speckle.io.open(path).astype(numpy.float32)
         if fourier_data.ndim == 3:
             if fourier_data.shape[0] == 1: fourier_data = fourier_data[0]
             if fourier_data.shape > 1: fourier_data = numpy.average(fourier_data,axis=0)
@@ -211,7 +214,7 @@ class backend():
             if c1 > c: c1 += -1
         
             d = self.reconstructions[params['round']][r0:r1,c0:c1]
-            #io.save('sliced for propagation.fits',d)
+            #speckle.io.save('sliced for propagation.fits',d)
 
         # set parameters correctly
         sr = max([r1-r0,c1-c0])
@@ -238,14 +241,14 @@ class backend():
         # embed the data in a sea of zeros. if requested, attempt to apodize.
         # apodization typically requires an explicit estimate of the support.
         # here, i try to estimate the support from the sliced data.
-        mask, d2 = propagate.apodize(d,threshold=0.01,sigma=3)
+        mask, d2 = speckle.propagate.apodize(d,threshold=0.01,sigma=3)
         if params['apodize']: d = d2
 
         data = numpy.zeros((1024,1024),numpy.complex64)
         data[512-d.shape[0]/2:512+d.shape[0]/2,512-d.shape[1]/2:512+d.shape[1]/2] = d
         
         # propagate
-        pd = propagate.propagate_distances
+        pd = speckle.propagate.propagate_distances
         if self.use_gpu:
             propagated, images = pd(data,z*1e-6,e,p,subregion=sr,gpu_info=self.gpu,im_convert=True,silent=False)
         else:
@@ -256,7 +259,7 @@ class backend():
         # data which can be quickly saved to jpeg etc
         t0 = time.time()
         rgb, images = [], []
-        for n, frame in enumerate(propagated): rgb.append(io.complex_hsv_image(frame/numpy.abs(frame).max()))
+        for n, frame in enumerate(propagated): rgb.append(speckle.io.complex_hsv_image(frame/numpy.abs(frame).max()))
         for array in rgb: images.append(smp.toimage(array))
         t1 = time.time()
         
@@ -276,12 +279,20 @@ class backend():
         #    img.save('./static/imaging/images/bp_%s_%s_%s.png'%(self.data_id,self.bp_id,int(zn)))
             
         # debug: save the fits
-        #io.save('propagated_%s_%s.fits'%(self.data_id,self.bp_id),self.propagated)
+        #speckle.io.save('propagated_%s_%s.fits'%(self.data_id,self.bp_id),self.propagated)
     
         # calculate the acutance, then save it to a csv
-        self.acutance  = numpy.array(propagate.acutance(self.propagated,mask=mask))
+        self.acutance  = numpy.array(speckle.propagate.acutance(self.propagated,mask=mask))
         self.acutance /= self.acutance.max()
         _save_acutance(z)
+        
+    def save_reconstruction(self,r_id):
+        data = self.reconstructions[r_id]
+        # save the data as real and imag components and complex_hsv image,
+        # then zip the results for easy downloading by client
+        speckle.io.save('static/imaging/fits/reconstruction_%s_%s.fits'%(self.data_id,r_id),data,components='cartesian')
+        speckle.io.save('static/imaging/fits/reconstruction_%s_%s.png'%(self.data_id,r_id),data,components='complex_hsv',do_zip='all')
+        
         
     def reconstruct(self,params):
         
@@ -294,14 +305,14 @@ class backend():
             # resize for speed. need to be the next power of 2 larger
             # than twice the maximum dimension of the support.
             import math
-            bb = masking.bounding_box(self.support,force_to_square=True)
+            bb = speckle.masking.bounding_box(self.support,force_to_square=True)
             rs = bb[1]-bb[0]
             cs = bb[3]-bb[2]
             g  = int(2**(math.floor(math.log(2*max([rs,cs]))/math.log(2))+1))
             
             self.reconstruct_shape = (g,g)
             tmp     = numpy.fft.fftshift(tmp)
-            resized = wrapping.resize(tmp,(g,g))
+            resized = speckle.wrapping.resize(tmp,(g,g))
             tmp     = numpy.fft.fftshift(tmp)
             self.modulus = tmp
             
@@ -315,7 +326,7 @@ class backend():
             self.machine.load(support=self.support)
             
         def _refine_support(r_average):
-            ref = phasing.refine_support
+            ref = speckle.phasing.refine_support
             r0, r1 = self.machine.r0, self.machine.r0+self.machine.rows
             c0, c1 = self.machine.c0, self.machine.c0+self.machine.cols
             refined = ref(self.support[r0:r1,c0:c1], r_average,                             
@@ -329,7 +340,7 @@ class backend():
         def _save_images(ave1):
             
             ave2 = numpy.sqrt(numpy.abs(ave1))*numpy.exp(complex(0,1)*numpy.angle(ave1))
-            hsv  = io.complex_hsv_image
+            hsv  = speckle.io.complex_hsv_image
             
             for entry in [(ave1,'linr'),(ave2,'sqrt')]:
                 data, scale = entry
@@ -374,7 +385,7 @@ class backend():
         # once the trials are all finished, process the results into an
         # average by aligning the phase and averaging along the frame axis
         savebuffer = self.machine.get(self.machine.savebuffer)
-        savebuffer = phasing.align_global_phase(savebuffer)
+        savebuffer = speckle.phasing.align_global_phase(savebuffer)
         r_average  = numpy.mean(savebuffer[:-1],axis=0)
         r_sum      = numpy.sum(savebuffer[:-1],axis=0)
         savebuffer[-1] = r_average
@@ -387,4 +398,4 @@ class backend():
         self.most_recent = r_average
         
         # calculate the rftf
-        rftf, self.rftfq = phasing.rftf(r_average,self.modulus,rftfq=True,scale=True,hot_pixels=True)
+        rftf, self.rftfq = speckle.phasing.rftf(r_average,self.modulus,rftfq=True,scale=True,hot_pixels=True)

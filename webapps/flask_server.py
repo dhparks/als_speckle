@@ -3,7 +3,6 @@ from werkzeug import secure_filename
 import os
 app = Flask(__name__)
 import time
-
 import speckle, numpy
 
 # if everything is present for a gpu, turn it on
@@ -33,11 +32,9 @@ def allowed_file(name):
 def upload_file():
 
     if request.method == 'POST':
-        
         project = request.files.keys()[0]
         file = request.files[project]
         success = False
-        
         if file and allowed_file(file.filename):
             
             filename = secure_filename(file.filename)
@@ -84,18 +81,11 @@ def xpcs_cmd(cmd):
         
         # json is just a list of numbers
         uids = request.json
-        print uids
-        
-        print "regions before"
-        print backendx.regions.keys()
         
         # remove them one at a time
         for uid in uids:
             try: del backendx.regions[int(uid)]
             except KeyError: pass
-            
-        print "regions after"
-        print backendx.regions.keys()
             
         # return a json response
         return jsonify(result="removed")
@@ -133,9 +123,6 @@ def xpcs_cmd(cmd):
         for uid in coords.keys():
             tc = coords[uid]
             backendx.update_region(int(uid),[int(tc[ckey]) for ckey in ckeys])
-            
-        print "regions:"
-        print backendx.regions.keys()
 
         # calculate g2 and fit to form
         backendx.calculate()
@@ -169,16 +156,11 @@ def xpcs_cmd(cmd):
 
     if cmd == 'recalculate':
         # recalculate g2 for all specified regions; update the plot
-        print "recalculating"
-        
         # see if the functional form has changed
         form = request.args.get('form',0,type=str)
-        print form
         if form in ('decayexp','decayexpbeta') and form != backendx.form:
             backendx.form = form
             backendx.refitg2 = True
-            
-        
             
         # recalculate g2 and fit; save output
         backendx.calculate()
@@ -192,7 +174,6 @@ def xpcs_cmd(cmd):
 
 @app.route('/fth/<cmd>',methods=['GET','POST'])
 def fth_cmd(cmd):
-    print cmd
     
     if cmd == 'query':
         # return the information the frontend needs to pull images etc
@@ -215,11 +196,15 @@ def fth_cmd(cmd):
 @app.route('/cdi/<cmd>',methods=['GET','POST'])
 def cdi_cmd(cmd):
     
+    if cmd == 'download':
+        r_id = request.args.get('reconstructionId',0,type=str)
+        backendi.save_reconstruction(r_id)
+        return jsonify(result="saved")
+
     if cmd == 'query':
         return jsonify(dataId=backendi.data_id,zooms=backendi.zooms,hasgpu=use_gpu)
 
     if cmd == 'load':
-        print request.args.get('file',0,type=str)
         name = request.args.get('file',0,type=str).replace('C:\\fakepath\\','')
         size = request.args.get('resize',0,type=int)
         blocker = request.args.get('blocker',0,type=float)
@@ -229,12 +214,9 @@ def cdi_cmd(cmd):
     
     if cmd == 'makesupport':
         backendi.make_support(request.json)
-        print "making support"
         return jsonify(result=str(numpy.sum(backendi.support)))
     
     if cmd == 'reconstruct':
-        
-        print request.args
         
         # passed params: iterations, numtrials, ismodulus, sigma, threshold
         int_keys = ('iterations','numtrials','ismodulus')
@@ -257,9 +239,6 @@ def cdi_cmd(cmd):
         for key in int_keys: params[key] = request.args.get(key,0,type=int)
         for key in flt_keys: params[key] = request.args.get(key,0,type=float)
         for key in str_keys: params[key] = request.args.get(key,0,type=str)
-        
-        print "prop params fs: "
-        print params
 
         # run the propagation
         backendi.propagate(params,'cdi')

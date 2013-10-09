@@ -92,10 +92,14 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
             operates only on the magnitude component of the data.
             available scales are 'sqrt','log', or a float which is interpreted
             as a power (ie, 0.5 reproduces sqrt).
-        zip - if True, will run the system gz command on the saved output,
+        zip - if 'each' or 'all', will run the system gz command on the saved output,
             which replaces it with a zip file. useful for fits files with
             large spaces of zeros, for example. This will remove the original
             file following the protocol of the standard gzip utility.
+            
+            'each': zip each file individually
+            'all': combine all the outputs into a single zip file
+            
         append_component - if True, will append the component name to the
             end of the file. For example, a filename of "data.fits" with
             components=['mag'] will save as 'data_mag.fits'. If false, will
@@ -134,26 +138,13 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
         if header == {}: header = ''
         if ext == 'csv': write_text_array(filename,data,header=header,delimiter=',')
         else: write_text_array(filename,data,header=header)
-        
-    if do_zip:
-        
-        try:
-            import gzip, os, glob
-            
-            base = filename.split('.')[0]
-            matches = glob.glob('%s*.*'%base)
-            
-            for match in matches:
-                if match.split('.')[-1] != 'gz':
-                    f_in  = _open(match, 'rb')
-                    f_out = gzip.open(match+'.gz', 'wb')
-                    f_out.writelines(f_in)
-                    f_out.close()
-                    f_in.close()
-                    os.remove(match) # get rid of the unzipped file
-            
-        except ImportError:
-            print "no support on this system; maybe no gzip library?"
+
+    # zip output
+    assert do_zip in (True,False,1,0,'each','all')
+    if do_zip != False: _zip(filename,do_zip)
+    
+    
+
 
 #
 ############### Text ########################
@@ -1323,3 +1314,47 @@ def open_ds9_mask(filename, individual_regions = False, remove_intersections = F
         return mask*data
     else:
         return mask
+    
+########## ZIP ########
+# Opening of zipped fits is already supported by pyfits, so just need a save function
+
+def _zip(filename,do_zip):
+    
+    if do_zip in (True,1): do_zip = 'each' # default is many files
+
+    import os, glob
+    ext     = filename.split('.')[-1]
+    base    = filename.replace('.%s'%ext,'')
+    matches = glob.glob('%s*.*'%base)
+        
+    if do_zip == 'each':
+        try:
+            import gzip
+            for match in matches:
+                if match.split('.')[-1] != 'gz':
+                    f_out = gzip.open(match+'.gz','wb')
+                    f_in  = _open(match,'rb')
+                    f_out.writelines(f_in)
+                    f_in.close()
+                    #os.remove(match)
+                    
+        except ImportError: pass
+        
+    if do_zip == 'all':
+        
+        try:
+            import zipfile as z
+
+            zf = base+"_zipped.gz"
+            if os.path.isfile(zf): os.remove(zf)
+            f_out = z.ZipFile(zf,'w',z.ZIP_DEFLATED)
+            
+            for match in matches:
+                if match.split('.')[-1] != 'gz':
+                    print "zipping "+match
+                    f_out.write(match,os.path.split(match)[1])
+                    os.remove(match)
+            
+            f_out.close()
+            
+        except ImportError: pass
