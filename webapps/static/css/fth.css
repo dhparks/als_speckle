@@ -1,0 +1,99 @@
+#container {
+    margin:0 0 0 -300px;
+    display:inline-block;
+    position:absolute;
+    left:50%;
+}
+
+.topdiv {
+    width:300px;
+    height:300px;
+    float:left;
+    border: 2px solid white;
+}
+
+#acutance {
+    width:604px;
+    height:230px;
+    float:left;
+    clear:both;
+    display:inline-block;
+    border:2px solid black;
+    margin-top:2px;
+    border-radius:6px;
+    opacity:0;
+}
+
+.hologrambuttons {
+    width: 20px;
+    height: 20px;
+    stroke: red;
+    stroke-width: 2px;
+    cursor:pointer;
+    opacity:0;
+}
+
+
+.clockface {opacity:0;}
+
+#slider {
+    height:50px;
+    width:604px;
+    display:inline-block;
+    clear:both;
+}
+
+#controls {
+    height:25px;
+    width:602px;
+    border:2px solid #999999;
+    border-radius:4px;
+    vertical-align:middle;
+}
+    
+.axis {
+  font: 10px sans-serif;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+.gridlines {
+  fill: none;
+  stroke: black;
+  stroke-width: 1px;
+  stroke-opacity: 0.4;
+}
+
+.plotaxis path,
+.plotaxis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+
+.axis .domain {
+  fill: none;
+  stroke: #000;
+  stroke-opacity: .3;
+  stroke-width: 2px;
+  stroke-linecap: round;
+}
+
+.axis .halo {
+  fill: none;
+  stroke: #ddd;
+  stroke-width: 10px;
+  stroke-linecap: round;
+}
+
+.slider .handle {
+  fill: white;
+  stroke: #000;
+  stroke-opacity: .5;
+  stroke-width: 1.25px;
+}
+
+.fieldr {background:red;}
+.fieldg {background:lime;}
+.field0 {background:none;}

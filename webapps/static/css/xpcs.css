@@ -1,0 +1,56 @@
+#container {
+    left:50%;
+    margin:0 0 0 -512px;
+    display:inline-block;
+    position:absolute;
+}
+#left {
+    width:518px;
+    display:inline-block;
+    float:left;}
+    
+#leftcontrols {
+    width:290px;
+    margin-left:114px;
+    float:left;
+    display:inline-block;}
+    
+#right {
+    width:518px;
+    float:left;
+    display:inline-block}
+
+#rightcontrols {
+    float:left;
+    display:inline-block;
+    width:130px;
+    margin-left:190px;}
+    
+#intensity {display:inline-block;}
+#graphs{display:inline-block;}
+#intensity {border: 2px solid black;}
+#graphs {border: 2px solid black;}
+
+.axis path,
+.axis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+
+.mainRegion {
+    stroke-width: 2px;
+    fill-opacity: 0;
+}
+
+
+.gridlines {
+  fill: none;
+  stroke: black;
+  stroke-width: 1px;
+  stroke-opacity: 0.15;
+}
+
+.clockface {
+    opacity: 0;
+}

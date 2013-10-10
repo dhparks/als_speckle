@@ -250,5 +250,9 @@ app.config['UPLOAD_FOLDER'] = upload_folder
 app.config['MAX_CONTENT_LENGTH'] = 1024**3
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0")
+    
+    
+    
+    
+    app.run(debug=True)
     

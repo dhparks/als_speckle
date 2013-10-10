@@ -12,9 +12,9 @@ Speckle analysis server consists of four components:
     3. A set of analytical backends which manage and analyze data through calls to the speckle library
     4. The speckle library, which performs calculations
     
-The HTML/javascript layer should run correctly in any modern browser. Firefox and Webkit-based browswers are preferred, as no versions of IE have been tested for correct behavior.
+The HTML/javascript layer should run correctly in any modern browser. Firefox and Webkit-based browswers (Safari, Chrome) are preferred, as no versions of IE have been tested for correct behavior.
 
-The python webframework which functions as webserver and request router is contained in the file flask_server.py. Running this file requires the flask python library, which has a webpage at
+The python webframework which functions as webserver and request router to the backends is contained in the file flask_server.py. Running this file requires the flask python library, which has a webpage at
 
 http://flask.pocoo.org/
 
@@ -23,7 +23,7 @@ To install flask on a computer with pip, just run "sudo pip install Flask"
 The analytical backends which manage the analysis are stored in speckle/interfaces and may be considered part of the speckle library. The speckle library is of course stored in speckle/ and has many modules.
 
 3. Firewall configuration
-When flask_server.py is run not in development/debugging mode, it responds to valid requests from all origins. This is a security threat as data analysis requires data to be uploaded to the server. While safeguards exist within the server application to prevent the uploading of files which may contain executable code, the requirement to accept very large XPCS datasets makes the server susceptible to denial-of-service attacks via the upload mechanism. For this reason it is advisable to limit access to the server to the internal LBNL network. On magnon.lbl.gov, the development host of the speckle library, the built-in firewall accepts ssh and sftp requests from all sources, but allows access to port :5000, the default port for the analysis server,  only from IP addresses within the lbl.gov subnet. Here is a printout of the firewall status (sudo ufw status verbose)
+When flask_server.py is run not in development/debugging mode, it responds to valid requests from all origins. This is a security threat as data analysis requires data to be uploaded to the server. While safeguards exist within the server application to prevent the uploading of files which may contain executable code, the requirement to accept very large XPCS datasets makes the server susceptible to denial-of-service attacks via the upload mechanism. For this reason it is advisable to limit access to the server to the internal LBNL network. On magnon.lbl.gov, the development host of the speckle library, the built-in firewall accepts ssh and sftp requests from all sources, but allows access to port :5000, the default port for the analysis server, only from IP addresses within wired lbl.gov subnets. Here is a printout of the firewall status (sudo ufw status verbose)
 
 Status: active
 Logging: on (low)
@@ -35,13 +35,19 @@ To                         Action      From
 22                         ALLOW IN    Anywhere
 115/tcp                    ALLOW IN    Anywhere
 5000                       ALLOW IN    131.243.0.0/16
+5000                       ALLOW IN    128.3.0.0/16
 22                         ALLOW IN    Anywhere (v6)
 115/tcp                    ALLOW IN    Anywhere (v6)
 
-The range of lbl.gov IPs (v4) is 131.243.0.0 through 131.243.255.255. Presumably, it is still possible to access the speckle analysis server from outside the lbl.gov subnet through the use of a VPN.
+The range of lbl.gov IPs (v4) spans two subnets: 131.243.x.x and 128.3.x.x (cf https://commons.lbl.gov/display/itdivision/IP+Subnet+Addresses+at+LBNL). From other subnets, in particular LBNL wifi or networks outside LBNL, access to the server requires you to authenticate using the VPN:
 
-3. Running the server
-As far as I know, running a persistent server is either: 1. hard or 2: annoying. Currently, the method of running flask_server on magnon is the following:
+https://commons.lbl.gov/display/itdivision/VPN+-+Virtual+Private+Network
+
+3. Accessing the Magnon server
+Accessing the analysis development server is very simple. From a computer on the LBNL network or a computer on an external network with VPN access, direct a web browser to magnon.lbl.gov:5000 (or whatever computer you have the server running on)
+
+5. Running your own local server
+As far as I know, running a persistent server is either: 1. hard or 2. annoying. Currently, the method of running flask_server on magnon is the following:
 
     1. Log in to magnon
     2. Switch to the screen multiplexer through the command "screen"
@@ -49,10 +55,9 @@ As far as I know, running a persistent server is either: 1. hard or 2: annoying.
     4. Exit the screen multiplexer through (CTRL-A)+D
     5. Log out of magnon
     
-This keeps the server running in a user account. When the server inevitably crashes due to some bug, this procedure must be repeated to restart it. Another possibility is running the server as an automatically (re)starting daemon/background process, but this is currently beyond my abilities.
+This keeps the server running in a user account. When the server inevitably crashes due to some bug or shuts off due to a power outage this procedure must be repeated to restart it. Another possibility is running the server as an automatically (re)starting daemon/background process, but this is currently beyond my knowledge.
 
-4. Accessing the server
-Accessing the analysis server is very simple. From a computer on the LBNL network or a computer on an external network with VPN access, direct a web browser to magnon.lbl.gov:5000 (or whatever computer you have the server running on)
+
 
 
     

@@ -262,8 +262,6 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
             images = []
             image_buffer = image_buffer.get()
             for image in image_buffer: images.append(smp.toimage(image))
-        
-            print "here"
             return store.get(), images # done
         
         else:
