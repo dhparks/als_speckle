@@ -109,6 +109,10 @@
   stroke-opacity: .5;
   stroke-width: 1.25px;
 }
+
+.fieldr {background:red;}
+.fieldg {background:lime;}
+.field0 {background:none;}
     
 </style>
 </head>
@@ -116,10 +120,10 @@
     
     <div id="container">
 	<div id="controls">
-	    <input type="text" id="zmin" name="zmin" size=9 placeholder="Zmin (um)">
-	    <input type="text" id="zmax" name="zmax" size=9 placeholder="Zmax (um)">
-	    <input type="text" id="energy" name="energy" size=9 placeholder="Energy (eV)">
-	    <input type="text" id="pitch" name="pitch" size=7 placeholder="Pitch (nm)">
+	    <input type="text" id="zmin" name="zmin" size=9 placeholder="Zmin (um)" onkeyup="userFunctions.validateForm(this.id)">
+	    <input type="text" id="zmax" name="zmax" size=9 placeholder="Zmax (um)" onkeyup="userFunctions.validateForm(this.id)">
+	    <input type="text" id="energy" name="energy" size=9 placeholder="Energy (eV)" onkeyup="userFunctions.validateForm(this.id)">
+	    <input type="text" id="pitch" name="pitch" size=7 placeholder="Pitch (nm)" onkeyup="userFunctions.validateForm(this.id)">
 	    Apodize? <input type = "checkbox", id='apodize', checked="checked">
 	</div>
         <div id="hologram" class="topdiv"></div>
@@ -236,66 +240,15 @@
     }
 
     var userFunctions = {
-	
-	load: function () {
-	    
-	    var backend = function (callback) {
-		
-		var ts = new Date().getTime();
-		lock(ts)
-		d3.select("#svghologram").selectAll(".clockface").transition().duration(150).style("opacity",1)
-		
-		var url = "http://localhost:5000/fth/load"
-		$.getJSON(url, {'file':fileName,'resize':front.svgHeight},
-		    function(json_data) {
-			front.dataId = json_data.dataId;
-			unlock(ts);
-			front.zoom = 0;
-			front.zooms = json_data.zooms;
-			front.hasdata = true;
-			callback(null); 
-		    }
-		);
-	    };
 
-	    var frontend = function (error) {
-		
-		// remove the clock
-		d3.select("#svghologram").selectAll(".clockface").style("opacity",0)
-		
-		// move the region selector to front
-		t = d3.select("#hologramRegion")[0][0];
-		t.parentNode.appendChild(t);
-		
-		var changeBackground = function () {
-		    // change the background image
-		    var path = 'static/imaging/images/zoom_'+front.dataId+'_'+front.zoom+'_0.8_logd.png'
-		    d3.select('#hologramimage').attr("xlink:href", path)
-		};
-		
-		var loadImages = function () {
-		    for (var k=0;k<front.zooms;k++) {
-			var path = 'static/imaging/images/zoom_'+front.dataId+'_'+k+'_0.8_logd.png'
-			new Image().src = path}
-		}
-		
-		if (error != null) {
-		    console.log("error in load:");
-		    console.log(error) ;};
-		
-		loadImages();
-		changeBackground();
-		d3.selectAll(".hologrambuttons").style("opacity",1)
-
-	    };
+	validateForm: function (id) {
 	    
-	    var fileName = $('#path').val()
-	    if (fileName != '' && fileName != front.fileName) {
-		front.fileName = fileName;
-		queue().defer(backend).await(frontend);
-	    }
-	    
-	},
+	    var who  = document.getElementById(id);
+	    var what = who.value;
+	    if (isNaN(what))  {who.className="fieldr"};
+	    if (!isNaN(what)) {who.className="fieldg"};
+	    if (what==='')    {who.className="field0"};
+	}, 
 
 	holoclick: function (what) {
 	    
@@ -554,10 +507,21 @@
 		    frontAcutance();
 		}
 
-		var e = $('#energy').val(), p = $('#pitch').val(), z1 = $('#zmin').val(), z2 = $('#zmax').val();
-		front.zmin = parseInt(z1); // save! needed elsewhere
-		front.zmax = parseInt(z2)
-		if (e != '' && p != '' && z1 != '' && z2 != '' && front.hasdata) {queue().defer(backend).await(frontend)};
+		var e  = parseFloat($('#energy').val());
+		var p  = parseFloat($('#pitch').val());
+		var z1 = parseFloat($('#zmin').val());
+		var z2 = parseFloat($('#zmax').val());
+		
+		var typesOK = !(isNaN(e) || isNaN(p) || isNaN(z1) || isNaN(z2))
+	
+		// save zmin and zmax to the front tracker. if zmin > zmax, reverse the assignment
+		var z3 = parseInt(z1);
+		var z4 = parseInt(z2);
+		if (z3 > z4) {front.zmin = z4; front.zmax = z3};
+		if (z4 > z3) {front.zmin = z3; front.zmax = z4};
+		if (z4 === z3) {typesOK = false};
+
+		if (e != '' && p != '' && z1 != '' && z2 != '' && front.hasdata && typesOK) {queue().defer(backend).await(frontend)};
 	    };
 	},
 	

@@ -452,7 +452,10 @@ var userFunctions = {
 	    });
 	}
 
-	var frontend = function (error) {if (error != null) {console.log(error)}};
+	var frontend = function (error) {
+	    if (error != null) {console.log(error)}
+            if ($('#autocalc').is(":checked")) { userFunctions.recalculateG2() };
+	    };
 	
 	queue().defer(backend).await(frontend);
 	
@@ -961,8 +964,6 @@ var userFunctions = {
             d3.selectAll(".fitText").transition().duration(150).style("opacity",1);
             d3.select("#txtrect").transition().duration(150).style("opacity",1);}
     },
-    
-    
 
     };
 

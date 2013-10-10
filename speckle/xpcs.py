@@ -143,7 +143,7 @@ def g2_symm_norm(img, numtau, qAvg = ("circle", 10), fft=False):
     print("")
     return result
 
-def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None):
+def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None,silent=True):
     
     """ Calculate correlation function g_2. A variety of normalizations can be
     selected through the optional kwarg "norm".
@@ -236,10 +236,11 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None):
     if fft: ts = 8
     if not fft: ts = 128
 
+    if not silent: print "g2 numerator"
     numerator = _g2_numerator(data,tauvals,fft=fft,tile_size=ts,gpu_info=gpu_info)
 
     # normalize the numerator. depending on the norm method different values are calculated.
-    sys.stdout.write('normalizing\n')
+    if not silent: print "g2 normalizing"
     if norm   == "none":     pass # so just the numerator is returned
     elif norm == "plain":    numerator /= IT2
     elif norm == "standard": numerator *= IQT2/IT2
@@ -259,7 +260,7 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None):
 
     return numerator
 
-def _g2_numerator(data,tauvals,fft=True,tile_size='auto',gpu_info=None):
+def _g2_numerator(data,tauvals,fft=True,tile_size=8,gpu_info=None):
     """ Calculate the g2 numerator. This is handled the same regardless of
     normalization scheme. Two methods of calculation are available: via fft or
     via shift-multiply-sum. In general, fft is faster and requires more memory.
@@ -332,6 +333,8 @@ def _g2_numerator(data,tauvals,fft=True,tile_size='auto',gpu_info=None):
         # if the input array is very large, calculating the correlation function for
         # all pixels at the same time is prohibitive due to memory restrictions.
         # for this reason, the g2_numerator is calculated within a series of tiles.
+        # there is some optimal size for this calculation which probably depends on cpu
+        # cache sizes but 8x8 seems to work well.
         
         output = np.zeros((ntaus,ys,xs),np.float32)
         xcoords, ycoords = [], []
@@ -457,7 +460,6 @@ def _tune_tile_size(data):
         #return opt_fft_tile
     
     if not fft: return 128
-
 
 def g2_symm_borthwick_norm(img, numtau, qAvg = ("circle", 10), fft=False):
     """ calculate correlation function g_2 with Matt Borthwick's symmetric

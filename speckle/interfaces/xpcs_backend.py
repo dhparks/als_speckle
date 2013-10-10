@@ -112,10 +112,9 @@ class backend():
         
         # update the coordinates of a region. if there is no region associated
         # with uid, make it.
-        
-        print uid, type(uid)
-
         rmin, rmax, cmin, cmax = self._transform_coords(coords)
+        
+        uid = str(uid)
         
         if uid in self.regions.keys():
             
@@ -149,8 +148,6 @@ class backend():
             
             self.regions[uid] = here
             self.newest = uid
-            
-        print self.regions.keys()
 
     def calculate(self):
         
@@ -163,6 +160,8 @@ class backend():
             
             # first, see if the region has changed coordinates. if so, recalculate g2
             if here.changed:
+                
+                print "recalculating region %s"%region_key
                 
                 # if out-of-bounds (unusual), the g2 calculation will fail so
                 # return data which indicates an anomalous selection
@@ -192,6 +191,8 @@ class backend():
             # now refit the g2 curve. this has been broken out from the g2
             # calculation in case the user wants to switch the fit function.
             if here.changed or self.refitg2:
+                
+                print "refitting region %s"%region_key
 
                 c = (here.g2[0])/2
                 to_fit = np.array([np.arange(len(here.g2)),here.g2])
@@ -206,9 +207,6 @@ class backend():
                 # add the data to the region
                 here.fit_vals   = fitted.final_evaluated
                 here.fit_params = fitted.final_params
-                
-                print fitted.params_map
-                print fitted.final_params
             
             # mark the analysis of the current region as complete    
             here.changed = False
@@ -223,7 +221,6 @@ class backend():
         #  ii. tau, g2, fit_val for all regions
         # iii. fit parameters of all regions
 
-        
         # open the three files used to save analysis
         self.file_id = int(time.time())
         analysisf    = open('static/xpcs/csv/analysis.csv','w')
@@ -244,9 +241,12 @@ class backend():
         # form the g2 array, which holds all the g2 data resolved against region name
         g2_array = np.zeros((self.frames/2,1+2*len(self.regions)),np.float32)
         for n, key in enumerate(gkeys):
-            if "region" not in key:                   g2_array[:,n] = np.arange(self.frames/2)+1
-            if "region" in key and "_fit" in key:     g2_array[:,n] = self.regions[key.replace("_fit","")].fit_vals
-            if "region" in key and "_fit" not in key: g2_array[:,n] = self.regions[key].g2
+            if key == "tau":
+                g2_array[:,n] = np.arange(self.frames/2)+1
+            if "_fit" in key:
+                g2_array[:,n] = self.regions[key.replace("_fit","")].fit_vals
+            if key != "tau" and "_fit" not in key:
+                g2_array[:,n] = self.regions[key].g2
           
         # remove the old analysis file
         if os.path.isfile('/static/xpcs/csv/analysis.csv'): os.remove('static/csv/analysis')
