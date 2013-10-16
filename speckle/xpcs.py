@@ -233,11 +233,11 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None,s
     # if the dataset is large, computing the fft in a single pass may be
     # inefficient as it no longer fits in memory. for this reason, the data
     # is broken into 8x8 pixel tiles and correlated in batches.
-    if fft: ts = 8
-    if not fft: ts = 128
+    if fft: bs = 64
+    if not fft: bs = 128
 
     if not silent: print "g2 numerator"
-    numerator = _g2_numerator(data,tauvals,fft=fft,tile_size=ts,gpu_info=gpu_info)
+    numerator = _g2_numerator(data,tauvals,fft=fft,batch_size=bs,gpu_info=gpu_info)
 
     # normalize the numerator. depending on the norm method different values are calculated.
     if not silent: print "g2 normalizing"
@@ -260,7 +260,7 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None,s
 
     return numerator
 
-def _g2_numerator(data,tauvals,fft=True,tile_size=8,gpu_info=None):
+def _g2_numerator(data,tauvals,fft=True,batch_size=64,gpu_info=None):
     """ Calculate the g2 numerator. This is handled the same regardless of
     normalization scheme. Two methods of calculation are available: via fft or
     via shift-multiply-sum. In general, fft is faster and requires more memory.
@@ -282,21 +282,16 @@ def _g2_numerator(data,tauvals,fft=True,tile_size=8,gpu_info=None):
     (fr, ys, xs) = data.shape
     ntaus = len(tauvals)
     assert fft in (True,False,1,0), "fft must be boolean-like"
-    
-    if tile_size == 'auto':
-        tile_size = _tune_tile_size(fft,fr)
-
 
     # cpu code path
     if gpu_info == None:
         
         if fft:
-            # pre-allocate
-            data2 = np.zeros((2*fr,tile_size,tile_size),np.float32)
+            # preallocate some arrays
+            data2 = np.zeros((batch_size,2*fr),np.float32)
             IDFT  = np.fft.ifftn
             DFT   = np.fft.fftn
-            norm  = np.ones((fr,tile_size,tile_size),np.float32)
-            for f in range(fr): norm[f] *= 1./(fr-f)
+            norm  = 1./(fr-np.arange(fr))
             
         if not fft:
             try:
@@ -309,48 +304,44 @@ def _g2_numerator(data,tauvals,fft=True,tile_size=8,gpu_info=None):
             ds = data_in.shape
         
             if fft:
-                data2[:fr,:ds[1],:ds[2]] = data_in
-                numerator = norm*np.abs(IDFT(np.abs(DFT(data2,axes=(0,)))**2,axes=(0,)))[:fr]
-                tr = numerator[tauvals,:ds[1],:ds[2]]
-                return numerator[tauvals,:ds[1],:ds[2]], fft
+                data2[:ds[0],:fr] = data_in
+                numerator = norm*np.abs(IDFT(np.abs(DFT(data2,axes=(1,)))**2,axes=(1,)))[:,:fr]
+                return numerator[:,tauvals], fft
                     
             if not fft:
-                numerator = np.zeros((len(tauvals),)+ds[1:],np.float32)
-                for i,tau in enumerate(tauvals):
-                    a = data_in[0:fr-tau]
-                    b = data_in[tau:fr]
+                numerator = np.zeros((ds[0],len(tauvals)),np.float32)
+                for i, tau in enumerate(tauvals):
+                    a = data_in[:,0:fr-tau]
+                    b = data_in[:,tau:fr]
+                    if have_numexpr:
+                        prod = numexpr.evaluate("a*b")
+                    else:
+                        prod = a*b
+                    numerator[:,i] = np.average(prod, axis=1)
                     
-                    if have_numexpr: prod = numexpr.evaluate("a*b")
-                    else: prod = a*b
-     
-                    numerator[i] = np.average(prod, axis=0)
-                    #numerator[i] = np.average(data_in[0:fr-tau] * data_in[tau:fr], axis=0)
-                    #sys.stdout.write("\rtau %d (%d/%d)" % (tau, i, ntaus))
-                    #sys.stdout.flush()
-                #sys.stdout.write('\n')
                 return numerator, fft
             
         # if the input array is very large, calculating the correlation function for
         # all pixels at the same time is prohibitive due to memory restrictions.
-        # for this reason, the g2_numerator is calculated within a series of tiles.
-        # there is some optimal size for this calculation which probably depends on cpu
-        # cache sizes but 8x8 seems to work well.
+        # for this reason, the the numerator calculation is broken into batches.
+        # to maximize clarity, we reshape the data, correlate along rows of the
+        # reshaped data, then reshape the correlations back into the expected 3d shape
         
-        output = np.zeros((ntaus,ys,xs),np.float32)
-        xcoords, ycoords = [], []
+        cpu_data     = data.reshape(fr,ys*xs).transpose()
+        #output       = np.zeros((ntaus,ys,xs),np.float32)
+        output       = np.zeros((ys*xs,ntaus),np.float32)
+        batches, rem = (ys*xs)/batch_size, (ys*xs)%batch_size
         
-        import itertools
-        for ny in range(ys/tile_size+1): ycoords.append((ny*tile_size, min((ny+1)*tile_size,ys))) # ymin, ymax
-        for nx in range(xs/tile_size+1): xcoords.append((nx*tile_size, min((nx+1)*tile_size,xs))) # xmin, xmax
-
-        for y, x in itertools.product(ycoords, xcoords):
-            ymin, ymax = y
-            xmin, xmax = x
-            if ymin != ymax and xmin != xmax:
-                result, fft = _calc(data[:,ymin:ymax,xmin:xmax],fft)
-                output[:,ymin:ymax,xmin:xmax] = result
+        if batches > 0:
+            for batch in range(batches):
+                g2batch, fft = _calc(cpu_data[batch*batch_size:(batch+1)*batch_size],fft)
+                output[batch*batch_size:(batch+1)*batch_size] = g2batch
+        
+        if rem > 0:
+            g2batch, fft  = _calc(cpu_data[-rem:],fft)
+            output[-rem:] = g2batch[:rem]
                
-        return output
+        return output.transpose().reshape((ntaus,ys,xs))
     
     # gpu code path
     if gpu_info != None:

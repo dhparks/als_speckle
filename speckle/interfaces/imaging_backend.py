@@ -1,5 +1,7 @@
 ### backend for iterative imaging and back-propagation interface
 import numpy
+import sys
+sys.path.insert(0,'..')
 import speckle
 import time
 import os
@@ -10,12 +12,14 @@ speckle.io.set_overwrite(True)
 
 class backend():
 
-    def __init__(self,gpu_info=None):
+    def __init__(self,session_id,gpu_info=None):
     
         # this class receives gpu info from the flask_server, which
         # is the original instantiator of the gpu context.
         
-        self.machine = speckle.phasing.phasing(gpu_info=gpu_info)
+        self.machine    = speckle.phasing.phasing(gpu_info=gpu_info)
+        self.session_id = session_id
+        print "imaging session id %s"%self.session_id
         
         self.reconstructions = {}
         self.modulus = None
@@ -83,44 +87,40 @@ class backend():
                 box    = (ds[1]/2-w1/2,ds[0]/2-h1/2,ds[1]/2+w1/2,ds[0]/2+h1/2)
                 for key in imgs.keys():
                     y = imgs[key].crop(box).resize((self.resize,self.resize),Image.ANTIALIAS)
-                    y.save("./static/imaging/images/zoom_%s_%s_%s_%s.png"%(self.data_id,n,self.blocker_power,key))
+                    #y.save("./static/imaging/images/zoom_session%s_%s_%s_%s.png"%(self.session_id,n,self.blocker_power,key))
                     self.zoom_widths.append(w1)
                     big_image.paste(y,(self.resize*n,0))
             
-            big_image.save('./static/imaging/images/zooms_%s_%s_%s.png'%(self.data_id,self.blocker_power,key))
-            big_image.save('./static/imaging/images/zooms_%s_%s_%s.jpg'%(self.data_id,self.blocker_power,key))
+            big_image.save('./static/imaging/images/zooms_session%s_id%s_%s_%s.png'%(self.session_id,self.data_id,self.blocker_power,key))
+            big_image.save('./static/imaging/images/zooms_session%s_id%s_%s_%s.jpg'%(self.session_id,self.data_id,self.blocker_power,key))
 
             self.zooms = nzooms
         
-    def load_data(self,path,project,blocker=0.8,resize=300):
-    
+    def load_data(self,project,blocker=0.8,resize=300):
         # open and prepare data for display. depending on project,
         # the data gets prepared in different ways. for example, when the
         # project is fth, the central maximum gets blockered more extensively
         # than when the project is cdi.
         
         def _invert():
-            
             # center the speckle pattern. roll to corner. invert
             data = speckle.conditioning.find_center(self.fourier_data,return_type='data')
             rolled = numpy.fft.fftshift(data)
             return numpy.fft.fftshift(numpy.fft.fft2(rolled)), rolled
         
-        # assign a unique id to the current data
-        self.data_id = int(time.time())
+        # assign a unique id to the current data. rename the file from $project$_data.fits
+        self.data_id = self._new_id()
+        old_name     = 'data/%sdata_session%s.fits'%(project,self.session_id)
+        new_name     = 'data/%sdata_session%s_id%s.fits'%(project,self.session_id,self.data_id)
+        os.rename(old_name,new_name)
         
         # this is the size of the saved images
         self.resize = resize
-        
-        # clear old files; otherwise they will accumulate massively
-        for folder in ('static/imaging/images','static/imaging/csv'):
-            for f in os.listdir(folder):
-                os.remove(os.path.join(folder,f))
                 
         # open the data and get the shape. if the data is trivially 3d,
         # convert trivially to 2d. if the data is substantively 3d, convert
         # to 2d by averaging along the frame axis.
-        fourier_data = speckle.io.open(path).astype(numpy.float32)
+        fourier_data = speckle.io.open(new_name).astype(numpy.float32)
         if fourier_data.ndim == 3:
             if fourier_data.shape[0] == 1: fourier_data = fourier_data[0]
             if fourier_data.shape > 1: fourier_data = numpy.average(fourier_data,axis=0)
@@ -173,7 +173,7 @@ class backend():
         in the selected region. """
         
         def _save_acutance(z):
-            acutancef = open('static/imaging/csv/acutance_%s_%s.csv'%(self.data_id,self.bp_id),'w')
+            acutancef = open('static/imaging/csv/acutance_session%s_id%s.csv'%(self.session_id,self.bp_id),'w')
             acutancef.write("z,acutance\n")
             for zn, av in zip(z,self.acutance):
                 row = '%s,%.3f\n'%(zn,av)
@@ -182,7 +182,7 @@ class backend():
         
         # assign a unique id to the back-propagation results. this prevents
         # the browser from caching the results
-        self.bp_id = int(time.time())
+        self.bp_id = self._new_id()
         
         # from the parameters, calculate and slice the selected data pixels
         if project == 'fth':
@@ -237,7 +237,6 @@ class backend():
         
         z = numpy.arange(z1,z2+1)
         
-
         # embed the data in a sea of zeros. if requested, attempt to apodize.
         # apodization typically requires an explicit estimate of the support.
         # here, i try to estimate the support from the sliced data.
@@ -273,7 +272,7 @@ class backend():
             r, c = n/g, n%g
             big_image.paste(img,(imgx*c,imgy*r))
         big_image = big_image.resize((g*self.resize,g*self.resize),Image.BILINEAR)
-        big_image.save('./static/imaging/images/bp_%s_%s.jpg'%(self.data_id,self.bp_id))
+        big_image.save('./static/imaging/images/bp_session%s_id%s.jpg'%(self.session_id,self.bp_id))
 
         #for zn, img in zip(z,images):
         #    img.save('./static/imaging/images/bp_%s_%s_%s.png'%(self.data_id,self.bp_id,int(zn)))
@@ -290,10 +289,9 @@ class backend():
         data = self.reconstructions[r_id]
         # save the data as real and imag components and complex_hsv image,
         # then zip the results for easy downloading by client
-        speckle.io.save('static/imaging/fits/reconstruction_%s_%s.fits'%(self.data_id,r_id),data,components='cartesian')
-        speckle.io.save('static/imaging/fits/reconstruction_%s_%s.png'%(self.data_id,r_id),data,components='complex_hsv',do_zip='all')
-        
-        
+        speckle.io.save('static/imaging/fits/reconstruction_id%s_round%s.fits'%(self.data_id,r_id),data,components='cartesian')
+        speckle.io.save('static/imaging/fits/reconstruction_id%s_round%s.png'%(self.data_id,r_id),data,components='complex_hsv',do_zip='all')
+           
     def reconstruct(self,params):
         
         def _load_new_support():
@@ -351,7 +349,7 @@ class backend():
                 img = smp.toimage(hsv(new_d))
                 img.resize((300,300),Image.ANTIALIAS)
                 
-                img.save("static/imaging/images/r_%s_%s_%s.png"%(self.data_id,self.r_id,scale))
+                img.save("static/imaging/images/r_session%s_id%s_%s.png"%(self.session_id,self.r_id,scale))
         
         # this function broadly duplicates the functionality of 
         # advanced_phasing_example. however, it does not automatically
@@ -392,10 +390,13 @@ class backend():
         
         # now save the average formed above. this will get displayed in the
         # front end. must be embedded, then resized to 300x300 (subject to change?)
-        self.r_id = int(time.time())
+        self.r_id = self._new_id()
         _save_images(r_average)
         self.reconstructions[str(self.r_id)] = r_average
         self.most_recent = r_average
         
         # calculate the rftf
         rftf, self.rftfq = speckle.phasing.rftf(r_average,self.modulus,rftfq=True,scale=True,hot_pixels=True)
+
+    def _new_id(self):
+        return str(int(time.time()*10))

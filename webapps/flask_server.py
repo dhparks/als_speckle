@@ -1,8 +1,10 @@
-from flask import Flask, jsonify, request, redirect, send_from_directory, json
+from flask import Flask, jsonify, request, redirect, send_from_directory, json, session, escape
 from werkzeug import secure_filename
 import os
 app = Flask(__name__)
+
 import time
+from datetime import timedelta
 import speckle, numpy
 
 # if everything is present for a gpu, turn it on
@@ -15,14 +17,13 @@ try:
 except ImportError:
     use_gpu = False
     
-if use_gpu: gpu_info = speckle.gpu.init()
-else: gpu_info = None
-
-# load the backends
+# code for backends; gets re-instantiated for each session
 from speckle.interfaces import xpcs_backend
 from speckle.interfaces import imaging_backend
-backendx = xpcs_backend.backend(gpu_info=gpu_info)
-backendi = imaging_backend.backend(gpu_info=gpu_info)
+
+# concurrent user sessions are managed through a dictionary which holds
+# the backends and the time last seen
+sessions = {}
 
 # functions to handle file uploading, mostly just taken from flask online documents
 def allowed_file(name):
@@ -31,6 +32,10 @@ def allowed_file(name):
 @app.route('/upload',methods=['GET','POST'])
 def upload_file():
 
+    t    = int(time.time()*10)
+    s_id = session['s_id']
+    d_id = str(t)[-8:]
+
     if request.method == 'POST':
         project = request.files.keys()[0]
         file = request.files[project]
@@ -38,14 +43,15 @@ def upload_file():
         if file and allowed_file(file.filename):
             
             filename = secure_filename(file.filename)
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], '%s_data.fits'%project))
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], '%sdata_session%s.fits'%(project,s_id)))
             
             if project in ('cdi','fth'):
-                backend = backendi
+                backend = sessions[s_id]['backendi']
             if project in ('xpcs',):
-                backend = backendx
+                backend = sessions[s_id]['backendx']
                 backend.regions = {}
-            backend.load_data("data/%s_data.fits"%project,project)
+                
+            backend.load_data(project)
             
             success = True
 
@@ -56,26 +62,70 @@ def upload_file():
 # and send it to the correct backend
 @app.route('/')
 def serve_landing():
-    return send_from_directory(".","landing.html")
+    
+    # make a new session
+    t    = int(time.time()*10)
+    s_id = str(t)[-8:]
+    t2   = int(s_id)
+    
+    # spin up a new gpu context and new analysis backends
+    if use_gpu: gpu_info = speckle.gpu.init()
+    else: gpu_info = None
+    
+    backendx = xpcs_backend.backend(session_id=s_id,gpu_info=gpu_info)
+    backendi = imaging_backend.backend(session_id=s_id,gpu_info=gpu_info)
+
+    # store these here in python; can't be serialized into the cookie!
+    sessions[s_id]             = {}
+    sessions[s_id]['backendx'] = backendx
+    sessions[s_id]['backendi'] = backendi
+    sessions[s_id]['last']     = time.time()
+
+    # store these in the cookie?
+    session['s_id']  = s_id
+    print "session %s"%s_id
+    
+    # delete old files (currently they live for 8 hours)
+    import glob
+    life_hours = 8
+    files      = glob.glob('static/*/images/*session*.*')+glob.glob('static/*/csv/*session*.*')
+    for f in files:
+        try: session_id = int(f.split('_')[1].split('session')[1])
+        except ValueError: session_id = int(f.split('_')[1].split('session')[1].split('.')[0])
+        if t-session_id > 10*60*60*life_hours: os.remove(f)
+        
+    # delete old sessions
+    session_life_hours = 8
+    for sk in sessions.keys():
+        if t2-sessions[sk]['last'] > 60*60*life_hours:
+            del sessions[sk]
+
+    # now send the landing page
+    return send_from_directory(".","static/html/landing.html")
 
 @app.route('/xpcs')
 def serve_xpcs():
     # serve the static page for xpcs
-    backendx.regions = {}
-    return send_from_directory('.', 'xpcs.html')
+    s_id = session['s_id']
+    sessions[s_id]['backendx'].regions = {}
+    return send_from_directory('.', 'static/html/xpcs.html')
 
 @app.route('/fth')
 def serve_fth():
     # serve the static page for fth
-    return send_from_directory('.','fth.html')
+    return send_from_directory('.','static/html/fth.html')
 
 @app.route('/cdi')
 def serve_cdi():
     # serve the static page for fth
-    return send_from_directory('.','cdi.html')
+    return send_from_directory('.','static/html/cdi.html')
 
 @app.route('/xpcs/<cmd>',methods=['GET','POST'])
 def xpcs_cmd(cmd):
+    
+    s_id = session['s_id']
+    backend = sessions[s_id]['backendx']
+    sessions[s_id]['last'] = time.time()
 
     if cmd == 'remove':
         
@@ -84,24 +134,24 @@ def xpcs_cmd(cmd):
         
         # remove them one at a time
         for uid in uids:
-            try: del backendx.regions[int(uid)]
+            try: del backend.regions[int(uid)]
             except KeyError: pass
             
         # return a json response
         return jsonify(result="removed")
     
     if cmd == 'query':
-        return jsonify(dataId=backendx.data_id,nframes=backendx.frames)
+        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,nframes=backend.frames)
     
     if cmd == 'new':
         
         r = request.json
-        backendx.update_region(r['uid'],r['coords'])
-        return jsonify(result='added region with uid %s'%backendx.newest)
+        backend.update_region(r['uid'],r['coords'])
+        return jsonify(result='added region with uid %s'%backend.newest)
     
     if cmd == 'purge':
         # reset the list of regions
-        backendx.regions = {}
+        backend.regions = {}
         return jsonify(result="regions purged")
 
     if cmd == 'calculate':
@@ -112,9 +162,9 @@ def xpcs_cmd(cmd):
         # update the fit form
         try:
             form = request.json['form']
-            if form != backendx.form and form in ('decayexp','decayexpbeta'):
-                backendx.form    = form
-                backendx.refitg2 = True 
+            if form != backend.form and form in ('decayexp','decayexpbeta'):
+                backend.form    = form
+                backend.refitg2 = True 
         except KeyError: pass
         
         # update the coordinates
@@ -122,14 +172,14 @@ def xpcs_cmd(cmd):
         coords = request.json['coords']
         for uid in coords.keys():
             tc = coords[uid]
-            backendx.update_region(int(uid),[int(tc[ckey]) for ckey in ckeys])
+            backend.update_region(int(uid),[int(tc[ckey]) for ckey in ckeys])
 
         # calculate g2 and fit to form
-        backendx.calculate()
-        backendx.refitg2 = False
+        backend.calculate()
+        backend.refitg2 = False
         
         # dump a result file
-        backendx.csv_output()
+        backend.csv_output()
         
         # build and return a json response. the response is a dictionary of dictionaries
         # structured as follows:
@@ -141,43 +191,29 @@ def xpcs_cmd(cmd):
         # so the two top level keys are "functional" and "analysis"
         
         response = {}
-        response['fitting']  = {'functional':backendx.functional,'parameters':backendx.fit_keys}
+        response['fitting']  = {'functional':backend.functional,'parameters':backend.fit_keys}
         response['analysis'] = {}
         
-        for region in backendx.regions.keys():
+        for region in backend.regions.keys():
             tmp = {}
-            tmp['g2']     = backendx.regions[region].g2.tolist()
-            tmp['fit']    = backendx.regions[region].fit_vals.tolist()
-            tmp['params'] = backendx.regions[region].fit_params.tolist()
+            tmp['g2']     = backend.regions[region].g2.tolist()
+            tmp['fit']    = backend.regions[region].fit_vals.tolist()
+            tmp['params'] = backend.regions[region].fit_params.tolist()
             
             response['analysis'][region] = tmp
         
         return json.dumps(response)
 
-    if cmd == 'recalculate':
-        # recalculate g2 for all specified regions; update the plot
-        # see if the functional form has changed
-        form = request.args.get('form',0,type=str)
-        if form in ('decayexp','decayexpbeta') and form != backendx.form:
-            backendx.form = form
-            backendx.refitg2 = True
-            
-        # recalculate g2 and fit; save output
-        backendx.calculate()
-        backendx.csv_output()
-        
-        # reset the refit property
-        backendx.refitg2 = False
-        
-        # return a json response
-        return jsonify(result='dumped files with timestamp %s'%backendx.file_id,fileId=backendx.file_id,functionalString=backendx.functional)
-
 @app.route('/fth/<cmd>',methods=['GET','POST'])
 def fth_cmd(cmd):
     
+    s_id = session['s_id']
+    backend = sessions[s_id]['backendi']
+    sessions[s_id]['last'] = time.time()
+    
     if cmd == 'query':
         # return the information the frontend needs to pull images etc
-        return jsonify(dataId=backendi.data_id,zooms=backendi.zooms,hasgpu=use_gpu)
+        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,zooms=backend.zooms,hasgpu=use_gpu)
 
     if cmd == 'propagate':
 
@@ -190,31 +226,31 @@ def fth_cmd(cmd):
         for key in flt_keys: params[key] = request.args.get(key,0,type=float)
 
         # run the propagation
-        backendi.propagate(params,'fth')
-        return jsonify(result="propagation finished",propagationId=backendi.bp_id)
+        backend.propagate(params,'fth')
+        return jsonify(result="propagation finished",propagationId=backend.bp_id)
 
 @app.route('/cdi/<cmd>',methods=['GET','POST'])
 def cdi_cmd(cmd):
     
+    s_id = session['s_id']
+    backend = sessions[s_id]['backendi']
+    sessions[s_id]['last'] = time.time()
+    print "session id in cdi_cmd %s"%s_id
+    
     if cmd == 'download':
         r_id = request.args.get('reconstructionId',0,type=str)
-        backendi.save_reconstruction(r_id)
+        backend.save_reconstruction(r_id)
         return jsonify(result="saved")
 
     if cmd == 'query':
-        return jsonify(dataId=backendi.data_id,zooms=backendi.zooms,hasgpu=use_gpu)
-
-    if cmd == 'load':
-        name = request.args.get('file',0,type=str).replace('C:\\fakepath\\','')
-        size = request.args.get('resize',0,type=int)
-        blocker = request.args.get('blocker',0,type=float)
-        if name != 0: backendi.load_data('./data/%s'%name,'cdi',size,blocker)
-        if name == 0: backendi.load_data('./data/test_mag.fits')
-        return jsonify(result="data loaded",dataId=backendi.data_id,zooms=backendi.zooms)
+        print "querying"
+        print "session %s"%backend.session_id
+        print "data    %s"%backend.data_id
+        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,zooms=backend.zooms,hasgpu=use_gpu)
     
     if cmd == 'makesupport':
-        backendi.make_support(request.json)
-        return jsonify(result=str(numpy.sum(backendi.support)))
+        backend.make_support(request.json)
+        return jsonify(result=str(numpy.sum(backend.support)))
     
     if cmd == 'reconstruct':
         
@@ -225,8 +261,8 @@ def cdi_cmd(cmd):
         for key in int_keys: params[key] = request.args.get(key,0,type=int)
         for key in flt_keys: params[key] = request.args.get(key,0,type=float)
         
-        backendi.reconstruct(params)
-        return jsonify(rId=backendi.r_id,rftf=backendi.rftfq[::4].tolist())
+        backend.reconstruct(params)
+        return jsonify(rId=backend.r_id,rftf=backend.rftfq[::4].tolist())
     
     if cmd == 'propagate':
 
@@ -241,18 +277,20 @@ def cdi_cmd(cmd):
         for key in str_keys: params[key] = request.args.get(key,0,type=str)
 
         # run the propagation
-        backendi.propagate(params,'cdi')
-        return jsonify(result="propagation finished",propagationId=backendi.bp_id)
+        backend.propagate(params,'cdi')
+        return jsonify(result="propagation finished",propagationId=backend.bp_id)
         
 upload_folder = './data'
 allowed_exts  = set(['fits',])
 app.config['UPLOAD_FOLDER'] = upload_folder
 app.config['MAX_CONTENT_LENGTH'] = 1024**3
 
+# for session management
+import os
+app.secret_key = os.urandom(24)
+app.permanent_session_lifetime = timedelta(minutes=60)
+
 if __name__ == '__main__':
-    
-    
-    
-    
     app.run(debug=True)
+    #app.run(host="0.0.0.0")
     

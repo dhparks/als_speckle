@@ -19,10 +19,11 @@ class backend():
     """ Class for xpcs methods, intended for use with graphical interface.
     However, can also be used for commandline or script operations. """
     
-    def __init__(self,gpu_info=None):
+    def __init__(self,session_id,gpu_info=None):
 
         self.regions = {}
         self.form ='decayexp'
+        self.session_id = session_id
         
         if gpu_info != None:
             self.use_gpu = True
@@ -31,7 +32,7 @@ class backend():
             self.gpu = None
             self.use_gpu = False
 
-    def load_data(self,path,project):
+    def load_data(self,project):
         
         """ Get all the relevant information about the file at path. Because
         XPCS datasets can be very large (1GB+) and only a portion of the data
@@ -46,11 +47,15 @@ class backend():
         
         """
 
-        self.data_path = path
-        self.data_id   = int(time.time())
+        self.data_id = self._new_id()
+        old_name     = 'data/%sdata_session%s.fits'%(project,self.session_id)
+        new_name     = 'data/%sdata_session%s_id%s.fits'%(project,self.session_id,self.data_id)
+        os.rename(old_name,new_name)
 
+        self.data_path = new_name
+        
         # first, check the shape and get the number of frames
-        self.data_shape = io.get_fits_dimensions(path)
+        self.data_shape = io.get_fits_dimensions(new_name)
         self.frames = self.data_shape[0]
         
         if len(self.data_shape) !=  3:
@@ -70,14 +75,9 @@ class backend():
             
         # now open the first frame. resize the maximum dimension of the first
         # frame to 512 pixels before saving.
-        ff = wrapping.resize(io.openframe("data/xpcs_data.fits",frame=0),(int(self.data_shape[1]*self.rescale),int(self.data_shape[2]*self.rescale)))
+        ff = wrapping.resize(io.openframe(self.data_path,frame=0),(int(self.data_shape[1]*self.rescale),int(self.data_shape[2]*self.rescale)))
         self.first_frame = np.zeros((512,512),np.float32)
         self.first_frame[self.roffset:self.roffset+ff.shape[0],self.coffset:self.coffset+ff.shape[1]] = ff
-        
-        # remove everything in the images and csv folders before saving anything else
-        for folder in ('static/xpcs/images','static/xpcs/csv'):
-            for f in os.listdir(folder):
-                os.remove(os.path.join(folder,f))
         
         # resize, then save the color and scale permutations of first_frame.
         linr  = self.first_frame
@@ -96,7 +96,7 @@ class backend():
                 if colormap != 'L': im.putpalette(io.color_maps(colormap))
                 big_image.paste(im,(n*512,m*512))
                 
-        big_image.save("static/xpcs/images/data_%s.jpg"%self.data_id)
+        big_image.save("static/xpcs/images/datasprites_session%s_id%s.jpg"%(self.session_id,self.data_id))
 
         # reset the regions every time new data is loaded
         self.regions = {}
@@ -180,7 +180,7 @@ class backend():
                     # find the point where g2 falls below 1e-6
                     cutoff, k = 0, 0
                     while cutoff == 0 and k < len(g2)-1:
-                        if g2[k] >= 1e-6 and g2[k+1] < 1e-6: cutoff = k
+                        if g2[k] >= 1e-6 and g2[k+1] < 0: cutoff = k
                         k += 1
                         
                     g2[k-1:len(g2)] = 0
@@ -222,10 +222,10 @@ class backend():
         # iii. fit parameters of all regions
 
         # open the three files used to save analysis
-        self.file_id = int(time.time())
-        analysisf    = open('static/xpcs/csv/analysis.csv','w')
-        g2f          = open('static/xpcs/csv/g2_%s.csv'%self.file_id,'w')
-        fitsf        = open('static/xpcs/csv/fit_%s.csv'%self.file_id,'w')
+        self.file_id = self._new_id()
+        analysisf    = open('static/xpcs/csv/analysis_session%s.csv'%self.session_id,'w')
+        g2f          = open('static/xpcs/csv/g2_session%s_id%s.csv'%(self.session_id,self.file_id),'w')
+        fitsf        = open('static/xpcs/csv/fit_session%s_id%s.csv'%(self.session_id,self.file_id),'w')
     
         # form the header rows for each file
         srk   = self.regions.keys()
@@ -280,6 +280,7 @@ class backend():
         
         fitsf.close()
         analysisf.close()
+        print "done with analysis writing"
  
     def _qave(self,data):
         assert data.ndim > 1
@@ -294,24 +295,9 @@ class backend():
     
     def _tave(self,data):
         return np.mean(data,axis=0)
-
-    def new_background(self,params):
-        # resave self.first_frame as a new image for interface presentation
-        
-        scaling, color, path = params
-        
-        # rescale
-        try:
-            power   = float(scaling)
-            to_save = self.first_frame**power
-        except:
-            pass
-        if scaling == 'sqrt':   to_save = np.sqrt(self.first_frame)
-        if scaling == 'log':    to_save = np.log(self.first_frame)
-        if scaling == 'linear': to_save = self.first_frame
-        
-        # save
-        io.save(path,to_save,color_map=color,append_component=False,overwrite=True)
+    
+    def _new_id(self):
+        return str(int(time.time()*10))
         
 class region():
     """ empty class for holding various attributes of a selected region.

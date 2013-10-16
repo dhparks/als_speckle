@@ -300,7 +300,7 @@ var userFunctions = {
 		};
 
 		queue()
-		    .defer(d3.csv, '/static/imaging/csv/acutance_'+front.dataId+'_'+front.propagationId+'.csv')
+		    .defer(d3.csv, '/static/imaging/csv/acutance_session'+front.sessionId+'_id'+front.propagationId+'.csv')
 		    .await(afterLoad);
 	    };
 	    
@@ -351,7 +351,7 @@ var userFunctions = {
 			    callback(null)
 			};
 			
-			var path = 'static/imaging/images/bp_'+front.dataId+'_'+front.propagationId+'.jpg'
+			var path = 'static/imaging/images/bp_session'+front.sessionId+'_id'+front.propagationId+'.jpg'
 			front.bp_strip.src = path;
 		    }
 		);
@@ -565,6 +565,7 @@ var start = function () {
 	    .attr("height", front.slider.height + front.slider.margins.top + front.slider.margins.bottom)
 	    .attr("id","svgslider")
     };
+    
     var startAcutance = function () {
 
 	front.acutance = {}
@@ -659,6 +660,7 @@ var start = function () {
 		console.log(data);
 		
 		// pull data out of the returned json
+		front.sessionId = data.sessionId
 		front.dataId = data.dataId;
 		front.zoom = 0;
 		front.zooms = data.zooms;
@@ -668,7 +670,7 @@ var start = function () {
 		// load the zoom strip. set the background correctly.
 		front.zoom_strip = new Image()
 		front.zoom_strip.onload = function () {callback(null)}
-		var path = 'static/imaging/images/zooms_'+front.dataId+'_'+'0.8_logd.jpg';
+		var path = 'static/imaging/images/zooms_session'+front.sessionId+'_id'+front.dataId+'_'+'0.8_logd.jpg';
 		front.zoom_strip.src = path;
 	    }
 	)};

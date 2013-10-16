@@ -189,7 +189,7 @@ var userFunctions = {
 		console.log(error)
 	    };
 	    
-	    var name = "reconstruction_"+front.dataId+"_"+front.reconstruction.selectedRound+"_zipped.gz"
+	    var name = "reconstruction_id"+front.dataId+"_round"+front.reconstruction.selectedRound+"_zipped.gz"
 	    var fileId = "static/imaging/fits/"+name;
 	    
 	    var save = document.createElement('a');
@@ -201,7 +201,6 @@ var userFunctions = {
 	    event.initEvent('click', true, true);
 	    save.dispatchEvent(event);
 	    (window.URL || window.webkitURL).revokeObjectURL(save.href)
- 
 	}
 	
 	queue().defer(backend).await(frontend)
@@ -237,7 +236,7 @@ var userFunctions = {
 
 	    y.append("line")
 		.attr("class","gridlines")
-		.attr("x1",function ()  {return front.acutance.xScale(-front.acutance.zmax)})
+		.attr("x1",function ()  {return front.acutance.xScale(front.acutance.zmin)})
 		.attr("x2",function ()  {return front.acutance.xScale(front.acutance.zmax)})
 		.attr("y1",function (d) {return front.acutance.yScale(d)})
 		.attr("y2",function (d) {return front.acutance.yScale(d)})
@@ -293,9 +292,30 @@ var userFunctions = {
 		.attr("stroke-width",2);
 		
 	    var z0 = front.acutance.xScale(0)
-	    var a0 = front.acutance.yScale(front.acutance.data[front.acutance.zmax].y)	
+	    var a0 = front.acutance.yScale(front.acutance.data[Math.abs(front.acutance.zmin)].y)
 	    
-	    // draw the marker ball
+	    var x0 = 0
+	    var y0 = front.acutance.data[Math.abs(front.acutance.zmin)].y
+	    
+	    var connect = [
+		[{x:front.acutance.zmin,y:y0},
+		 {x:front.acutance.zmax, y:y0}],
+		[{x:x0,y:0},
+		 {x:x0,y:1}]
+		];
+
+	    var x = d3.select("#acutancePlot").selectAll("#connect").data(connect)
+	    
+	    // when the line is new, set its attributes
+	    x.enter().append("path")
+		.attr("fill","none")
+		.attr("stroke","red")
+		.attr("stroke-width",1)
+		.attr("id","connect")
+		.attr("stroke-dasharray","5,5")
+		.attr("d",function (d) {return front.acutance.Line(d)})
+		
+	     // draw the marker ball
 	    d3.select("#acutancePlot").append("circle")
 		.attr("cx", z0)
 		.attr("cy", a0)
@@ -313,33 +333,8 @@ var userFunctions = {
 
 	    // attach the dragging behavior
 	    d3.select("#acutanceMarker").call(drag);
-	    
-	    
-	    // draw the axis-connecting lines
-	    
-	    
-	    // update the axis connecting lines
-	    
-	    var x0 = 0
-	    var y0 = front.acutance.data[front.acutance.zmax].y
-	    
-	    var connect = [
-		[{x:-front.acutance.zmax,y:y0},
-		 {x:front.acutance.zmax, y:y0}],
-		[{x:x0,y:0},
-		 {x:x0,y:1}]
-		];
-
-	    var x = d3.select("#acutancePlot").selectAll("#connect").data(connect)
-	    
-	    // when the line is new, set its attributes
-	    x.enter().append("path")
-		.attr("fill","none")
-		.attr("stroke","red")
-		.attr("stroke-width",1)
-		.attr("id","connect")
-		.attr("stroke-dasharray","5,5")
-		.attr("d",function (d) {return front.acutance.Line(d)})
+		
+		
 	}
 		
 	var backend = function (callback) {
@@ -386,7 +381,7 @@ var userFunctions = {
 			callback(null)
 			};
 		
-		    var path = 'static/imaging/images/bp_'+front.dataId+'_'+front.acutance.propagationId+'.jpg'
+		    var path = 'static/imaging/images/bp_session'+front.sessionId+'_id'+front.acutance.propagationId+'.jpg'
 		    front.acutance.bp_strip.src = path;
 		    
 		}
@@ -416,7 +411,7 @@ var userFunctions = {
 	    };
 	    
 	    queue()
-		.defer(d3.csv, '/static/imaging/csv/acutance_'+front.dataId+'_'+front.acutance.propagationId+'.csv')
+		.defer(d3.csv, '/static/imaging/csv/acutance_session'+front.sessionId+'_id'+front.acutance.propagationId+'.csv')
 	    	.await(afterLoad);
 	};
 
@@ -490,7 +485,7 @@ var userFunctions = {
 	}
 	    
 	// set the new background
-	var path = 'static/imaging/images/r_'+front.dataId+'_'+who+'_'+newScale+'.png'
+	var path = 'static/imaging/images/r_session'+front.sessionId+'_id'+who+'_'+newScale+'.png'
 	d3.select("#reconstructionimage").attr("xlink:href",path);
 	
 	front.reconstruction.selectedRound = who;
@@ -727,7 +722,8 @@ var userFunctions = {
 		
 		// update the images. when they get pulled from the server,
 		// update and launch the next round.
-		var path = 'static/imaging/images/r_'+front.dataId+'_'+front.reconstruction.rId+'_linr.png'
+		var path = 'static/imaging/images/r_session'+front.sessionId+'_id'+front.reconstruction.rId+'_linr.png'
+		console.log(path);
 		var img1 = new Image(), img2 = new Image();
 		var loaded1 = false; loaded2 = false;
 		
@@ -834,16 +830,18 @@ var starts = {
 		console.log(data);
 		
 		// pull data out of the returned json
-		front.havegpu = data.hasgpu;
-		front.dataId = data.dataId;
-		front.hologram.zoom = 0;
-		front.hologram.zooms = data.zooms;
+		front.havegpu   = data.hasgpu;
+		front.sessionId = data.sessionId
+		front.dataId    = data.dataId;
+		
+		front.hologram.zoom    = 0;
+		front.hologram.zooms   = data.zooms;
 		front.hologram.hasData = true;
 
 		// load the zoom strip. set the background correctly.
 		front.hologram.zoom_strip = new Image()
 		front.hologram.zoom_strip.onload = function () {callback(null)}
-		var path = 'static/imaging/images/zooms_'+front.dataId+'_'+'0.8_logd.jpg';
+		var path = 'static/imaging/images/zooms_session'+front.sessionId+'_id'+front.dataId+'_0.8_logd.jpg';
 		front.hologram.zoom_strip.src = path;
 		
 		console.log(path)
@@ -966,7 +964,6 @@ var starts = {
 	    
     },
     
-    
     controls: function (forWhat) {
 	
 	var o = "onkeyup", f = "userFunctions.validateField(this.id)"
@@ -1006,7 +1003,6 @@ var starts = {
 	}
 	
     },
-    
     
     buttons: function (spec,where,what) {
 	
@@ -1155,6 +1151,7 @@ var starts = {
     // query the backend, then turn on div elements
     
     start: function() {
+	console.log("in cdi.js");
 	queue().defer(starts.backend).await(starts.frontend)
     }
     
