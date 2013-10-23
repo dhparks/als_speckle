@@ -533,3 +533,33 @@ def build_kernel_file(c,d,fileName):
     program = build_kernel(c,d,kernelStr)
 
     return program
+
+def valid(gpu_info):
+    """ Attempt to ensure that the current gpu info is correctly formed by
+    checking the types of the tuple elements. This is not robust
+    as the context and queue may have been corrupted elsewhere. To check
+    the integrity of the GPU context, use gpu.challenge.
+    
+    
+    Argument: gpu_info - that which is returned by gpu.init()
+    Returns: a boolean True if gpu_info conforms; False otherwise
+    """
+    import pyopencl
+    
+    assert isinstance(gpu_info,tuple) and len(gpu_info) == 4, "gpu info malformed %s"%gpu_info
+    t1 = isinstance(gpu_info[0],pyopencl._cl.Context)
+    t2 = isinstance(gpu_info[1],pyopencl._cl.Device)
+    t3 = isinstance(gpu_info[2],pyopencl._cl.CommandQueue)
+    t4 = isinstance(gpu_info[3],pyopencl._cl.Platform)
+    return (t1 and t2 and t3 and t4)
+    
+def challenge(gpu_info):
+    
+    # try to run an easy kernel in order to generate an error
+    c ,d, q, p = gpu_info
+    kp   = string.join(__file__.split('/')[:-1],'/')+'/kernels/'
+    abs2 = gpu.build_kernel_file(c, d, kp+'common_abs2_f2_f2.cl')
+
+    test_data = np.arange(128).astype(np.complex64)
+    gpu_data  = cla.to_device(queue, c)
+    abs2.execute(queue,(int(L),),gpu_data.data,gpu_data.data)
