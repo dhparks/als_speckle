@@ -326,7 +326,7 @@ def subtract_dark(data_in, dark, match_region=20, return_type='data'):
     
     return data
 
-def remove_hot_pixels(data_in, iterations=1, threshold=2):
+def remove_hot_pixels(data_in, iterations=1, threshold=2, gpu_info=None):
     """Uses numpy.medfilt to define hot pixels as those which exceed a certain
     multiple of the local median and remove them by replacing with the median of
     the nearest neighbors.
@@ -339,6 +339,8 @@ def remove_hot_pixels(data_in, iterations=1, threshold=2):
         threshold - threshold to specify when pixels are hot. When a pixel has
             value greater than threshold*median, it is replaced by the median.
             Default is 2.
+        gpu_info - if supplied, the algorithm will run on the gpu. this provides
+            a substantial speed boost.
 
     Returns:
         data - The data wih the hot pixels that meet the threshold removed.
@@ -358,12 +360,65 @@ def remove_hot_pixels(data_in, iterations=1, threshold=2):
     if data.ndim == 2:
         was_2d = True
         data.shape = (1,data.shape[0],data.shape[1])
+        
+    if gpu_info == None:
+        from scipy.signal import medfilt as mf
+        
+    # set up gpu stuff
+    if gpu_info != None:
+        
+        failed = False
+        
+        if not gpu.valid(gpu_info):
+            print "malformed gpu info in conditioning.remove_hot_pixels, reverting to cpu"
+            failed = True
 
+        # load libraries
+        try:
+            import gpu
+            import string
+            import pyopencl as cl
+            import pyopencl.array as cla
+            context, device, queue, platform = gpu_info
+
+        except ImportError:
+            print "couldnt load gpu libraries, falling back to cpu"
+            failed = True
+            
+        # build kernels
+        try:
+            kp = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/'
+            gpu_median3 = gpu.build_kernel_file(context, device, kp+'medianfilter3.cl') # for signal
+            gpu_median5 = gpu.build_kernel_file(context, device, kp+'medianfilter5.cl') # for dark
+            gpu_hotpix  = gpu.build_kernel_file(context, device, kp+'remove_hot_pixels.cl')
+        except:
+            print "error building kernels"
+            failed = True
+            
+        if failed:
+            remove_hot_pixels(data_in)
+        
+        # allocate memory
+        gpu_data_hot  = cla.empty(queue, data[0].shape, numpy.float32)
+        gpu_data_cold = cla.empty(queue, data[0].shape, numpy.float32)
+
+    # for each frame in data, run the hot pixel remover the number of times
+    # specified by iterations
     for z,frame in enumerate(data):
+        
+        if gpu_info != None: gpu_data_hot.set(frame.astype(numpy.float32))
+
         for m in range(iterations):
-            # the corners of a medfilt()'ered array are zero, so offset a little.
-            median = medfilt(frame)+.1
-            data[z] = numpy.where(frame/median > threshold, median, frame)
+            
+            if gpu_info != None:
+                gpu_median3.execute(queue,frame.shape,  gpu_data_hot.data, gpu_data_cold.data)
+                gpu_hotpix.execute(queue, (frame.size,),gpu_data_hot.data, gpu_data_cold.data,numpy.float32(threshold))
+            else:
+                median = medfilt(frame)+.1
+                frame  = numpy.where(frame/median > threshold, median, frame)
+ 
+        if gpu_info != None: frame = gpu_data_hot.get()
+        data[z] = frame
 
     if was_2d: data = data[0]
     return data

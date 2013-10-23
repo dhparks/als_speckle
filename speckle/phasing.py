@@ -150,7 +150,7 @@ class phasing(common):
         iterations = int(iterations)
         
         # build the iteration list
-        assert isinstance(order,(type(None),list,tuple)), "spec must be iterable"
+        assert isinstance(order,(type(None),list,tuple)), "algorithm order must be iterable"
         if order==None: order = (('hio',99),('er',1))
         order_list = []
         for entry in order:
@@ -158,12 +158,13 @@ class phasing(common):
                 t = str(entry[0])
                 i = int(entry[1])
             except:
-                print "entry %s in iterate(spec) is improperly formatted"
+                print "entry %s in iteration order is improperly formatted"
                 exit()
             for j in range(i):
                 order_list.append(t)
         k = len(order_list)
                 
+        # run the iterations
         for iteration in range(iterations):
 
             self._iteration(order_list[iteration%k],iteration=iteration,beta=beta)
@@ -190,7 +191,7 @@ class phasing(common):
         types = (type(None),np.ndarray)
         assert isinstance(modulus,types), "modulus must be ndarray if supplied"
         assert isinstance(support,types), "support must be ndarray if supplied"
-        assert isinstance(ipsf,types),     "psf must be ndarray if supplied"
+        assert isinstance(ipsf,types),    "psf must be ndarray if supplied"
         
         ### first, do all the loading that has no dependencies
         
@@ -214,10 +215,10 @@ class phasing(common):
                 self.modulus = self._allocate(self.shape,np.float32,'modulus')
                 
                 # allocate NxN complex buffers for iterations
-                names = ('psi_in','psi_out','psi_fourier','fourier_div','fourier_tmp')
+                names = ('psi_in','psi_out','psi_fourier','fourier_div','fourier_tmp','challenge')
                 for n in names: exec("self.%s = self._allocate(self.shape,np.complex64,name='%s')"%(n,n))
                 
-            # make the fft plan
+            # make the fft plan. because this is remade every time, don't expect it to go stale.
             if use_gpu:
                 from pyfft.cl import Plan
                 self.fftplan = Plan((self.N, self.N), queue=self.queue)
