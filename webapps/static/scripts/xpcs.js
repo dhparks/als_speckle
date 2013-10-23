@@ -245,8 +245,12 @@ var userFunctions = {
 	    cmax:(front.sizes.x+front.sizes.r)/2}
 	
 	// identifiers
-	var t = new Date().getTime()
-	r.regionId = t
+	var x = new Date().getTime()
+	x = x.toString()
+	t = "r"+x.slice(x.length-7,x.length-2);
+	console.log(t)
+	console.log(typeof t)
+	r.regionId = t;
 	r.hue      = newHue()
 	r.color    = d3.hsl(r.hue*360,1,0.5).toString();
 	r.selected = false;
@@ -595,7 +599,7 @@ var userFunctions = {
 	    // get the fit parameters
 	    var fitmap = thisRegion.fitParamsMap;
 	    var fitval = thisRegion.fitParamsVals;
-	    var lines = [thisRegion.functional]
+	    var lines = ["id: "+thisRegion.regionId,thisRegion.functional]
 	    for (var key in fitmap) {lines.push(fitmap[key]+": "+fitval[parseInt(key)].toPrecision(4))}
 	    
             // remove the old box, then build the new box
@@ -858,7 +862,8 @@ var start = function () {
 	$.getJSON(
             'xpcs/query', {},
             function(returned) {
-                front.intensity.dataId  = returned.dataId;
+                front.sessionId = returned.sessionId;
+		front.intensity.dataId  = returned.dataId;
 		front.plots.nframes = returned.nframes;
 		got += 1;
 		if (got === 2) { callback(null) };
@@ -875,7 +880,8 @@ var start = function () {
 	    userFunctions.initGraph();
 	}
 	
-	var path = '/static/xpcs/images/data_'+front.intensity.dataId+'.jpg';
+	$("#analysislink").attr("href","static/xpcs/csv/analysis_session"+front.sessionId+".csv")
+	var path = '/static/xpcs/images/datasprites_session'+front.sessionId+'_id'+front.intensity.dataId+'.jpg';
         img.src  = path
     }
     

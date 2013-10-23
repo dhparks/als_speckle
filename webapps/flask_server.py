@@ -24,6 +24,70 @@ from speckle.interfaces import imaging_backend
 # concurrent user sessions are managed through a dictionary which holds
 # the backends and the time last seen
 sessions = {}
+def check_session():
+    # see if there is currently a session attached to the incoming request.
+    # if not, assign one. the way to check for a session is to try to get a
+    # key; an error indicates no session
+    
+    try:
+        s_id = session['s_id']
+    
+    except KeyError:
+        
+        # make a new session
+        t    = int(time.time()*10)
+        s_id = str(t)[-8:]
+        t2   = int(s_id)
+        
+        # spin up a new gpu context and new analysis backends
+        if use_gpu: gpu_info = speckle.gpu.init()
+        else: gpu_info = None
+        
+        backendx = xpcs_backend.backend(session_id=s_id,gpu_info=gpu_info)
+        backendi = imaging_backend.backend(session_id=s_id,gpu_info=gpu_info)
+    
+        # store these here in python; can't be serialized into the cookie!
+        sessions[s_id]             = {}
+        sessions[s_id]['backendx'] = backendx
+        sessions[s_id]['backendi'] = backendi
+        sessions[s_id]['last']     = time.time()
+    
+        # store these in the cookie?
+        session.permanant = True
+        session['s_id']   = s_id
+        print "session %s"%s_id
+        
+        # delete old files (currently they live for 8 hours)
+        import glob
+        files  = glob.glob('static/*/images/*session*.*')
+        files += glob.glob('static/*/csv/*session*.*')
+        files += glob.glob('data/*session*.*')
+        kept, deleted = 0, 0
+        kept_sessions = []
+        del_sessions  = []
+        for f in files:
+            
+            try: session_id = int(f.split('_')[1].split('session')[1])
+            except ValueError: session_id = int(f.split('_')[1].split('session')[1].split('.')[0])
+            if t2-session_id > 10*60*60*session_hours:
+                os.remove(f)
+                deleted += 1
+                del_sessions.append(session_id)
+            else: 
+                kept += 1
+                kept_sessions.append(session_id)
+                
+        del_sessions  = set(del_sessions)
+        kept_sessions = set(kept_sessions)
+        print "kept %s files from %s sessions"%(kept,len(kept_sessions))
+        print "deleted %s files from %s sessions"%(deleted,len(del_sessions))
+            
+        # delete old sessions
+        tx = time.time()
+        for sk in sessions.keys():
+            if tx-sessions[sk]['last'] > 60*60*session_hours:
+                del sessions[sk]
+
 
 # functions to handle file uploading, mostly just taken from flask online documents
 def allowed_file(name):
@@ -32,8 +96,13 @@ def allowed_file(name):
 @app.route('/upload',methods=['GET','POST'])
 def upload_file():
 
-    t    = int(time.time()*10)
+    # get (or make) the session id
+    check_session()
     s_id = session['s_id']
+    print session
+
+    # make an id for the data
+    t    = int(time.time()*10)
     d_id = str(t)[-8:]
 
     if request.method == 'POST':
@@ -52,54 +121,12 @@ def upload_file():
                 backend.regions = {}
                 
             backend.load_data(project)
-            
-            success = True
-
-        if success:
             return redirect('/'+project)
 
 # the rest of the decorators are switchboard functions which take a request
 # and send it to the correct backend
 @app.route('/')
 def serve_landing():
-    
-    # make a new session
-    t    = int(time.time()*10)
-    s_id = str(t)[-8:]
-    t2   = int(s_id)
-    
-    # spin up a new gpu context and new analysis backends
-    if use_gpu: gpu_info = speckle.gpu.init()
-    else: gpu_info = None
-    
-    backendx = xpcs_backend.backend(session_id=s_id,gpu_info=gpu_info)
-    backendi = imaging_backend.backend(session_id=s_id,gpu_info=gpu_info)
-
-    # store these here in python; can't be serialized into the cookie!
-    sessions[s_id]             = {}
-    sessions[s_id]['backendx'] = backendx
-    sessions[s_id]['backendi'] = backendi
-    sessions[s_id]['last']     = time.time()
-
-    # store these in the cookie?
-    session['s_id']  = s_id
-    print "session %s"%s_id
-    
-    # delete old files (currently they live for 8 hours)
-    import glob
-    life_hours = 8
-    files      = glob.glob('static/*/images/*session*.*')+glob.glob('static/*/csv/*session*.*')
-    for f in files:
-        try: session_id = int(f.split('_')[1].split('session')[1])
-        except ValueError: session_id = int(f.split('_')[1].split('session')[1].split('.')[0])
-        if t-session_id > 10*60*60*life_hours: os.remove(f)
-        
-    # delete old sessions
-    session_life_hours = 8
-    for sk in sessions.keys():
-        if t2-sessions[sk]['last'] > 60*60*life_hours:
-            del sessions[sk]
-
     # now send the landing page
     return send_from_directory(".","static/html/landing.html")
 
@@ -120,21 +147,35 @@ def serve_cdi():
     # serve the static page for fth
     return send_from_directory('.','static/html/cdi.html')
 
+@app.route('/expired')
+def serve_expired():
+    return send_from_directory('.','static/html/expired.html')
+
+# error handlers
+#@app.errorhandler(302)
+#def not_available(e):
+#    redirect('/expired')
+
 @app.route('/xpcs/<cmd>',methods=['GET','POST'])
 def xpcs_cmd(cmd):
     
-    s_id = session['s_id']
-    backend = sessions[s_id]['backendx']
-    sessions[s_id]['last'] = time.time()
+    # update the session with the current time
+    try:
+        s_id = session['s_id']
+        backend = sessions[s_id]['backendx']
+        sessions[s_id]['last'] = time.time()
+    except KeyError:
+        return redirect('/expired')
 
     if cmd == 'remove':
         
         # json is just a list of numbers
         uids = request.json
+        print uids
         
         # remove them one at a time
         for uid in uids:
-            try: del backend.regions[int(uid)]
+            try: del backend.regions[str(uid)]
             except KeyError: pass
             
         # return a json response
@@ -144,7 +185,6 @@ def xpcs_cmd(cmd):
         return jsonify(sessionId=backend.session_id,dataId=backend.data_id,nframes=backend.frames)
     
     if cmd == 'new':
-        
         r = request.json
         backend.update_region(r['uid'],r['coords'])
         return jsonify(result='added region with uid %s'%backend.newest)
@@ -172,7 +212,7 @@ def xpcs_cmd(cmd):
         coords = request.json['coords']
         for uid in coords.keys():
             tc = coords[uid]
-            backend.update_region(int(uid),[int(tc[ckey]) for ckey in ckeys])
+            backend.update_region(str(uid),[int(tc[ckey]) for ckey in ckeys])
 
         # calculate g2 and fit to form
         backend.calculate()
@@ -207,9 +247,12 @@ def xpcs_cmd(cmd):
 @app.route('/fth/<cmd>',methods=['GET','POST'])
 def fth_cmd(cmd):
     
-    s_id = session['s_id']
-    backend = sessions[s_id]['backendi']
-    sessions[s_id]['last'] = time.time()
+    try:
+        s_id = session['s_id']
+        backend = sessions[s_id]['backendi']
+        sessions[s_id]['last'] = time.time()
+    except KeyError:
+        return redirect('/expired')
     
     if cmd == 'query':
         # return the information the frontend needs to pull images etc
@@ -232,10 +275,12 @@ def fth_cmd(cmd):
 @app.route('/cdi/<cmd>',methods=['GET','POST'])
 def cdi_cmd(cmd):
     
-    s_id = session['s_id']
-    backend = sessions[s_id]['backendi']
-    sessions[s_id]['last'] = time.time()
-    print "session id in cdi_cmd %s"%s_id
+    try:
+        s_id = session['s_id']
+        backend = sessions[s_id]['backendi']
+        sessions[s_id]['last'] = time.time()
+    except KeyError:
+        return redirect('/expired')
     
     if cmd == 'download':
         r_id = request.args.get('reconstructionId',0,type=str)
@@ -284,13 +329,14 @@ upload_folder = './data'
 allowed_exts  = set(['fits',])
 app.config['UPLOAD_FOLDER'] = upload_folder
 app.config['MAX_CONTENT_LENGTH'] = 1024**3
+session_hours = 8
 
 # for session management
 import os
 app.secret_key = os.urandom(24)
-app.permanent_session_lifetime = timedelta(minutes=60)
+app.permanent_session_lifetime = timedelta(hours=8)
 
 if __name__ == '__main__':
-    app.run(debug=True)
     #app.run(host="0.0.0.0")
+    app.run(debug=True)
     

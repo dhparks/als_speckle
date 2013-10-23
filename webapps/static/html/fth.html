@@ -1,0 +1,36 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>
+
+<!-- d3 and jQuery, external libraries -->
+<script src="static/scripts/d3.v3.min.js"></script>
+<script src="static/scripts/queue.min.js"></script>
+<script src="static/scripts/jquery-2.0.3.min.js"></script>
+
+<!-- js code particular to this interface, using the above... 
+<script src="/static/scripts/xpcs_button_actions.js" charset="utf-8"></script> -->
+
+<title>FTH-delta Rapid Analysis Tool</title>
+<link rel="stylesheet" href="static/css/fth.css" />
+
+</head>
+<body>
+    
+    <div id="container">
+	<div id="controls">
+	    <input type="text" id="zmin" name="zmin" size=9 placeholder="Zmin (um)" onkeyup="userFunctions.validateForm(this.id)">
+	    <input type="text" id="zmax" name="zmax" size=9 placeholder="Zmax (um)" onkeyup="userFunctions.validateForm(this.id)">
+	    <input type="text" id="energy" name="energy" size=9 placeholder="Energy (eV)" onkeyup="userFunctions.validateForm(this.id)">
+	    <input type="text" id="pitch" name="pitch" size=7 placeholder="Pitch (nm)" onkeyup="userFunctions.validateForm(this.id)">
+	    Apodize? <input type = "checkbox", id='apodize', checked="checked">
+	</div>
+        <div id="hologram" class="topdiv"></div>
+        <div id="aperture" class="topdiv"></div>
+	<div id="acutance"></div>
+	<div id="slider"></div>
+    </div>
+        
+</div>
+
+
+<script type="text/javascript" src="static/scripts/fth.js"></script>
