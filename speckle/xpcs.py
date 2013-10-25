@@ -234,7 +234,7 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),gpu_info=None,silent=Tru
 
     import time
     if not silent: print "g2 numerator"
-    numerator = _g2_numerator(data,batch_size=bs,gpu_info=gpu_info)[tauvals]
+    numerator = _g2_numerator(data,batch_size=64,gpu_info=gpu_info)[tauvals]
 
     # normalize the numerator. depending on the norm method different values are calculated.
     if not silent: print "g2 normalizing"
