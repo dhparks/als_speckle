@@ -151,11 +151,6 @@ def serve_cdi():
 def serve_expired():
     return send_from_directory('.','static/html/expired.html')
 
-# error handlers
-#@app.errorhandler(302)
-#def not_available(e):
-#    redirect('/expired')
-
 @app.route('/xpcs/<cmd>',methods=['GET','POST'])
 def xpcs_cmd(cmd):
     

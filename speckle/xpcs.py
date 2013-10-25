@@ -143,7 +143,7 @@ def g2_symm_norm(img, numtau, qAvg = ("circle", 10), fft=False):
     print("")
     return result
 
-def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None,silent=True):
+def g2(data,numtau=None,norm="plain",qAvg=("circle",10),gpu_info=None,silent=True):
     
     """ Calculate correlation function g_2. A variety of normalizations can be
     selected through the optional kwarg "norm".
@@ -163,9 +163,6 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None,s
             "gaussian" - size is the FWHM of the gaussian, in pixels
             Internally, this average is calculated as a convolution of data with
             the kernel specified here.
-        fft - boolean specifying whether to calculate g2 through FFT methods or
-            shift-multiply methods. If True, use FFT. Generally, FFT is faster,
-            but for very large arrays a memory error might be created.
         gpu_info - for fast calculation of the g2 function, a gpu context
             can be passed to this function. This requires the gpu context
             to be created outside of this function's invocation, typically
@@ -234,9 +231,8 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),fft=True,gpu_info=None,s
     # if the dataset is large, computing the fft in a single pass may be
     # inefficient as it no longer fits in memory. for this reason, the data
     # is broken into 8x8 pixel tiles and correlated in batches.
-    if fft: bs = 64
-    if not fft: bs = 128
-    
+
+    import time
     if not silent: print "g2 numerator"
     numerator = _g2_numerator(data,batch_size=bs,gpu_info=gpu_info)[tauvals]
 
