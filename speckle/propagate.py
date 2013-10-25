@@ -93,10 +93,16 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         pixel_pitch -- the size (in meters) of each pixel in data.
     
     Optional input:
-        subarraysize -- because the number of files can be large a subarray
-            cocentered with data can be specified.
+        subregion -- because the number of files can be large, a subregion can
+            be specified. If a single number is given, a the subregion will be
+            a square with sides of this length co-centered with data.
+            If a 2-tuple, the square becomes a rectangle (rows, columns).
+            If a 4-tuple, the subregion is [subregion[0]:subregion[1],
+            subregion[2]:subregion[3]], so the subregion is NOT cocentered with
+            the data.
         silent -- if False, report what distance is currently being calculated.
-        gpu_info -- what gets returned by speckle.gpu.init().
+        gpu_info -- what gets returned by speckle.gpu.init(). If None, the
+            calculations are performed on the CPU.
         im_convert -- if True, will convert each of the propagated frames
             to hsv color space and then into PIL objects. 
     
@@ -104,9 +110,10 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
     
         if im_convert == False:
             a complex-valued 3d ndarray with shape:
-            (len(distances),subarraysize,subarraysize)
+            (len(distances),(rows),(cols)); (rows) and (cols) varies with
+                the subregion argument.
         
-            If the subarraysize argument wasn't used the output shape is:
+            If the subregion argument wasn't used the output shape is:
             (len(distances),len(data),len(data))
             
         if im_convert == True:
@@ -123,178 +130,171 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
     iterable_types = (tuple,list,np.ndarray)
     coord_types = (int,float,np.int32,np.float32,np.float64)
     
-    # check types and defaults
-    assert isinstance(data,np.ndarray),            "data must be an array"
-    data = data.astype(np.complex64)
-    assert data.ndim == 2,                         "supplied wavefront data must be 2-dimensional"
-    assert data.shape[0] == data.shape[1],         "data must be square"
-    assert isinstance(distances, iterable_types), "distances must be an iterable set (list or ndarray) of distances given in meters" 
-
-    N = data.shape[0]
-    pixel_pitch          = np.float32(pixel_pitch)
-    energy_or_wavelength = np.float32(energy_or_wavelength)
-    numfr = len(distances)
-
-    # do checking on subregion specification
-    # subregion can be any of the following:
-    # 1. an integer, in which case the subregion is a square cocentered with data
-    # 2. a 2 element iterable, in which case the subregion is a rectangle cocentered with data
-    # 3. a 4 element iterable, in which case the subregion is a rectangle specified by (rmin, rmax, cmin, cmax)
-    if subregion == None: subregion = N
-    assert isinstance(subregion,coord_types) or isinstance(subregion,iterable_types), "subregion type must be integer or iterable"
-    if isinstance(subregion,(int,np.int32)):
-        sr = (N/2-subregion/2,N/2+subregion/2,N/2-subregion/2,N/2+subregion/2)
-    if isinstance(subregion,(float,np.float32,np.float64)):
-        subregion = int(subregion)
-        sr = (N/2-subregion/2,N/2+subregion/2,N/2-subregion/2,N/2+subregion/2)
-    if isinstance(subregion, iterable_types):
-        assert len(subregion) in (1,2,4), "subregion length must be 2 or 4, is %s"%len(subregion)
-        for x in subregion:
-            assert isinstance(x,coord_types), ""
-            assert x <= data.shape[0] and x >= 0, "coords in subregion must be between 0 and size of data"
-        if len(subregion) == 1:
-            h = int(subregion[0])/2
-            w = int(subregion[0])/2
-            sr = (N/2-h,N/2+h,N/2-w,N/2+w)
-        if len(subregion) == 2:
-            h = int(subregion[0])/2
-            w = int(subregion[1])/2
-            sr = (N/2-h,N/2+h,N/2-w,N/2+w)
-        if len(subregion) == 4:
-            sr = (int(subregion[0]),int(subregion[1]),int(subregion[2]),int(subregion[3]))
+    def _check_types():
+        
+        # check types and defaults
+        assert isinstance(data,np.ndarray),           "data must be an array"
+        assert data.ndim == 2,                        "supplied wavefront data must be 2-dimensional"
+        assert data.shape[0] == data.shape[1],        "data must be square"
+        assert isinstance(distances, iterable_types), "distances must be an iterable set (list or ndarray) of distances given in meters"
+        
+        # convert to correct datatypes
+        d  = data.astype(np.complex64)
+        N  = data.shape[0]
+        pp = np.float32(pixel_pitch)
+        ew = np.float32(energy_or_wavelength)
+        nf = len(distances)
+        
+        return d, N, pp, ew, nf
+        
+    def _check_subregion():
+        # do checking on subregion specification
+        # subregion can be any of the following:
+        # 1. an integer, in which case the subregion is a square cocentered with data
+        # 2. a 2 element iterable, in which case the subregion is a rectangle cocentered with data
+        # 3. a 4 element iterable, in which case the subregion is a rectangle specified by (rmin, rmax, cmin, cmax)
+        
+        sr = subregion
+        
+        if sr == None: sr = N
+        assert isinstance(sr,coord_types) or isinstance(sr,iterable_types), "sr type must be integer or iterable"
+        
+        # return a box with L = sr co-centered with supplied data
+        if isinstance(sr, coord_types):
+            x = int(sr)/2
+            return (N/2-x,N/2+x,N/2-x,N/2+x)
+        
+        # if we're at this point, sr must be iterable. check its spec then continue
+        assert len(sr) in (1,2,4), "sr length must be 1, 2, or 4; is %s"%len(sr)
+        for x in sr: assert isinstance(x,coord_types) and x < data.shape[0] and x >= 0, "malformed sr %s"%sr
             
-    rows = int(sr[1]-sr[0])
-    cols = int(sr[3]-sr[2])
+        if len(sr) == 1:
+            x  = int(sr[0])/2
+            h1 = N/2-x
+            h2 = N/2+x
+            w1 = N/2-x
+            w2 = N/2+x
 
-    # convert energy_or_wavelength to wavelength.  If < 1 assume it's a wavelength.
-    if    energy_or_wavelength < 1: wavelength = energy_or_wavelength
-    else: wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
-    
-    # precompute the fourier signals
-    r = np.fft.fftshift((shape.radial((N,N)))**2)
-    f = np.fft.fft2(data)
-    t = np.float32(np.pi*wavelength/((pixel_pitch*N)**2))
+        if len(sr) == 2:
+            x, y = int(sr[0])/2, int(sr[1])/2
+            h1 = N/2-x
+            h2 = N/2+x
+            w1 = N/2-y
+            w2 = N/2+y
+            
+        if len(sr) == 4:
+            s1, s2, s3, s4 = int(sr[0]), int(sr[1]), int(sr[2]), int(sr[3])
+            h1 = min([s1,s2])
+            h2 = max([s1,s2])
+            w1 = min([s3,s4])
+            w2 = max([s3,s4])
+            
+        return (h1,h2,w1,w2), h2-h1, w2-w1  
 
-    ### first, the gpu codepath
-    use_gpu = True
-    if gpu_info == None:
-        use_gpu = False
-    if use_gpu:
-        # if a gpu is requested, see if one is available (almost certainly yes since
-        # the init information is being passed)
+    def _prep_gpu():
+
+        # try to import the necessary libraries
+        fallback = False
         try:
             import gpu
             import string
             import pyopencl as cl
             import pyopencl.array as cla
             from pyfft.cl import Plan
-            use_gpu = True
         except ImportError:
-            use_gpu = False
+            fallback = True
             
-    if use_gpu:
-        
-        context,device,queue,platform = gpu_info
-
-        # make fft plan
-        fftplan = Plan((N,N),queue=queue)
-        
-        # build kernels
-        kp = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/' # kernel path
+        # check gpu_info
+        try:
+            assert gpu.valid, "gpu_info in propagate_distances improperly specified"
+            context, device, queue, platform = gpu_info
+        except AssertionError:
+            fallback = True
+            
+        if fallback:
+            propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,
+                                subregion=subregion,silent=silent,
+                                band_limit=band_limit,gpu_info=None,
+                                im_convert=im_convert)
+    
+        # if everything is OK, allocate memory and build kernels
+        kp             = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/'
         phase_factor   = gpu.build_kernel_file(context, device, kp+'propagate_phase_factor.cl')
         copy_to_buffer = gpu.build_kernel_file(context, device, kp+'propagate_copy_to_save_buffer.cl')
         multiply       = gpu.build_kernel_file(context, device, kp+'common_multiply_f2_f2.cl')
+        fftplan        = Plan((N,N),queue=queue)
 
         # put the signals onto the gpu along with buffers for the various operations
-        rarray  = cla.to_device(queue,r.astype(np.float32))      # r array
-        fourier = cla.to_device(queue,data.astype(np.complex64)) # fourier data
-        phase   = cla.empty(queue,(N,N),np.complex64)            # buffer for phase factor and phase-fourier product
-        back    = cla.empty(queue,(N,N),np.complex64)            # buffer for propagated wavefield
-        store   = cla.empty(queue,(numfr,rows,cols),np.complex64) # allocate propagation buffer
+        rarray  = cla.to_device(queue,r.astype(np.float32))       # r array
+        fourier = cla.to_device(queue,data.astype(np.complex64))  # fourier data
+        phase   = cla.empty(queue,(N,N),np.complex64)             # buffer for phase factor and phase-fourier product
+        back    = cla.empty(queue,(N,N),np.complex64)             # buffer for propagated wavefield
+        store   = cla.empty(queue,(nf,rows,cols),np.complex64) # allocate propagation buffer
         
-        # precompute the fourier transform of data
+        # precompute the fourier transform of data. 
         fftplan.execute(fourier.data,wait_for_finish=True)
-        
-        # now compute the propagations
-        N = np.int32(N)
-        sr0 = np.int32(sr[0])
-        sr2 = np.int32(sr[2])
 
-        for n,z in enumerate(distances):
+        return phase_factor, copy_to_buffer, multiply, fftplan, rarray, fourier, phase, back, store
+        
+    def _prep_cpu():
+        
+        try:
+            store = np.zeros((nf,rows,cols),np.complex64)
+        except MemoryError:
+            print "save buffer was too large. either use a smaller set of distances or a smaller subregion"
             
-            n = np.int32(n)
+        f = np.fft.fft2(data)
+        return f, store, complex(0,1)
+    
+    def _z_calc(n,z):
+        
+        if gpu_info == None:
+            phase_z  = cpu_phase(z)
+            back     = np.fft.ifft2(f*phase_z)
+            store[n] = back[sr[0]:sr[1],sr[2]:sr[3]]
             
-            # compute on gpu and transfer to buffer.
-            if not silent:
-                sys.stdout.write("\rpropagating: %1.2e m (%02d/%02d)" % (z, n+1, numfr))
-                sys.stdout.flush()
+        if gpu_info != None:
             
             # make the phase factor; multiply the fourier rep; inverse transform
-            phase_factor.execute(queue,(int(N*N),),rarray.data,np.float32(t*z), phase.data)
-            multiply.execute(queue,(int(N*N),),phase.data,fourier.data,phase.data) 
-            fftplan.execute(data_in=phase.data,data_out=back.data,inverse=True,wait_for_finish=True)
+            k_pf.execute(gpu_info[2],(int(N*N),),gpu_r.data,np.float32(t*z), gpu_phase.data)
+            k_m.execute(gpu_info[2], (int(N*N),),gpu_f.data,gpu_phase.data,gpu_phase.data) 
+            fftplan.execute(data_in=gpu_phase.data,data_out=gpu_back.data,inverse=True,wait_for_finish=True)
 
             # slice the subregion from the back-propagation and save in store
-            copy_to_buffer.execute(queue,(rows,cols), store.data, back.data, n, N, sr0, sr2)
-            
-        if not silent:
-            print ""
+            k_ctb.execute(gpu_info[2],(rows,cols), gpu_store.data, gpu_back.data, np.int32(n), np.int32(N), np.int32(sr[0]), np.int32(sr[2]))
+        
+    def _im_convert():
 
-        if im_convert:
+        if gpu_info != None:
             
+            context, device, queue, platform = gpu_info
+            import gpu, string
+            import pyopencl.array as cla
+                
             # build the additional kernels
+            kp          = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/'
             hsv_convert = gpu.build_kernel_file(context, device, kp+'complex_to_rgb.cl')
             cl_abs      = gpu.build_kernel_file(context, device, kp+'common_abs_f2_f.cl')
             
             # calculate abs of entire buffer. this is so we can get the maxval
-            abs_store = cla.empty(queue,store.shape,np.float32)
-            cl_abs.execute(queue,(store.size,),store.data,abs_store.data)
+            abs_store = cla.empty(queue,gpu_store.shape,np.float32)
+            cl_abs.execute(queue,(gpu_store.size,),gpu_store.data,abs_store.data)
             maxval = np.float32(cla.max(abs_store).get())
             
             # allocate new memory (frames, rows, columns, 3); uchar -> uint8?
-            new_shape    = store.shape+(3,)
+            new_shape    = gpu_store.shape+(3,)
             image_buffer = cla.empty(queue,new_shape,np.uint8)
-            debug_buffer = cla.empty(queue,store.shape,np.float32)
-            hsv_convert.execute(queue,store.shape,store.data,image_buffer.data,maxval).wait()
-
+            debug_buffer = cla.empty(queue,gpu_store.shape,np.float32)
+            hsv_convert.execute(queue,gpu_store.shape,gpu_store.data,image_buffer.data,maxval).wait()
+    
             # now convert to pil objects
             import scipy.misc as smp
             images = []
             image_buffer = image_buffer.get()
             for image in image_buffer: images.append(smp.toimage(image))
-            return store.get(), images # done
+            return gpu_store.get(), images # done
         
-        else:
-            
-            return store.get()
-
-    ### now the cpu fallback
-    if not use_gpu:
-    
-        I = complex(0,1)
-        upperlimit = (pixel_pitch*N)**2/(wavelength*N)
-        
-        try: store = np.zeros((numfr,rows,cols),'complex64')
-        except MemoryError:
-            print "save buffer was too large. either use a smaller set of distances or a smaller subregion"
-
-        # compute the distances of back propagations on the cpu.
-        # precompute the fourier signal. define the phase as a lambda function. loop through the distances
-        # calling phase and propagate_one_distance. save the region of interest (subarray) to the buffer.
-        cpu_phase = lambda z: np.exp(-I*t*z*r)
-        for n,z in enumerate(distances):
-            if z > upperlimit: print "propagation distance (%s) exceeds accuracy upperlimit (%s)"%(z,upperlimit)
-            if not silent:
-                sys.stdout.write("\rpropagating: %1.2e m (%02d/%02d)" % (z, n+1, numfr))
-                sys.stdout.flush()
-            phase_z = cpu_phase(z)
-            back = np.fft.ifft2(f*phase_z)
-            store[n] = back[sr[0]:sr[1],sr[2]:sr[3]]
-    
-        if not silent:
-            print ""
-    
-        if im_convert:
+        if gpu_info == None:
             
             # now convert frames to pil objects
             import scipy.misc as smp
@@ -306,7 +306,45 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
                 
             return store, images
         
-        if not im_convert: return store
+    # check input types
+    data, N, pxl_pitch, e_or_w, nf = _check_types()
+    
+    # turn the subregion spec into usable coordinates
+    sr, rows, cols = _check_subregion()
+
+    # convert energy_or_wavelength to wavelength.  If < 1 assume it's a wavelength.
+    if    e_or_w < 1: w = e_or_w
+    else: w = scattering.energy_to_wavelength(e_or_w)*1e-10
+    
+    # define some useful common quantities
+    r = np.fft.fftshift((shape.radial((N,N)))**2)
+    t = np.float32(np.pi*w/((pxl_pitch*N)**2))
+    upperlimit = (pxl_pitch*N)**2/(w*N)
+    
+    # depending on the compute device, allocate memory etc
+    if gpu_info == None:
+        f, store, I = _prep_cpu()
+        cpu_phase = lambda z: np.exp(-I*t*z*r)
+    if gpu_info != None:
+        k_pf, k_ctb, k_m, fftplan, gpu_r, gpu_f, gpu_phase, gpu_back, gpu_store = _prep_gpu()
+  
+    # now compute the propagations
+    for n, z in enumerate(distances):
+        if z > upperlimit:
+            print "propagation distance (%s) exceeds accuracy upperlimit (%s)"%(z,upperlimit)
+        if not silent:
+            sys.stdout.write("\rpropagating: %1.2e m (%02d/%02d)" % (z, n+1, nf))
+            sys.stdout.flush()
+        _z_calc(n,z)
+        
+    # if im_convert, return both array data AND converted images.
+    # otherwise, just return the array data
+    if im_convert:
+        store, images = _im_convert()
+        return store, images
+    else:
+        if gpu_info != None: store = gpu_store.get()
+        return store
 
 def apodize(data_in, sigma=3, threshold = 0.01):
     
@@ -380,7 +418,6 @@ def apodize(data_in, sigma=3, threshold = 0.01):
 
     # return
     return convolved, data_in*convolved
-
 
 def apodize_old(data_in,kt=.1,threshold=0.01,sigma=2,return_type='data'):
     """ Apodizes a 2d array so that upon back propagation ringing from the
