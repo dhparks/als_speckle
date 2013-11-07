@@ -4,7 +4,5 @@ __kernel void execute(
 
     {	
 	int i = get_global_id(0);
-	
-	// pull the components into registers
 	out[i] = in[i].x;
     }

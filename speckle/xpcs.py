@@ -8,9 +8,22 @@ Authors: Keoki Seu (kaseu@lbl.gov), Daniel Parks (dhparks@lbl.gov)
 """
 import numpy as np
 import sys
-from . import averaging
+from . import averaging, io
 import math
 
+try:
+    import pyfftw
+    pyfftw.interfaces.cache.enable()
+    have_fftw = True
+except ImportError:
+    have_fftw = False
+    
+try:
+    import numexpr
+    have_numexpr = True
+except ImportError:
+    have_numexpr = False
+    
 # keep a record of gpu fft plans
 fftplans = {}
 
@@ -192,7 +205,7 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),gpu_info=None,silent=Tru
 
     """ 
     
-    import sys
+    import sys, time
     
     # check the norm specification
     if norm == None: norm = "plain"
@@ -216,31 +229,29 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),gpu_info=None,silent=Tru
 
         sys.stdout.write("calculating q-average (may take a while)\n")
         IQ  = _averagingFunctions[avgType](data, avgSize)
-        
+
     if norm in ("standard","plain","borthwick"):
         IT  = _time_average(data)
-        IT2 = IT*IT
+        IT2 = np.reciprocal(IT*IT)
         
     if norm in ("standard","borthwick"):
         IQT  = _time_average(IQ)
         IQT2 = IQT*IQT
         
     if norm == "standard": data /= IQ # dont understand this but whatever
-        
+
     # now compute the numerator of the g2 function; autocorrelate along t axis.
     # if the dataset is large, computing the fft in a single pass may be
     # inefficient as it no longer fits in memory. for this reason, the data
     # is broken into 8x8 pixel tiles and correlated in batches.
-
-    import time
     if not silent: print "g2 numerator"
     numerator = _g2_numerator(data,batch_size=64,gpu_info=gpu_info)[tauvals]
 
     # normalize the numerator. depending on the norm method different values are calculated.
     if not silent: print "g2 normalizing"
     if norm   == "none":     pass # so just the numerator is returned
-    elif norm == "plain": numerator /= IT2
-    elif norm == "standard": numerator *= IQT2/IT2
+    elif norm == "plain": numerator *= IT2
+    elif norm == "standard": numerator *= IQT2*IT2
     elif norm == "symmetric":
         for i, tau in enumerate(tauvals):
             numerator[i] /= (_time_average(IQ, 0, fr-tau)*_time_average(IQ, tau, fr))
@@ -264,14 +275,16 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
     (fr, ys, xs) = data.shape
 
     def _prep_cpu():
-
-        if batches > 0: tmp1 = np.zeros((batch_size,2*fr),np.float32)
-        else: tmp1 = 0
-            
-        if rem > 0: tmp2 = np.zeros((rem,2*fr),np.float32)
-        else: tmp2 = 0
-
-        return tmp1, tmp2
+        cpu_d = {}
+        if batches > 0: cpu_d['tmp1'] = np.zeros((batch_size,2*fr),np.float32)
+        if rem > 0: cpu_d['tmp2']     = np.zeros((rem,2*fr),np.float32)
+        if have_fftw:
+            cpu_d['DFT']  = pyfftw.interfaces.numpy_fft.fft2
+            cpu_d['IDFT'] = pyfftw.interfaces.numpy_fft.ifft2
+        else:
+            cpu_d['DFT']  = np.fft.ifftn
+            cpu_d['IDFT'] = np.fft.fftn
+        return cpu_d
             
     def _prep_gpu():
         
@@ -285,107 +298,121 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
         except ImportError:
             print "couldnt load gpu libraries, falling back to cpu xpcs"
             _g2_numerator(data,tauvals,batch_size=batch_size,gpu_info=None)
+            
+        gpu_d = {}
         
         # check gpu_info
         assert gpu.valid, "gpu_info in xpcs.g2 improperly specified"
-        context, device, queue, platform = gpu_info
+        gpu_d['c'] = gpu_info[0]
+        gpu_d['d'] = gpu_info[1]
+        gpu_d['q'] = gpu_info[2]
     
         # if the number of frames is not a power of two, find the next power of
         # 2 larger than twice the number of frames.
         p2 = ((fr & (fr - 1)) == 0)
         if p2:     L = int(2*p2)
         if not p2: L = int(2**(math.floor(math.log(2*fr,2))+1))
+        gpu_d['L']   = np.int32(L)
         
-        # build the 1 kernel necessary for the correlation
+        # build the kernels necessary for the correlation
         kp   = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/' # kernel path
-        abs1 = gpu.build_kernel_file(context, device, kp+'common_abs_f2_f2.cl')
-        abs2 = gpu.build_kernel_file(context, device, kp+'common_abs2_f2_f2.cl')
+        gpu_d['abs1'] = gpu.build_kernel_file(gpu_d['c'], gpu_d['d'], kp+'common_abs_f2_f2.cl')
+        gpu_d['abs2'] = gpu.build_kernel_file(gpu_d['c'], gpu_d['d'], kp+'common_abs2_f2_f2.cl')
+        gpu_d['cpy1'] = gpu.build_kernel_file(gpu_d['c'], gpu_d['d'], kp+'xpcs_embed_f_f2.cl')
+        gpu_d['cpy2'] = gpu.build_kernel_file(gpu_d['c'], gpu_d['d'], kp+'xpcs_pull_f2_f.cl')
+        gpu_d['setz'] = gpu.build_kernel_file(gpu_d['c'], gpu_d['d'], kp+'common_set_zero_f2.cl')
+        gpu_d['norm'] = gpu.build_kernel_file(gpu_d['c'], gpu_d['d'], kp+'xpcs_fr_norm.cl')
         
         # if the plan for this size does not exist, create the plan
         global fftplans
         if L not in fftplans.keys():
-            fftplan     = Plan((L,),queue=queue)
+            fftplan     = Plan((L,),queue=gpu_d['q'])
             fftplans[L] = fftplan
         else:
             fftplan = fftplans[L]
+        gpu_d['fftp'] = fftplan
             
         # allocate memory for the correlations
         if batches > 0:
-            gpu1 = cla.empty(queue, (batch_size, L), np.complex64)
-            tmp1 = np.zeros((batch_size,L),np.complex64)
-        else:
-            gpu1 = None
-            tmp1 = None
+            gpu_d['bf'] = cla.empty(gpu_d['q'], (batch_size, fr), np.float32)
+            gpu_d['bc'] = cla.empty(gpu_d['q'], (batch_size, L),  np.complex64)
+            gpu_d['t1'] = np.zeros((batch_size,fr),np.float32)
             
         if rem > 0:
-            gpu2 = cla.empty(queue, (rem, L), np.complex64)
-            tmp2 = np.zeros((rem,L),np.complex64)
-        else:
-            gpu2 = None
-            tmp2 = None
+            gpu_d['rf'] = cla.empty(gpu_d['q'], (rem, fr), np.float32)
+            gpu_d['rc'] = cla.empty(gpu_d['q'], (rem, L),  np.complex64)
+            gpu_d['t2'] = np.zeros((rem,fr),np.float32)
             
-        return tmp1, tmp2, gpu1, gpu2, L, abs2, abs1, fftplan
+        return gpu_d
 
-    def _calc(data_in,target):
-        
-        def _gpu_correlation(target,rows):
-            fftp.execute(target.data,batch=rows,wait_for_finish=True)
-            abs2.execute(gpu_info[2],(int(rows*L),),target.data,target.data)
-            fftp.execute(target.data,batch=rows,wait_for_finish=True,inverse=True)
-            abs1.execute(gpu_info[2],(int(rows*L),),target.data,target.data)
+    def _calc(data_in,flt,cpx):
         
         ds = data_in.shape
         
-        if gpu_info == None:
+        def _gpu_set(data_in):
+            flt.set(data_in.astype(np.float32),queue=gpu_d['q'])
+            
+        def _cpu_set(data_in):
             if ds[0] == batch_size:
-                tmp1[:,:fr] = data_in
-                run_on      = tmp1
+                cpu_d['tmp1'][:,:fr] = data_in
+                return cpu_d['tmp1']
             else:
-                tmp2[:,:fr] = data_in
-                run_on      = tmp2
-            numerator = np.abs(IDFT(np.abs(DFT(run_on,axes=(1,)))**2,axes=(1,)))[:,:fr]
+                cpu_d['tmp2'][:,:fr] = data_in
+                return cpu_d['tmp2']
+        
+        def _gpu_correlate(flt,cpx,rows):
+            # six steps: 1. move to cpx after zeroing 2. fft 3. abs**2 4. ifft 5. abs 6. pull data, cast to float
+            # in the future, combine abs1 and cpy2. however this will be a very small speedup...
+            pxls = int(rows*gpu_d['L'])
+            gpu_d['setz'].execute(gpu_d['q'],(pxls,),cpx.data).wait()
+            gpu_d['cpy1'].execute(gpu_d['q'],(rows,fr),flt.data,cpx.data,gpu_d['L'])
+            gpu_d['fftp'].execute(cpx.data,batch=rows,wait_for_finish=True)
+            gpu_d['abs2'].execute(gpu_d['q'],(pxls,),cpx.data,cpx.data).wait()
+            gpu_d['fftp'].execute(cpx.data,batch=rows,wait_for_finish=True,inverse=True)
+            gpu_d['abs1'].execute(gpu_d['q'],(pxls,),cpx.data,cpx.data).wait()
+            gpu_d['cpy2'].execute(gpu_d['q'],(rows,fr),cpx.data,flt.data,gpu_d['L'])
+            f = flt.get()
+            return f
+            
+        def _cpu_correlate(run_on):
+            x  = np.abs(cpu_d['IDFT'](np.abs(cpu_d['DFT'](run_on,axes=(1,)))**2,axes=(1,)))[:,:fr].real
+            return x
+
+        # move data to pre-allocated memory. correlate.
+        if gpu_info == None:
+            run_on    = _cpu_set(data_in)
+            numerator = _cpu_correlate(run_on)
         
         if gpu_info != None:
+            _gpu_set(data_in)
+            numerator = _gpu_correlate(flt,cpx,ds[0])
             
-            # move the batch to the gpu
-            if ds[0] == batch_size:
-                tmp1[:,:fr] = data_in
-                target.set(tmp1,queue=gpu_info[2])
-            else:
-                tmp2[:,:fr] = data_in
-                target.set(tmp2,queue=gpu_info[2])
-                
-            # correlate and remove from gpu
-            _gpu_correlation(target,ds[0])
-            numerator = (target.get().real)[:,:fr]
-            
-        return numerator[:,:fr] # not normalized
+        return numerator
 
-    if gpu_info != None: batch_size = 1024
-    cpu_data     = data.reshape(fr,ys*xs).transpose()
+    if gpu_info != None: batch_size = 2048
+    cpu_data     = np.ascontiguousarray(data.reshape(fr,ys*xs).transpose())
     output       = np.zeros((ys*xs,fr),np.float32)
     batches, rem = (ys*xs)/batch_size, (ys*xs)%batch_size
     
     # make plans, allocate memory, etc
-    if gpu_info == None:
-        IDFT = np.fft.ifftn
-        DFT  = np.fft.fftn
-        tmp1, tmp2 = _prep_cpu()
-    if gpu_info != None:
-        tmp1, tmp2, gpu1, gpu2, L, abs2, abs1, fftp = _prep_gpu()
+    if gpu_info == None: cpu_d = _prep_cpu()
+    if gpu_info != None: gpu_d = _prep_gpu()
         
-    # run the correlations in batches for improved speed
-    for batch in range(batches):
-        if gpu_info == None: target = None
-        if gpu_info != None: target = gpu1
-        g2batch = _calc(cpu_data[batch*batch_size:(batch+1)*batch_size],target)
-        output[batch*batch_size:(batch+1)*batch_size] = g2batch.real
-        
-    if rem > 0:
-        if gpu_info == None: target = None
-        if gpu_info != None: target = gpu2
-        g2batch = _calc(cpu_data[-rem:],target)
-        output[-rem:] = g2batch[:rem].real
+    # run the correlations in batches for improved speed. first, make a list of
+    # jobs, then iterate over the jobs list. in theory, this could also be
+    # used to dispatch jobs to multiple compute devices. each job is specified
+    # by a start row, stop row, and for gpu calculations two memory pointers.
+    if gpu_info == None: flt, cpx, fltr, cpxr = None, None, None, None
+    if gpu_info != None: flt, cpx, fltr, cpxr = gpu_d.get('bf'), gpu_d.get('bc'), gpu_d.get('rf'), gpu_d.get('rc')
+    
+    jobs = []
+    for n in range(batches): jobs.append((n*batch_size,(n+1)*batch_size,flt,cpx))
+    if  rem > 0:             jobs.append((-rem, ys*xs, fltr, cpxr))
+    
+    for n, job in enumerate(jobs):
+        start, stop, flt, cpx = job
+        g2batch = _calc(cpu_data[start:stop],flt,cpx)
+        output[start:stop] = g2batch
         
     # normalize, reshape, and return data
     output *= 1./(fr-np.arange(fr))
