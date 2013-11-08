@@ -1,0 +1,79 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>
+
+<title>Analysis Selection Page</title>
+<style>
+
+    #container {
+        left:50%;
+	margin:0 0 0 -452px;
+        display:inline-block;
+	position:absolute;
+    }
+
+    .experiment {
+	height:470px;
+	width:300px;
+	border-radius:10px;
+	display:inline-block;
+	border:2px solid black;
+	float:left;
+	margin:2 2 2 2;
+	
+    }
+    
+    img {margin: 0 auto;
+    display: block;}
+    
+    h1 {text-align:center}
+    
+    #div1 {
+    
+    }
+    
+    #div2 {
+    
+    }
+    
+    #div3 {
+    
+    }
+
+</style>
+</head>
+<body>
+    
+    <div id="container">
+	<div id="div1" class="experiment">
+	    <h1 >FTH</h1>
+	    <img src="static/landing/fthimage.png" height=280 width=280>
+	    <p> &nbsp Expects conditioned Fourier intensity
+	    <form method="GET" action="/demo">
+		<input type="submit" name="project" value="fth">
+	    </form>
+	</div>
+	
+	<div id="div2" class="experiment">
+	    <h1>CDI</h1>
+	    <img src="static/landing/cdiimage.png" height=280 width=280>
+	    <p> &nbsp Expects conditioned Fourier intensity
+	    <form method="GET" action="/demo">
+		<input type="submit" name="project" value="cdi">
+	    </form>
+	</div>
+	
+	<div id="div3" class="experiment">
+	    <h1>XPCS</h1>
+	    <img src="static/landing/xpcsimage.png" height=280 width=280>
+	    <p> &nbsp Expects conditioned Fourier intensity
+	    <form method="GET" action="/demo">
+		<input type="submit" name="project" value="xpcs">
+	    </form>
+	</div>
+    </div>
+    
+    
+<script></script>
+    
+</body>

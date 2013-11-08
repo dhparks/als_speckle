@@ -9,9 +9,6 @@ import scipy
 # common libs
 from .. import io, xpcs, fit, wrapping
 
-# matplotlib
-import matplotlib.pyplot as plt
-
 # from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg # turn this on to embed a matplotlib Figure object in a Tk canvas instance
 int_types = (int,np.int8,np.int16,np.int32,np.int64)
 
@@ -24,15 +21,14 @@ class backend():
         self.regions = {}
         self.form ='decayexp'
         self.session_id = session_id
-        
-        if gpu_info != None:
-            self.use_gpu = True
-            self.gpu     = gpu_info
-        else:
-            self.gpu = None
-            self.use_gpu = False
+        self.set_gpu(gpu_info)
 
-    def load_data(self,project):
+    def set_gpu(self,gpu_info):
+        self.gpu = gpu_info
+        if gpu_info != None: self.use_gpu = True
+        if gpu_info == None: self.use_gpu = False
+
+    def load_data(self,project,folder):
         
         """ Get all the relevant information about the file at path. Because
         XPCS datasets can be very large (1GB+) and only a portion of the data
@@ -46,10 +42,51 @@ class backend():
         3. Rescale and offsets for coordinate transformations
         
         """
+        
+        def _save_scales():
+            # rescale the first frame into sqrt and log
+            scales = {}
+            
+            tmp  = self.first_frame-self.first_frame.min()
+            tmp *= 10000/tmp.max()
+            tmp += 1
+            
+            scales['linear'] = tmp
+            scales['sqrt']   = np.sqrt(tmp)
+            scales['log']    = np.log(tmp)
+            
+            # for each scale option, create 3 color options. save as datasprites,
+            # which is what the webbrowser will load.
+            big_image = Image.new('RGB',(3*512,3*512))
+            for n, key in enumerate(['linear','sqrt','log']):
+                imgl = scipy.misc.toimage(scales[key])
+                for m, colormap in enumerate(['L','A','B']):
+                    imgc = imgl
+                    if colormap != 'L':
+                        imgc.putpalette(io.color_maps(colormap))
+                        imgc = imgc.convert("RGB")
+                    big_image.paste(imgc,(n*512,m*512))
+            big_image.save("static/xpcs/images/datasprites_session%s_id%s.jpg"%(self.session_id,self.data_id))
+            
+        def _resize():
+            # support non-square data for calculating a rescale factor and offsets
+            # needed to transform gui coordinates into data coordinates
+            self.rescale = 512./max(self.data_shape[1:])
+            if self.rescale > 1: self.rescale = 1 # for now, only shrink arrays
+            self.roffset = int((512-self.data_shape[1]*self.rescale)/2)
+            self.coffset = int((512-self.data_shape[2]*self.rescale)/2)
+                
+            # now open the first frame. resize the maximum dimension of the first
+            # frame to 512 pixels before saving.
+            ff  = io.open(self.data_path)[0].astype(np.float32)
+            ff -= ff.min()
+            ff  = wrapping.resize(ff,(int(self.data_shape[1]*self.rescale),int(self.data_shape[2]*self.rescale)))
+            self.first_frame = np.zeros((512,512),np.float32)
+            self.first_frame[self.roffset:self.roffset+ff.shape[0],self.coffset:self.coffset+ff.shape[1]] = ff
 
         self.data_id = self._new_id()
-        old_name     = 'data/%sdata_session%s.fits'%(project,self.session_id)
-        new_name     = 'data/%sdata_session%s_id%s.fits'%(project,self.session_id,self.data_id)
+        old_name     = '%s/%sdata_session%s.fits'%(folder,project,self.session_id)
+        new_name     = '%s/%sdata_session%s_id%s.fits'%(folder,project,self.session_id,self.data_id)
         os.rename(old_name,new_name)
 
         self.data_path = new_name
@@ -66,38 +103,14 @@ class backend():
             pass
             # raise the same error
             
-        # support non-square data for calculating a rescale factor and offsets
-        # needed to transform gui coordinates into data coordinates
-        self.rescale = 512./max(self.data_shape[1:])
-        if self.rescale > 1: self.rescale = 1 # for now, only shrink arrays
-        self.roffset = int((512-self.data_shape[1]*self.rescale)/2)
-        self.coffset = int((512-self.data_shape[2]*self.rescale)/2)
-            
-        # now open the first frame. resize the maximum dimension of the first
-        # frame to 512 pixels before saving.
-        ff = wrapping.resize(io.openframe(self.data_path,frame=0),(int(self.data_shape[1]*self.rescale),int(self.data_shape[2]*self.rescale)))
-        self.first_frame = np.zeros((512,512),np.float32)
-        self.first_frame[self.roffset:self.roffset+ff.shape[0],self.coffset:self.coffset+ff.shape[1]] = ff
-        
-        # resize, then save the color and scale permutations of first_frame.
-        linr  = self.first_frame
-        sqrt  = np.sqrt(self.first_frame)
-        logd  = self.first_frame-self.first_frame.min()
-        logd /= logd.max()
-        logd *= 1000
-        logd += 1
-        logd  = np.log(logd)
-        
-        big_image = Image.new('RGB',(3*512,3*512))
-        
-        for n, data in enumerate([linr,sqrt,logd]):
-            im = scipy.misc.toimage(data)
-            for m, colormap in enumerate(['L','A','B']):
-                if colormap != 'L': im.putpalette(io.color_maps(colormap))
-                big_image.paste(im,(n*512,m*512))
-                
-        big_image.save("static/xpcs/images/datasprites_session%s_id%s.jpg"%(self.session_id,self.data_id))
+        # resize the data to fit within a 512x512 image. this also calculates
+        # scale factors and offsets necessary for coordinate transformations between
+        # the coordinates as seen in the browswer and defined here in the backend
+        _resize()
 
+        # make the intensity image(s)
+        _save_scales()
+        
         # reset the regions every time new data is loaded
         self.regions = {}
 
@@ -118,6 +131,7 @@ class backend():
         
         if uid in self.regions.keys():
             
+            # update coordinates
             if (self.regions[uid].rmin != rmin):
                 self.regions[uid].rmin = rmin
                 self.regions[uid].changed = True
@@ -136,6 +150,7 @@ class backend():
         
         else:
             
+            # create new region
             here = region()
             here.unique_id = uid
             
@@ -154,62 +169,66 @@ class backend():
         # iterate through the regions. when one is encountered with
         # .changed == True, recalculate the intensity, g2, and fit to g2.
         
+        recalculate, refit = [], []
         for region_key in self.regions.keys():
+            if self.regions[region_key].changed:
+                recalculate.append(region_key)
+                refit.append(region_key)
+            if self.refitg2:
+                refit.append(region_key)
+        refit = list(set(refit))    
+
+        print "recalculating regions: %s"%recalculate
+        
+        for region_key in recalculate:
+
+            here = self.regions[region_key]
+
+            # if out-of-bounds (unusual), the g2 calculation will fail so
+            # return data which indicates an anomalous selection
+            if (here.rmin == here.rmax or here.cmin == here.cmax):
+                g2 = np.ones((self.frames/2,),np.float32)
+                i  = np.ones((self.frames,),np.float32)
+            
+            # for in-bounds data (usually the case!), calculate g2(tau) for
+            # each pixel, then average over pixels. when finished, add to object
+            else:
+                data  = io.open(self.data_path)[:,here.rmin:here.rmax,here.cmin:here.cmax].astype(np.float32)
+                g2all = np.nan_to_num(xpcs.g2(data,gpu_info=self.gpu))-1
+                g2    = self._qave(g2all)
+                i     = self._qave(data)
+                
+                # find the point where g2 falls below 1e-6
+                cutoff, k = 0, 0
+                while cutoff == 0 and k < len(g2)-1:
+                    if g2[k] >= 1e-6 and g2[k+1] < 0: cutoff = k
+                    k += 1
+                    
+                g2[k-1:len(g2)] = 0
+
+            here.g2        = g2
+            here.intensity = i
+            here.changed   = False
+            
+        print "refitting regions: %s"%refit
+        
+        for region_key in refit:
             
             here = self.regions[region_key]
-            
-            # first, see if the region has changed coordinates. if so, recalculate g2
-            if here.changed:
-                
-                print "recalculating region %s"%region_key
-                
-                # if out-of-bounds (unusual), the g2 calculation will fail so
-                # return data which indicates an anomalous selection
-                if (here.rmin == here.rmax or here.cmin == here.cmax):
-                    g2 = np.ones((self.frames/2,),np.float32)
-                    i  = np.ones((self.frames,),np.float32)
-                
-                # for in-bounds data (usually the case!), calculate g2(tau) for
-                # each pixel, then average over pixels. when finished, add to object
-                else:
-                    data  = io.open(self.data_path)[:,here.rmin:here.rmax,here.cmin:here.cmax].astype(np.float32)
-                    g2all = np.nan_to_num(xpcs.g2(data,gpu_info=self.gpu))-1
-                    g2    = self._qave(g2all)
-                    i     = self._qave(data)
-                    
-                    # find the point where g2 falls below 1e-6
-                    cutoff, k = 0, 0
-                    while cutoff == 0 and k < len(g2)-1:
-                        if g2[k] >= 1e-6 and g2[k+1] < 0: cutoff = k
-                        k += 1
-                        
-                    g2[k-1:len(g2)] = 0
 
-                here.g2         = g2
-                here.intensity  = i
-                
-            # now refit the g2 curve. this has been broken out from the g2
-            # calculation in case the user wants to switch the fit function.
-            if here.changed or self.refitg2:
-                
-                print "refitting region %s"%region_key
-
-                c = (here.g2[0])/2
-                to_fit = np.array([np.arange(len(here.g2)),here.g2])
-                mask = np.exp(-(here.g2-c)**2/(.5))
-                mask = np.where(here.g2 > 0, 1, 0)
-                if self.form == 'decayexpbeta': fitted = fit.decay_exp_beta(to_fit.transpose(),mask=mask,weighted=False)
-                if self.form == 'decayexp':     fitted = fit.decay_exp(to_fit.transpose(),mask=mask,weighted=False)
-                if self.form == 'decayexpbetanooffset': fitted = fit.decay_exp_beta_no_offset(to_fit.transpose(),mask=mask,weighted=False)
-                self.functional = fitted.functional
-                self.fit_keys   = fitted.params_map
-                
-                # add the data to the region
-                here.fit_vals   = fitted.final_evaluated
-                here.fit_params = fitted.final_params
+            c = (here.g2[0])/2
+            to_fit = np.array([np.arange(len(here.g2)),here.g2])
+            mask = np.exp(-(here.g2-c)**2/(.5))
+            mask = np.where(here.g2 > 0, 1, 0)
+            if self.form == 'decayexpbeta': fitted = fit.decay_exp_beta(to_fit.transpose(),mask=mask,weighted=False)
+            if self.form == 'decayexp':     fitted = fit.decay_exp(to_fit.transpose(),mask=mask,weighted=False)
+            if self.form == 'decayexpbetanooffset': fitted = fit.decay_exp_beta_no_offset(to_fit.transpose(),mask=mask,weighted=False)
+            self.functional = fitted.functional
+            self.fit_keys   = fitted.params_map
             
-            # mark the analysis of the current region as complete    
-            here.changed = False
+            # add the data to the region
+            here.fit_vals   = fitted.final_evaluated
+            here.fit_params = fitted.final_params
         
     def csv_output(self):
         
@@ -280,7 +299,6 @@ class backend():
         
         fitsf.close()
         analysisf.close()
-        print "done with analysis writing"
  
     def _qave(self,data):
         assert data.ndim > 1
@@ -298,6 +316,7 @@ class backend():
     
     def _new_id(self):
         return str(int(time.time()*10))
+
         
 class region():
     """ empty class for holding various attributes of a selected region.

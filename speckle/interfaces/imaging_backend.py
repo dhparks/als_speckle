@@ -16,8 +16,7 @@ class backend():
     
         # this class receives gpu info from the flask_server, which
         # is the original instantiator of the gpu context.
-        
-        self.machine    = speckle.phasing.phasing(gpu_info=gpu_info)
+
         self.session_id = session_id
         print "imaging session id %s"%self.session_id
         
@@ -25,13 +24,19 @@ class backend():
         self.modulus = None
         self.support = None
         self.loaded  = False
+        
+        self.set_gpu(gpu_info)
 
+    def set_gpu(self,gpu_info):
+        
         if gpu_info != None:
             self.use_gpu = True
             self.gpu     = gpu_info
         else:
             self.use_gpu = False
-        
+            
+        self.machine = speckle.phasing.phasing(gpu_info=gpu_info)
+
     def make_blocker(self,power):
         
         self.blocker_power = power
@@ -53,9 +58,14 @@ class backend():
         if power > 1:
             
             self.blocker = 1-speckle.shape.circle(self.data_shape,power)
-            
-    def save_zoom_images(self):
-            
+        
+    def load_data(self,project,folder,blocker=0.8,resize=300):
+        # open and prepare data for display. depending on project,
+        # the data gets prepared in different ways. for example, when the
+        # project is fth, the central maximum gets blockered more extensively
+        # than when the project is cdi.
+        
+        def _zoom_images():
             # make images with linear scaling, sqrt scaling, log scaling. this might
             # take a little bit of time.
             mag, phase = abs(self.rs_data), numpy.angle(self.rs_data)
@@ -79,7 +89,7 @@ class backend():
             l_min, step, l_max  = 128., 0.8, max(ds)
             step   = 0.8
             nzooms = int(math.floor(math.log(l_min/l_max)/math.log(step))+1)
-
+    
             big_image = Image.new('RGB',(self.resize*nzooms,self.resize))
             
             for n in range(nzooms):
@@ -93,14 +103,8 @@ class backend():
             
             big_image.save('./static/imaging/images/zooms_session%s_id%s_%s_%s.png'%(self.session_id,self.data_id,self.blocker_power,key))
             big_image.save('./static/imaging/images/zooms_session%s_id%s_%s_%s.jpg'%(self.session_id,self.data_id,self.blocker_power,key))
-
+    
             self.zooms = nzooms
-        
-    def load_data(self,project,blocker=0.8,resize=300):
-        # open and prepare data for display. depending on project,
-        # the data gets prepared in different ways. for example, when the
-        # project is fth, the central maximum gets blockered more extensively
-        # than when the project is cdi.
         
         def _invert():
             # center the speckle pattern. roll to corner. invert
@@ -110,8 +114,8 @@ class backend():
         
         # assign a unique id to the current data. rename the file from $project$_data.fits
         self.data_id = self._new_id()
-        old_name     = 'data/%sdata_session%s.fits'%(project,self.session_id)
-        new_name     = 'data/%sdata_session%s_id%s.fits'%(project,self.session_id,self.data_id)
+        old_name     = '%s/%sdata_session%s.fits'%(folder,project,self.session_id)
+        new_name     = '%s/%sdata_session%s_id%s.fits'%(folder,project,self.session_id,self.data_id)
         os.rename(old_name,new_name)
         
         # this is the size of the saved images
@@ -137,7 +141,7 @@ class backend():
         # now process the data into loadable images
         self.rs_data, self.fourier_data = _invert()
         self.make_blocker(blocker)
-        self.save_zoom_images()
+        _zoom_images()
         
         # mark data as not loaded in case it will be reconstructed
         self.loaded = False
