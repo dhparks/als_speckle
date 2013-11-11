@@ -14,7 +14,8 @@ __kernel void execute(__global float* data_in,   // input data (rows to correlat
 	int idx2 = row*L+col;
 	
 	// move the data to embedded
-	embedded[idx2] = (float2)(data_in[idx1],0);
+	embedded[idx2] = (float2)(data_in[idx1],0.f);
+        //embedded[idx2] = (float2)(idx1,0.f);
 }
 
 

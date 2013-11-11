@@ -1,26 +1,68 @@
-import speckle
+import speckle, time, numpy
+import matplotlib.pyplot as plt
 
-datafile = "../pyc-g2/srt43-small.fits"
-data = speckle.io.openfits(datafile)
+### this example demonstrates how to do some g2 calculations on a 3d dataset.
+### to adapt this example for your own analysis, you will at a minimum need
+### to change the path to the data file, which in this example doesn't actually
+### point to anything. additionally, it is likely that your analysis needs will
+### differ from the analysis presented in this example.
 
-# Draw a ROI in ds9. in DS9 select Region->Shape->Polygon and draw a region.
-# Save the region with Region->Save Regions
-mask = speckle.io.open_ds9_mask('srt43-ROI.reg')
+# 1. open the data
+datafile  = 'NAME OF YOUR DATA HERE'
+data      = speckle.io.open(datafile)
+(t, r, c) = data.shape
+print "data has shape %s"%((data.shape),)
 
-# or if you know the ROI as a 40x40 box centered at Row, Col (236, 118)
-#mask = speckle.shape.rect(data[0].shape,40, 40, (236,118))
+# 2. run the g2 correlation. this is much faster if the necessary libraries to
+# use gpu acceleration have been installed. if no gpu is present, the analysis
+# will be run on the cpu. THE G2 FUNCTION HAS MANY OPTIONS SO READ ITS
+# DOCUMENTATION TO LEARN ABOUT MORE FUNCTIONALITY.
+try: gpu_info = speckle.gpu.init()
+except: gpu_info = None
 
-# Optionally, convert the movie to photons before calculating g2.
-#data = speckle.scattering.ccd_to_photons(data, 778.1)
+# calculate g2 at ALL x,y coordinates
+t0 = time.time()
+all_g2  = speckle.xpcs.g2(data,gpu_info=gpu_info)
+print "calculated g2 on all pixels; time: %.3f seconds"%(time.time()-t0)
 
-# calculate 100 frames of an XPCS movie (there are many other normalizations)
-g2 = speckle.xpcs.g2_symm_norm(data, 100)
+# calculate g2 at only SOME x,y coordinates by slicing data
+t0 = time.time()
+some_g2 = speckle.xpcs.g2(data[:,r/2-r/8:r/2+r/3,c/2-c/8:c/2+c/8],gpu_info=gpu_info)
+print "calculated g2 on some pixels; time: %.3f seconds"%(time.time()-t0)
 
-# optionally, save the g2 file once it's calculated so we can average later.
-#speckle.io.writefits("srt43-g2.fits", g2)
+# calculate with the same coordinates, but use a different normalization
+# scheme (the so-called "standard" normalization)
+t0 = time.time()
+other_g2 = speckle.xpcs.g2(data[:,r/2-r/8:r/2+r/3,c/2-c/8:c/2+c/8],gpu_info=gpu_info,norm="standard",qAvg=("circle",5))
+print "calculated g2 with different norm; time: %.3f seconds"%(time.time()-t0)
 
-# average g2 within the mask
-avg_g2 = speckle.averaging.calculate_average(g2, mask)
+# 3. Now we probably want to reduce the dimensionality of the data a little bit,
+# so we will unwrap all_g2 into polar coordinates, then average along the azimuthal
+# coordinate. this will give us an average g2 as a function of radius.
+plan         = speckle.wrapping.unwrap_plan(5, min([r,c])/2-1, (r/2,c/2), columns=360)
+unwrapped_g2 = speckle.wrapping.unwrap(all_g2,plan)
+azimuthal_g2 = numpy.average(unwrapped_g2,axis=-1).transpose()
+print "shape of unwrapped g2 is %s"%(unwrapped_g2.shape,)
+print "shape of azimuthal g2 is %s"%(azimuthal_g2.shape,)
 
-# write to disk.
-speckle.io.write_text_array("srt43-g2.txt", avg_g2)
+# 4. save the azimuthal g2
+speckle.io.save('azimuthal_g2.fits',azimuthal_g2)
+
+# 5. an example of how to fit some of the data to a functional form, in
+# this case decay_exp_beta. Then we plot it. This loop fits and plots 3 slices
+# of azimuthal_g2
+r = azimuthal_g2.shape[0]
+x = numpy.arange(azimuthal_g2.shape[1])
+for row in [0, r/2, -1]:
+    y      = azimuthal_g2[row]
+    data   = [x, y]
+    fitted = speckle.fit.decay_exp_beta(data)
+    plt.plot(x,y,'o',markersize=3)
+    plt.plot(x,fitted.final_evaluated,'-',linewidth=2)
+plt.savefig('g2 plots.png')
+plt.clf()
+
+
+
+
+

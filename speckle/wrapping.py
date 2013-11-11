@@ -100,8 +100,9 @@ def wrap_plan(r, R):
     
     return Plan
 
-def unwrap(array,plan,interpolation_order=3,modulo=None):
+def unwrap(array,plan,interpolation_order=3,modulo=None,columns=None):
     """ Given an array and a plan, unwrap an array into polar coordinates.
+    This is a cpu-only function.
     
     arguments:
         array - data to be unwrapped. must be numpy ndarray
@@ -123,11 +124,19 @@ def unwrap(array,plan,interpolation_order=3,modulo=None):
     assert isinstance(array,np.ndarray),  "input data must be ndarray"
     assert array.ndim in (2,3), "input data must be 2d or 3d"
     assert interpolation_order in range(6), "interpolation order must be 0-5"
+    
+    if columns != None:
+        try: columns = int(columns)
+        except TypeError:
+            print "error casting columns=%s to int in speckle.wrapping.unwrap"%columns
+            exit()
+    
     if not isinstance(plan,np.ndarray):
         assert len(plan) == 3, "unwrap plan must be a len 2 list/tuple/set or a ndarray"
         r, R, center = plan
-        plan = unwrap_plan(r, R, center, modulo=modulo)
+        plan = unwrap_plan(r, R, center, modulo=modulo, columns=columns)
     
+
     # separate plan into coordinate map and (r,R)
     R,r = plan[:,-1]
     plan = plan[:,:-1]

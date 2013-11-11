@@ -1,5 +1,5 @@
 __kernel void execute(__global float2* cpx,   // input data (rows to correlate along column axis)
-		      __global float2* flt, // output (data casted to cpx, zero-padded)
+		      __global float* flt, // output (data casted to cpx, zero-padded)
 		      int L)                     // the number of columns in embedded
 				  
 {	
@@ -14,7 +14,8 @@ __kernel void execute(__global float2* cpx,   // input data (rows to correlate a
 	int idx2 = row*cols+col;
 	
 	// move the data to embedded
-	flt[idx2] = data_in[idx1].x;
+	flt[idx2] = cpx[idx1].x;
+        //flt[idx2] = (float) idx2;
 }
 
 

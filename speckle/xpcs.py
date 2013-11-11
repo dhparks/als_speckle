@@ -266,7 +266,7 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),gpu_info=None,silent=Tru
             sys.stdout.flush()
         sys.stdout.write('\n')
 
-    return numerator
+    return np.nan_to_num(numerator)
 
 def _g2_numerator(data,batch_size=64,gpu_info=None):
     
