@@ -18,7 +18,9 @@ def radial(size,center=None):
     returns:
         A n-dimensioanl array where each element is the distance (in pixels)
             from the center.
-   """
+    """
+   
+   
     assert isinstance(size,tuple), "size must be a tuple"
     ndims = len(size)
     
@@ -51,10 +53,20 @@ def angular(size,center=None):
         A 2-dimensional array of the angular values, in radians.
     """
 
-    assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
-    
-    if center == None: center = (size[0]/2,size[1]/2)
-    assert isinstance(center,tuple) and len(center) == 2, "center must be a 2-tuple"
+    def _check_types(size,center):
+        
+        assert isinstance(size,(tuple,list)) and len(size) == 2, "size must be a tuple or list of length 2"
+        try: size = (int(size[0]), int(size[1]))
+        except: raise ValueError("couldnt cast size to integers in shape.angular")
+        
+        if center == None: center = (size[0]/2, size[1]/2)
+        assert isinstance(center, (tuple,list)) and len(center) == 2, "center must be a tuple or list of length 2"
+        try: center = (float(center[0]),float(center[1]))
+        except: raise ValueError("couldnt cast center to floats in shape.angular")
+        
+        return size, center
+            
+    size, center = _check_types(size,center)
 
     rows,cols = numpy.indices(size,float)
     rows += -center[0]
@@ -74,7 +86,24 @@ def square(size,length,center=None):
         A 2-dimensional numpy array with a square of length (length) centered at
             (center).
     """
-    assert isinstance(length, (float, int)), "length must be float or int, but will be cast to int"
+    
+    def _check_types(size,length,center):
+        
+        assert isinstance(size,(list,tuple)) and len(size) == 2, "size must be a list or tuple of length 2"
+        try: size = (int(size[0]),int(size[1]))
+        except: raise ValueError("couldnt cast size to integers in shape.square")
+        
+        try: length = int(length)
+        except: raise ValueError("couldnt cast length to integer in shape.square")
+        
+        if center == None: center = (size[0]/2,size[1]/2)
+        assert isinstance(center,(list,tuple)), "center must be a list or tuple of length 2"
+        try: center = (int(center[0]),int(center[1]))
+        except: raise ValueError("couldnt cast center to integers in shape.square")
+        
+        return size, length, center
+    
+    size, length, center = _check_types(size,length,center)
     return rect(size, (length, length), center)
     
 def rect(size,lengths,center=None):
@@ -92,37 +121,41 @@ def rect(size,lengths,center=None):
         A 2-dimensional numpy array with a rectangle of (lengths) centered at
             (center).
     """
-    if center == None: center = (size[0]/2,size[1]/2)
-
-    assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
-    assert isinstance(lengths,tuple) and len(lengths) == 2, "lengths must be tuple"
-    row_length,col_length = lengths
-    assert isinstance(row_length,(float, int)) and isinstance(col_length,(float, int)), "lengths must be float or integer, but will be cast to int"
-
-    row_length = int(row_length)
-    col_length = int(col_length)
     
+    def _check_types(size,lengths,center):
+
+        assert isinstance(size,(tuple,list)) and len(size) == 2, "size must be a 2-tuple"
+        try: size = (int(size[0]),int(size[1]))
+        except: raise ValueError('couldnt cast size in shape.rect to integers')
+        assert size[0] > 0 and size[1] > 0, "size must be > 0"
+
+        assert isinstance(lengths,(tuple,list)) and len(lengths) == 2, "lengths must be tuple"
+        try: lengths = (int(lengths[0]), int(lengths[1]))
+        except: raise ValueError('couldnt cast lengths in shape.rect to integers')
+        assert lengths[0] > 0 and lengths[1] > 0, "lengths must be > 0"
+
+        if center == None: center = (size[0]/2,size[1]/2)
+        assert isinstance(center,(tuple,list)) and len(center) == 2, "center must be a tuple or list of length 2"
+        try: center = (int(center[0]), int(center[1]))
+        except: raise ValueError('couldnt cast center in shape.rect to integers')
+        assert center[0] > 0 and center[1] > 0, "center must be > 0"
+
+        return size, lengths, center
+    
+    size, lengths, center = _check_types(size,lengths,center)
+
     temp = numpy.zeros(size,int)
+    r_min = center[0]-lengths[0]/2
+    r_max = center[0]+lengths[0]/2
+    c_min = center[1]-lengths[1]/2
+    c_max = center[1]+lengths[1]/2
 
-    r_min = center[0]-row_length/2
-    r_max = center[0]+row_length/2
-    c_min = center[1]-col_length/2
-    c_max = center[1]+col_length/2
-
-    warn = False
     # Crop the extremum values if we go outside the array. If this is not done, then the array is not filled.
-    if r_min < 0:
-        warn = True
-        r_min = 0
-    if c_min < 0:
-        warn = True
-        c_min = 0
-    if r_max > size[0]:
-        warn = True
-        r_max = size[0]
-    if c_max > size[1]:
-        warn = True
-        r_max = size[1]
+    warn = False
+    if r_min < 0: warn, r_min = True, 0
+    if c_min < 0: warn, c_min = True, 0
+    if r_max > size[0]: warn, r_min = True, size[0]
+    if c_max > size[1]: warn, r_max = True, size[1]
 
     if warn:
         print "rect() warning: parts of the rectangle are outside the array"
@@ -144,12 +177,26 @@ def circle(size,radius,center=None,AA=True):
         a numpy array of size with a circle of radius centered on center.
     """
     
-    # check types
-    assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
-    if center == None: center = (size[0]/2,size[1]/2)
-    assert isinstance(center,tuple) and len(center) == 2, "center must be a 2-tuple"
-    assert isinstance(radius,(int, float)), "radius must be int or float"
-    assert isinstance(AA,bool) or AA in (0,1), "AA value must be boolean evaluable"
+    def _check_types(size,radius,center,AA):
+        
+        assert isinstance(size,(tuple,list)) and len(size) == 2, "size must be a tuple or list of length 2"
+        try: size = (int(size[0]), int(size[1]))
+        except: raise ValueError("couldnt cast size in shape.circle to integers")
+        
+        try: radius = float(radius)
+        except: raise ValueError("couldnt cast radius in shape.circle to float")
+        assert radius > 0, "radius must be > 0"
+        
+        if center == None: center = (size[0]/2, size[1]/2)
+        assert isinstance(center,(list,tuple)) and len(center) == 2, "center must be a tuple or list of length 2"
+        try: center = (float(center[0]), float(center[1]))
+        except: raise ValueError("couldnt cast center in shape.circle to float")
+        
+        assert isinstance(AA,bool) or AA in (0,1), "AA value must be boolean-evaluable"
+
+        return size, radius, center, AA        
+        
+    size, radius, center, AA = _check_types(size,radius,center,AA)
 
     r = radial(size,center)
     
@@ -169,10 +216,35 @@ def annulus(size,radii,center=None,AA=True):
     returns:
         a numpy array with annuls centered on center of radius (r_in, r_out)    
     """
-    assert isinstance(radii,tuple) and isinstance(radii[0],(int,float)) and isinstance(radii[1],(int,float))
-    # no need to do other asserts, circle() takes care of it.
     
-    return circle(size,max(radii),center,AA)-circle(size,min(radii),center,AA)
+    def _check_types(size, radii, center, AA):
+        
+        assert isinstance(size,(tuple,list)) and len(size) == 2, "size must be a tuple or list of length 2"
+        try: size = (int(size[0]), int(size[1]))
+        except: raise ValueError("couldnt cast size in shape.circle to integers")
+        assert size[0] > 0 and size[1] > 0, "size must be > 0"
+        
+        assert isinstance(radii,(tuple,list)) and len(radii) == 2, "radii must be a tuple or list of length 2"
+        try: radii = (float(radii[0]), float(radii[1]))
+        except: raise ValueError("couldnt cast radii in shape.circle to float")
+        assert radii[0] > 0 and radii[1] > 0, "radii must be > 0"
+        
+        if center == None: center = (size[0]/2, size[1]/2)
+        assert isinstance(center,(list,tuple)) and len(center) == 2, "center must be a tuple or list of length 2"
+        try: center = (float(center[0]), float(center[1]))
+        except: raise ValueError("couldnt cast center in shape.circle to float")
+        assert center[0] > 0 and center[1] > 0, "center must be > 0"
+        
+        assert isinstance(AA,bool) or AA in (0,1), "AA value must be boolean-evaluable"
+
+        return size, radii, center, AA        
+        
+    size, radii, center, AA = _check_types(size,radii,center,AA)
+
+    c1 = circle(size,max(radii),center,AA)
+    c2 = circle(size,min(radii),center,AA)
+    
+    return c1-c2
 
 def ellipse(size,axes,center=None,angle=0,AA=True):
     """ Returns an ellipse in a numpy array.
@@ -191,16 +263,32 @@ def ellipse(size,axes,center=None,angle=0,AA=True):
         numpy array with an ellipse drawn.
     """
     
-    # check types
-    assert isinstance(size,tuple) and len(size) == 2, "size must be a 2-tuple"
-    assert isinstance(size[0],int) and isinstance(size[1],int), "size values must be int"
-    assert isinstance(axes,tuple) and len(axes) == 2, "axes must be a 2-tuple"
-    assert isinstance(axes[0],(int, float)) and isinstance(axes[1],(int,float)), "axes values must be float or int"
-    if center == None: center = (size[0]/2,size[1]/2)
-    assert isinstance(center,tuple) and len(center) == 2, "center must be a 2-tuple"
-    assert isinstance(center[0],(int, float)) and isinstance(center[1],(int,float)), "center values must be float or int"
-    assert isinstance(angle,(int,float)), "angle must be int or float"
-    assert isinstance(AA,bool) or AA in (0,1), "AA value must be boolean evaluable"
+    def _check_types(size,axes,center,angle,AA):
+        
+        assert isinstance(size,(list,tuple)) and len(size) == 2, "size must be a list or tuple of length 2"
+        try: size = (int(size[0]), int(size[1]))
+        except: raise ValueError("couldn't cast size in shape.ellipse to integers")
+        assert size[0] > 0 and size[1] > 0, "size must be > 0"
+        
+        assert isinstance(axes,(list,tuple)) and len(axes) == 2, "axes must be a list or tuple of length 2"
+        try: axes = (float(axes[0]), float(axes[1]))
+        except: raise ValueError("couldn't cast axes in shape.ellipse to float")
+        assert axes[0] > 0 and axes[1] > 0, "axes must be > 0"
+        
+        if center == None: center = (size[0]/2, size[1]/2)
+        assert isinstance(center,(list,tuple)) and len(center) == 2, "center must be a tuple or list of length 2"
+        try: center = (float(center[0]), float(center[1]))
+        except: raise ValueError("couldnt cast center in shape.ellipse to float")
+        assert center[0] > 0 and center[1] > 0, "center must be > 0"
+        
+        try: angle = float(angle)
+        except: raise ValueError("couldnt cast angle in shape.ellipse to float")
+        
+        assert isinstance(AA,bool) or AA in (0,1), "AA value must be boolean evaluable"
+        
+        return size, axes, center, angle, AA
+    
+    size, axes, center, angle, AA = _check_types(size, axes, center, angle, AA)
     
     # we can do this like a circle by stetching the coordinates along an axis
     rows,cols = _make_indicies(size,center,angle)
@@ -240,26 +328,44 @@ def gaussian(size,lengths,center=None,angle=0,normalization=None):
         numpy array (1d or 2d) with a gaussian of the given parameters.
     """
     
-    # check types
-    assert isinstance(size,tuple), "size must be a tuple"
-    for d in range(len(size)): assert type(size[d]) is int, "size values must be int"
-    assert isinstance(lengths,tuple), "lengths must be a tuple"
-    assert len(size) == len(lengths), "size and lengths must be same dimensionality"
-    for d in range(len(lengths)): assert isinstance(lengths[d],(int,float)), "lengths values must be float or int"
+    def _check_types(size,lengths,center,angle,norm):
+        
+        assert isinstance(size,(list,tuple)) and len(size) in (1,2), "size must be a 1d or 2d list or tuple"
+        ts = []
+        for entry in size:
+            try:
+                x = int(entry)
+                assert x > 0, "size must be > 0"
+                ts.append(x)
+            except:
+                raise ValueError("couldnt cast size to integer in shape.gaussian")
+            
+        assert isinstance(lengths,(list,tuple)) and len(lengths) in (1,2), "lengths must be a 1d or 2d list or tuple"
+        tl = []
+        for entry in lengths:
+            try: tl.append(float(entry))
+            except: raise ValueError("couldnt cast lengths to float in shape.gaussian")
+        assert len(size) == len(lengths), "size and length must be same len in shape.gaussian"
+        
+        tc = []
+        if center == None:
+            for entry in size: tc.append(entry/2)
+        else:
+            for entry in center:
+                try: x = float(entry)
+                except: raise ValueError("couldnt cast center to float in shape.gaussian")
+                assert x > 0, "center must be > 0 in shape.gaussian"
+                tc.append(x)
+                
+        try: norm = float(norm)
+        except: raise ValueError, "couldnt cast normalization to float in shape.gaussian"
+            
+        return ts, tl, tc, norm
     
-    if center != None:
-        assert isinstance(center,tuple), "center must be supplied as a tuple"
-        assert len(center) == len(size), "size and center must be same dimensionality"
-        for d in range(len(center)): assert isinstance(center[d],(int,float)), "center values must be float or int"
-    else:
-        center = numpy.zeros_like(size)
-        for d in range(len(center)): center[d] = size[d]/2.
-
-    if normalization is not None:
-        assert isinstance(normalization,(float,int)), "normalization must be float or int"
+    # check types
+    size, lengths, center, normalization = _check_types(size,lengths,center,normalization)
 
     # now build the gaussian. 
-    
     if len(size) == 1:
         x = numpy.arange(size[0]).astype('float')
         s = lengths[0]
@@ -379,7 +485,6 @@ def lorentzian(size,widths,center=None,angle=0,normalization=None):
         return lorentzian
     else:
         return lorentzian*float(normalization)/lorentzian.sum()
-
 
 def radial_fermi_dirac(size,r,kt,center=None):
     rad = radial(size,center)
