@@ -49,6 +49,16 @@ def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimite
         data from filename; see individual opener functions for details
     """
     
+    def _check_name(filename):
+        
+        # get extension from filename
+        assert len(filename.split('.')) >= 2, "filename appears to have no extension"
+        ext = filename.split('.')[-1]
+        assert ext in all_exts, "ext \"%s\" not recognized" % ext
+        
+        return ext
+        
+    
     # define extension types to control switching
     img_exts     = ('jpg', 'jpeg', 'gif', 'png', 'bmp', )
     fits_exts    = ('fits', 'fit', )
@@ -56,19 +66,17 @@ def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimite
     pck_exts     = ('pck', )
     zip_exts     = ('zip','gz',) # assume these are actually fits files
     ds9mask_exts = ('reg', )
-    fits_exts += zip_exts
-    all_exts = img_exts + fits_exts + txt_exts + pck_exts + ds9mask_exts
+    fits_exts   += zip_exts
+    all_exts     = img_exts + fits_exts + txt_exts + pck_exts + ds9mask_exts
 
     # get extension from filename
-    assert len(filename.split('.')) >= 2, "filename appears to have no extension"
-    ext = filename.split('.')[-1]
-    assert ext in all_exts, "ext \"%s\" not recognized" % ext
+    ext = _check_name(filename)
 
     # pass arguments to correct opener
-    if ext in img_exts:  return openimage(filename)
-    if ext in fits_exts: return openfits(filename,quiet=quiet,orientImageHDU=True)
-    if ext in txt_exts:  return read_text_array(filename,convert_to=convert_to,delimiter=delimiter)
-    if ext in pck_exts:  return load_pickle(filename)
+    if ext in img_exts:     return openimage(filename)
+    if ext in fits_exts:    return openfits(filename,quiet=quiet,orientImageHDU=True)
+    if ext in txt_exts:     return read_text_array(filename,convert_to=convert_to,delimiter=delimiter)
+    if ext in pck_exts:     return load_pickle(filename)
     if ext in ds9mask_exts: return open_ds9_mask(filename,force_reg_size=force_reg_size)
 
 def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t',overwrite=None,scaling=None,do_zip=False,append_component=True):
@@ -110,18 +118,44 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
         nothing. Will raise an exception if something wrong happens.
     """
     
+    def _check_types(data,scaling,filename, do_zip):
+        
+        assert isinstance(data, numpy.ndarray), "data must be a numpy array"
+
+        assert len(filename.split('.')) >= 2, "filename appears to have no extension"
+        ext = filename.split('.')[-1]
+        assert ext in img_exts or ext in fits_exts or ext in txt_exts, "ext \"%s\" not recognized"%ext
+
+        assert do_zip in (True,False,1,0,'each','all')
+
+        if scaling != None:
+            assert isinstance(scaling, (str, float, int))
+            if isinstance(scaling, str): assert scaling in scales
+            else:
+                try: scaling = float(scaling)
+                except: raise ValueError("couldnt cast scaling to float in speckle.save")
+
+        return scaling
+        
+        
+    
     assert isinstance(data,numpy.ndarray), "data must be a numpy array"
     
     # define extension types to control switching
     img_exts  = ('jpg','jpeg','gif','png','bmp')
     fits_exts = ('fits',)
     txt_exts  = ('txt','csv')
+    all_exts  = img_exts+fits_exts+txt_exts
+    
+    # these are the known scales with names
+    scales = ('linear','sqrt','log')
+    
+    # check types
+    scaling = _check_types(data, scaling, filename, do_zip)
     
     # rescale the data
     if scaling != None:
-        assert isinstance(scaling,(str,float))
         mag, phase = numpy.abs(data), numpy.angle(data)
-        if isinstance(scaling, str): assert scaling in ('sqrt','log')
         if scaling == 'linear': pass
         if scaling == 'sqrt':   mag = numpy.sqrt(mag)
         if scaling == 'log':    mag = numpy.log(mag/mag.min())
@@ -129,9 +163,7 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
         data = mag*numpy.exp(complex(0,1)*phase)
     
     # get extension from filename
-    assert len(filename.split('.')) >= 2, "filename appears to have no extension"
     ext = filename.split('.')[-1]
-    assert ext in img_exts or ext in fits_exts or ext in txt_exts, "ext \"%s\" not recognized"%ext
     if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map,append_component=append_component)
     if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite,append_component=append_component)
     if ext in txt_exts:
@@ -140,7 +172,6 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
         else: write_text_array(filename,data,header=header)
 
     # zip output
-    assert do_zip in (True,False,1,0,'each','all')
     if do_zip != False: _zip(filename,do_zip)
     
     

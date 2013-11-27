@@ -819,3 +819,201 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10, align=Fals
 
     # return the merged data
     return data_to*blender + scaled_from*(1-blender) 
+
+def sort_configurations(weights,capture=0.5,louvain=False):
+    
+    """ Sort a similarity matrix into configurations. This is used, for example,
+    when collecting CDI or FTH frames and the beam is drifting. In these circumstances
+    there will be some variability between frames as the speckle pattern shifts
+    configurations. This code sorts the speckle patterns into configurations
+    using two different algorithms.
+    
+    The non-default algorithm, specifed by louvain=True, uses graph-theoretical
+    tools and requires two additional python packages which can be found
+    with google:
+        1. networkx
+        2. community (implements Louvain partitioning method for networkx)
+        
+    The louvain partitioner used here is tuned to be very aggressive; it should
+    always find at least two configurations.
+    
+    The louvain and default algorithms should give similar results, but will
+    probably disagree in the case of elements which could reasonably go into
+    two configurations.
+    
+    Arguments:
+    
+        weights - a 2d numpy array where the value entry (i,j) corresponds
+            to some similarity metric between frames i and j of the experimental
+            data. Such a metric may be obtained through
+            speckle.crosscorr.pairwise_covariances or through your own method.
+            Must be real valued.
+            
+        louvain - optional, default False. If True, will attempt to interpret
+            weights as a weighted network and partition it according to the
+            Louvain method of community detection in large graphs.
+            
+        capture - optional, default 0.5. If louvain = False, this sets the
+            degree of improvement in the average pair-correlation coefficient sought
+            by the configruation sorter. For example, say the average correlation
+            is 0.95. This will try to reach a value of 0.95+capture*(1-0.95)
+            by increasing the number of configurations.
+            
+    Returns:
+        a list of lists. Each sub-list represents a configuration,
+            and the elements of each list are the frame numbers which
+            belong to the configuration."""
+        
+    def _check_types():
+        assert isinstance(weights,numpy.ndarray), "weights must be an array"
+        assert weights.ndim == 2, "weights must be 2d"
+        assert weights.shape[0] == weights.shape[1], "weights must be square"
+        assert louvain in (True,False,0,1), "louvain must be boolean-evaluable"
+        if not louvain:
+            try: float(capture)
+            except TypeError: raise TypeError("cant cast capture to float in conditioning.sort_configurations; value is %s"%capture)
+   
+    def _sort(weights,capture):
+        
+        class configurations:
+
+            def __init__(self):
+                pass
+                
+            def load(self,data):
+                    
+                data = data.astype(numpy.float32)
+                self.correlations = data
+                self.N = data.shape[0]
+                    
+                # make the initial correlation when the new data is opened.
+                self.configs = []
+                config0 = config(0)
+                config0.members = numpy.arange(self.N)
+                self.configs.append(config0)
+                
+                # calculate the initial correlation average
+                self._average_correlation()
+                    
+            def sort_iteration(self):
+                
+                # first: find the worst member of any configuration.
+                # we define "worst" as having the lowest correlation
+                # with the anchor.
+                worst = 1
+                worst_member = None
+                worst_config = None
+                
+                for n, c in enumerate(self.configs):
+                    c.find_worst_corr(self.correlations)
+                    if c.worst_corr < worst:
+                        worst = c.worst_corr
+                        worst_member = c.worst_member
+                        worst_config = c
+                
+                # second: split off the worst member and make a new configuration
+                # using that member as the anchor.
+                worst_config.remove(worst_member)
+                new_config  = config(worst_member)
+                worst_corrs = self.correlations[worst_member]
+                
+                for c in self.configs:
+                    take = []
+                    for m in c.members:
+                        if worst_corrs[m] > self.correlations[c.anchor,m]:
+                            take.append(m)
+                            
+                    # add members to new_config; remove from c
+                    new_config.members += take
+                    c.remove(take)
+                        
+                new_config.members.append(new_config.anchor)
+                new_config.members = numpy.array(new_config.members)
+                self.configs.append(new_config)
+                
+                # update the average correlation
+                self._average_correlation()
+                
+            def _average_correlation(self):
+                total_corr = 0
+                for c in self.configs:
+                    c.get_corrs(self.correlations)
+                    total_corr += c.corrs.sum()
+                self.average_corr = total_corr/self.N
+                self.average_corr2 = (total_corr-len(self.configs))/(self.N-len(self.configs))
+        
+        class config:
+    
+            def __init__(self,anchor):
+                self.anchor  = anchor
+                self.members = []
+                self.corrs   = []
+                
+            def find_worst_corr(self,corrs):
+                self.get_corrs(corrs)
+                self.worst_corr   = self.corrs.min()
+                self.worst_member = self.members[self.corrs.argmin()]
+                
+            def get_corrs(self,corrs):
+                acorrs = corrs[self.anchor]
+                self.corrs = numpy.array([acorrs[member] for member in self.members])
+        
+            def remove(self,which):
+                assert isinstance(which,(int,list))
+                m = self.members.tolist()
+                if isinstance(which,int):
+                    m.remove(which)
+                if isinstance(which,list):
+                    for w in which: m.remove(w)
+                self.members = numpy.array(m)   
+    
+        # load the weights into the sorter
+        c = configurations()
+        c.load(weights)
+        
+        # each iteration adds a configuration. add configurations until
+        # we reach the goal specified by the capture parameter
+        goal = c.average_corr+float(capture)*(1-c.average_corr)
+        while c.average_corr < goal: c.sort_iteration()
+        
+        return [x.members.tolist() for x in c.configs]
+    
+    def _louvain(weights):
+        
+        try:
+            import networkx
+            import community
+        except ImportError:
+            print "couldnt import networkx and community for louvain partitioning"
+            print "falling back to default method"
+            sort_configurations(weights, capture=capture, louvain=False)
+
+        # open the data, then turn it into a network. data is rescaled to force
+        # the sorter to find configurations.
+        weights = weights.astype(numpy.float32)
+        weights = (weights-weights.min())/(1-weights.min())
+        N       = weights.shape[0]
+        
+        # turn the array into a weighted network
+        edges = []
+        for i in range(N):
+            for j in range(i):
+                edge = (i,j,weights[i,j])
+                edges.append(edge)
+        graph = networkx.Graph()
+        graph.add_weighted_edges_from(edges)
+        
+        # run the cluster detection
+        clusters = community.best_partition(graph)
+        
+        # clusters is a dictionary built like frame:configuration.
+        # invert so we have a list of lists, each of which is a configuration
+        n = len(set(clusters.values()))
+        configs = [[] for m in range(n)]
+        for key in clusters.keys(): configs[clusters[key]].append(key)
+        
+        return configs
+
+    _check_types()
+    if louvain: return _louvain(weights)
+    else:       return _sort(weights,capture)

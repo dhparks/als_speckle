@@ -35,44 +35,53 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
         
     returns: a complex array representing the propagated wavefield.
     """
-    # check requirements regarding types of data
-    assert isinstance(data,np.ndarray),                "data must be an array"
-    assert data.shape[0] == data.shape[1],                "data must be square"
-    data = data.astype(np.complex64)
-    assert data.ndim == 2,                                "supplied wavefront data must be 2-dimensional"
-    assert type(data_is_fourier) == bool,                 "data_is_fourier must be bool"
-    assert isinstance(phase,(np.ndarray,type(None))),  "phase must be array or None"
-    assert type(band_limit) == bool,                      "band_limit must be bool"
+    
+    def _check_types():
+        
+        assert isinstance(data,np.ndarray),               "data must be an array"
+        assert data.shape[0] == data.shape[1],            "data must be square"
+        data = data.astype(np.complex64)
+        assert data.ndim == 2,                            "supplied wavefront data must be 2-dimensional"
+        assert type(data_is_fourier) == bool,             "data_is_fourier must be bool"
+        assert isinstance(phase,(np.ndarray,type(None))), "phase must be array or None"
+        assert type(band_limit) == bool,                  "band_limit must be bool"
+
+        if phase == None:
+            assert isinstance(energy_or_wavelength, (int,float,type(None))), "energy/wavelength must be float or int"
+            assert isinstance(pixel_pitch, float), "pixel_pitch must be a float saying how big each pixel is in meters"
+            assert isinstance(z, float), "z must be a float giving how far to propagate in meters"
+            
+        if phase != None:
+            assert isinstance(phase,np.ndarray), "phase must be an array"
+            assert phase.shape == data.shape,    "phase and data must be same shape"
+            
+    # check types
+    _check_types()
 
     I = complex(0,1)
     # first see if a phase is supplied. if not, make it from the supplied parameters.
     if phase == None:
     
-        assert isinstance(energy_or_wavelength, (int,float,type(None))), "energy/wavelength must be float or int"
-        assert isinstance(pixel_pitch, float), "pixel_pitch must be a float saying how big each pixel is in meters"
-        assert isinstance(z, float), "z must be a float giving how far to propagate in meters"
-    
         # convert energy_or_wavelength to wavelength.  If < 1 assume it's a wavelength.
         if energy_or_wavelength < 1: wavelength = energy_or_wavelength
         else: wavelength = scattering.energy_to_wavelength(energy_or_wavelength)*1e-10
     
+        # make the phase factor
         N = len(data)
         r = np.fft.fftshift((shape.radial((N,N)))**2)
         phase = np.exp(-I*np.pi*wavelength*z*r/(pixel_pitch*N)**2)
         
+        # calculate the upper limit
         upper_limit = N*pixel_pitch**2/wavelength # this is the nyquist limit on the far-field quadratic phase factor
 
                 
     else:
-        # phase has been supplied, so check its types for correctness. if phase-generating parameters are supplied they are ignored.
-        assert isinstance(phase,np.ndarray), "phase must be an array"
-        assert phase.shape == data.shape,       "phase and data must be same shape"
+        # phase has been supplied, so check its types for correctness.
+        # if phase-generating parameters are supplied they are ignored.
         upper_limit = -1
         
-    if not data_is_fourier:
-        res = np.fft.fft2(data)
-    else:
-        res = data
+    if data_is_fourier:     res = data
+    if not data_is_fourier: res = np.fft.fft2(data)
         
     if z > upper_limit and z > 0:
         #print "warning! z (%s) exceeds upper limit (%s)"%(z,upper_limit)
@@ -206,7 +215,7 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
             
         # check gpu_info
         try:
-            assert gpu.valid, "gpu_info in propagate_distances improperly specified"
+            assert gpu.valid(gpu_info), "gpu_info in propagate_distances improperly specified"
             context, device, queue, platform = gpu_info
         except AssertionError:
             fallback = True
@@ -246,7 +255,7 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         f = np.fft.fft2(data)
         return f, store, complex(0,1)
     
-    def _z_calc(n,z):
+    def _calc(n,z):
         
         if gpu_info == None:
             phase_z  = cpu_phase(z)
@@ -335,7 +344,7 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         if not silent:
             sys.stdout.write("\rpropagating: %1.2e m (%02d/%02d)" % (z, n+1, nf))
             sys.stdout.flush()
-        _z_calc(n,z)
+        _calc(n,z)
         
     # if im_convert, return both array data AND converted images.
     # otherwise, just return the array data
@@ -371,15 +380,21 @@ def apodize(data_in, sigma=3, threshold = 0.01):
         identical.
     """
     
-    # check types
-    assert isinstance(data_in,np.ndarray),    "data must be an array"
-    assert data_in.ndim == 2,                 "data must be 2d"
+    def _check_types(data_in,sigma,threshold):
+        
+        # check types
+        assert isinstance(data_in,np.ndarray),    "data must be an array"
+        assert data_in.ndim == 2,                 "data must be 2d"
+        
+        try: sigma = float(sigma)
+        except: raise ValueError("couldnt cast sigma to float")
+        
+        try: threshold = float(threshold)
+        except: raise ValueError("couldnt cast threshold to float")
+        
+        return sigma, threshold
     
-    try: sigma = float(sigma)
-    except: print "couldnt cast sigma to float"; exit()
-    
-    try: threshold = float(threshold)
-    except: print "couldnt cast threshold to float"; exit()
+    sigma, threshold = _check_types(data_in,sigma,threshold)
     
     ad    = np.abs(data_in)
     data2 = np.where(ad/ad.max() > threshold, 1, 0)
@@ -418,123 +433,7 @@ def apodize(data_in, sigma=3, threshold = 0.01):
 
     # return
     return convolved, data_in*convolved
-
-def apodize_old(data_in,kt=.1,threshold=0.01,sigma=2,return_type='data'):
-    """ Apodizes a 2d array so that upon back propagation ringing from the
-    aperture is at least somewhat suppressed. The steps this function follows
-    are as follows:
-        # 1. unwrap the data
-        # 2. find the boundary at each angle
-        # 3. do a 1d blur along each angle
-        # 4. rewrap
-
-    Required arguments:
-        data_in: 2d ndarray containing the data to be apodized. This data should
-        be been sliced so that the only object is the target data.
-    
-    Optional arguments:
-        kt: strength of apodizer. Default is kt=0.1. kt=1.0 is VERY strong.
-        threshold: float or int value defines the boundary of the data.
-        sigma: boundary locations are smoothed to avoid with jagged edges;
-            this sets  the smoothing. float or int.
-        return_type: Determines what can be returned.  This can be 'data'
-            (default), 'flter', which returns the flter or 'all', which
-            returns three items: (data, flter, boundary)
-        
-    Returns:
-        The return value depends on return_type, but the default is 'data'
-            which returns the apodized array. Other options are 'flter' or
-            'all'.
-    """
-
-    data = np.copy(data_in)
-    
-    # check types
-    assert isinstance(data,np.ndarray),    "data must be an array"
-    assert data.ndim == 2,                    "data must be 2d"
-    assert isinstance(kt,(int,float)),        "kt must be float or int"
-    assert isinstance(sigma,(int,float)),     "sigma must be float or int"
-    assert isinstance(threshold,(int,float)), "threshold must be float or int"
-    
-    # if the data is complex, operate only on the magnitude component
-    was_complex = False
-    if np.iscomplexobj(data):
-        phase = np.angle(data)
-        data  = np.abs(data)
-        was_complex = True
-        
-    convolve = lambda x,y: np.fft.ifft(np.fft.fft(x)*np.fft.fft(y))
-
-    # select a subregion of data corresponding to a bounding box; embed
-    # it in a padding region of zeros. make sure it is square!
-    import masking, math
-    bbox    = masking.bounding_box(data)
-    sliced  = data[bbox[0]:bbox[1],bbox[2]:bbox[3]]
-    
-    r, c    = sliced.shape
-    L       = max(r,c)
-    if L%2 == 1: L += 1
-    r2 = (L+8)/2-math.floor(r/2)
-    c2 = (L+8)/2-math.floor(c/2)
-    
-    embed = np.zeros((L+8,L+8),sliced.dtype)
-    embed[r2:r2+r,c2:c2+c] = sliced
-
-    # find the center of mass
-    N,M       = embed.shape
-    rows,cols = np.indices((N,M),float)
-    av_row    = np.sum(embed*rows)/np.sum(embed)
-    av_col    = np.sum(embed*cols)/np.sum(embed)
-
-    # determine the maximum unwrapping radius
-    r, c = embed.shape
-    R = int(min([av_row,r-av_row,av_col,c-av_col]))
-    
-    # unwrap the data
-    unwrap_plan = wrapping.unwrap_plan(0,R,(av_col,av_row)) # very important to set r = 0!
-    unwrapped   = wrapping.unwrap(embed,unwrap_plan)
-    ux          = unwrapped.shape[1]
-    u_der       = unwrapped-np.roll(unwrapped,-1,axis=0)
-    
-    # at each column, find the edge of the data by stepping along rows until the object
-    # is found. any ways to make this faster?
-    threshold = float(threshold)
-    boundary  = np.zeros(ux,float)
-    indices   = np.arange(R-1)
-    for col in range(ux):
-        u_der_col = u_der[:,col]
-        ave = np.sum(u_der_col[:-1]*indices)/np.sum(u_der_col[:-1])
-        boundary[col] = ave+1
-
-    # smooth the edge values by convolution with a gaussian
-    kernel = np.fft.fftshift(shape.gaussian((ux,),(sigma,),normalization=1.0))
-    boundary = np.abs(convolve(boundary,kernel))-1
-    
-    # now that the coordinates have been smoothed, build the flter as a series of 1d flters along the column (angle) axis
-    x = np.outer(np.arange(R),np.ones(ux)).astype(float)/boundary
-    flter = _apodization_f(x,kt)
-    
-    # rewrap the flter. align the filter to the data
-    rplan  = wrapping.wrap_plan(0,R)
-    flter  = wrapping.wrap(flter,rplan)
-    
-    e_flter = np.zeros_like(embed).astype(np.float32)
-    e_flter[0:flter.shape[0],0:flter.shape[1]] = flter
-    
-    data_mask  = np.where(embed > 1e-6,1,0)
-    flter_mask = np.where(e_flter > 1e-6,1,0)
-    
-    rolls  = lambda d, r0, r1: np.roll(np.roll(d,r0,axis=0),r1,axis=1)
-    coords = conditioning.align_frames(flter_mask,align_to=data_mask,return_type='coordinates')[0]
-    flter  = rolls(e_flter,coords[0],coords[1])
-
-    if was_complex: data *= np.exp(complex(0,1)*phase)
-    
-    # return a fltered version of the data.
-    if return_type == 'filter': return flter
-    if return_type == 'data':   return flter*data
-    if return_type == 'all':    return flter*data,flter,boundary
-    
+ 
 def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
     """ Calculates the acutance of a back propagated wave field. Right now it
     just does the acutance of the magnitude component.
@@ -558,13 +457,40 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
         a list of acutance values, one for each frame of the supplied data.
     """
    
-    # check types
-    assert isinstance(data, np.ndarray),               "data must be ndarray"
-    assert data.ndim in (2,3),                            "data must be 2d or 3d"
-    assert method in ('sobel','roll'),                    "unknown derivative method"
-    assert isinstance(exponent,(int, float)),             "exponent must be float or int"
-    assert isinstance(normalized, type(True)),            "normalized must be bool"
-    assert isinstance(mask, (type(None), np.ndarray)), "mask must be None or ndarray"
+    def _check_types(data,method,exponent,normalized,mask):
+        
+        assert isinstance(data, np.ndarray) and data.ndim in (2,3), "data must be 2d or 3d array"
+        assert method in ('sobel', 'roll'), "acutance derivative method %s unrecognized"%method
+        assert normalized in (True, False, 1, 0), "noramlized must be boolean evaluable"
+        assert isinstance(mask,(type(None),np.ndarray)), "mask must be None or ndarray"
+        
+        try: exponent = float(exponent)
+        except: raise ValueError("couldnt cast exponent to float in propagate.acutance")
+        
+        return exponent
+    
+    def _calc(frame):
+        
+        if bounds != None:
+            data = data[bounds[0]:bounds[1],bounds[2]:bounds[3]]
+            mask = mask[bounds[0]:bounds[1],bounds[2]:bounds[3]]
+
+        if method == 'sobel':
+            from scipy.ndimage.filters import sobel
+            dx = np.abs(sobel(data,axis=-1))
+            dy = np.abs(sobel(data,axis=0))
+                
+        if method == 'roll':
+            dx = data-np.roll(data,1,axis=0)
+            dy = data-np.roll(data,1,axis=1)
+    
+        gradient = np.sqrt(dx**2+dy**2)**exponent
+                
+        a = np.sum(gradient*mask)
+        if normalized: a *= 1./np.sum(data*mask)
+        return a
+
+    exponent = _check_types(data,method,exponent,normalized,mask)
     
     import masking
     if data.ndim == 2: data.shape = (1,data.shape[0],data.shape[1])
@@ -572,41 +498,10 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
     bounds = masking.bounding_box(mask)
 
     # calculate the acutance
-    import time
     acutance_list = []
     for n,frame in enumerate(data):
-        acutance_list.append(_acutance_calc(np.abs(frame).real,method,normalized,mask,exponent,bounds))
+        acutance_list.append(_calc(np.abs(frame).real))
         
     # return the calculation
     return acutance_list
-            
-def _acutance_calc(data,method,normalized,mask,exponent,bounds=None):
-    assert data.ndim == 2, "data is wrong ndim"
-
-    if bounds != None:
-        data = data[bounds[0]:bounds[1],bounds[2]:bounds[3]]
-        mask = mask[bounds[0]:bounds[1],bounds[2]:bounds[3]]
-
-    if method == 'sobel':
-        from scipy.ndimage.filters import sobel
-        dx = np.abs(sobel(data,axis=-1))
-        dy = np.abs(sobel(data,axis=0))
-                
-    if method == 'roll':
-        dx = data-np.roll(data,1,axis=0)
-        dy = data-np.roll(data,1,axis=1)
-
-    gradient = np.sqrt(dx**2+dy**2)**exponent
-            
-    a = np.sum(gradient*mask)
-    if normalized: a *= 1./np.sum(data*mask)
-    return a
-
-def _apodization_f(x,kt):
-    F = 1./(np.exp((x-1)/kt)+1)
-    F += -.5
-    F[F < 0] = 0
-    m = np.max(F,axis=0)
-    F *= 1./m
-    return F
 
