@@ -1,28 +1,34 @@
 __kernel void execute(
     __global float2* in,     
-    __global float* denoms, 
-    __global float2* out,    
-    int mode)
+    __global float* denoms,
+    __local float* locald,
+    __global float2* out)
 
 {   
 
     int angles = 512;
-    int i = get_global_id(0);
-    int j = get_global_id(1);
-
-    int index  = i+j*angles;
-    float d = denoms[j];
-    float v = native_recip(d*d);
-    float mag = 0;
+    int i = get_global_id(0); // col
+    int j = get_global_id(1); // row
     
-    if (mode == 0){ //wochner
-	float2 a = in[index];
-	mag = hypot(a.x,a.y);
-	out[index] = (float2)(mag*v-1,0);
-    }
-	
-    if (mode == 1){ // straight division to make ac value 1
-	out[index] = (float2)(in[index].x*v,0);
-    }
+    int global_col = get_global_id(0);
+    int global_row = get_global_id(1);
+    int local_col  = get_local_id(0);
+    int local_row  = get_local_id(1);
+
+    // copy denoms to local
+    if (local_col == 0) {
+	float d = denoms[global_row];
+	locald[local_row] = native_recip(d*d);}
+    barrier(CLK_GLOBAL_MEM_FENCE);
+
+    // get the denominator from local to register
+    int index = global_row*angles+global_col;
+    float d   = locald[local_row];
+    float mag;
+    
+    float2 a = in[index];
+    mag = native_sqrt(a.x*a.x+a.y*a.y);
+
+    out[index] = (float2)(mag*d-1,0);
 	
 }

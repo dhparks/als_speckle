@@ -7,7 +7,6 @@ import numpy as np
 from . import shape, wrapping, crosscorr
 
 DFT = np.fft.fft2
-IDFT = np.fft.ifft2
 shift = np.fft.fftshift
 
 def make_cosines(components,N):
@@ -69,9 +68,13 @@ def fft_decompose(ac):
         
     assert isinstance(ac,np.ndarray)
     
-    fft = DFT(ac,axes=(1,))
-    return fft[:,2:ac.shape[1]/2+2:2]/ac.shape[1]
-
+    if ac.ndim == 2:
+        fft = DFT(ac,axes=(1,))
+        return fft[:,2:ac.shape[1]/2+2:2]/ac.shape[1]
+    if ac.ndim == 1:
+        fft = np.fft.fft(ac)
+        return fft[2:ac.shape[0]/2+2:2]/ac.shape[0]
+        
 def despike(ac,width=4):
 
     def _do(x,w):
@@ -209,12 +212,17 @@ def rot_sym(speckles,uwplan=None,resize_to=360,get_back=('spectra_ds',)):
     return to_return
 
 def concentrations(data_in):
-        # divide each component by the sum of values at the same |q|
+    # divide each component by the sum of values at the same |q|
+
+    assert isinstance(data_in,np.ndarray)
+    assert data_in.ndim == 3
+    import time
 
     frames, rows, cols = data_in.shape
-    powers = numpy.sum(data_in,axis=-1)       # sum along the component-value axis
-    out    = numpy.zeros((rows,frames),float) # the concentrations
-    q2     = (data_in.transpose()/powers.transpose()).transpose()
-    c2     = (q2**2).sum(axis=-1).transpose()
+    
+    # calculate the concentrations. numexpr does not speed this calculation (?!)
+    p  = np.sum(data_in,axis=-1)       # sum along the component-value axis
+    q = (data_in.transpose()/p.transpose()).transpose()
+    c = (q**2).sum(axis=-1).transpose()
 
-    return c2, powers.transpose()
+    return c, p.transpose()

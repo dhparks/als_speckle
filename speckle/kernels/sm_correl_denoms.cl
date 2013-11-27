@@ -1,31 +1,24 @@
 __kernel void execute(
     __global float2* in,
     __global float* out,
-    int mode) 
+    __local float* buff) 
 {   
 
-	int j = get_global_id(0);
-	float temp = 0;
-	int angles = 512;
-	float m = 0;
-	int aj = j*angles;
-	float2 current = 0;
-	
-	if (mode == 0){ // this is the mode in the wochner paper
-	    for (int k = 0; k < angles; k++) {
-		current = in[k+aj];
-		temp += native_sqrt(current.x*current.x+current.y*current.y);
-	    out[j] = temp/angles;
-	    }
-	    //float x = out[j];
-	    //out[j] = x*x/(angles*angles);
-	    // squaring is handled in correl_norm.cl
-	    
-	    
-	    } // end if
-	    
-	if (mode == 1){ // divide by the delta=0 value
-	    out[j] = in[j*angles].x;
-	    }
+    int angles = 512;
+    int global_row = get_global_id(0);
+    int local_row  = get_local_id(0);
+    int row_offset = angles*global_row;
+
+    float temp;
+    float2 current;
+    for (int k = 0; k < angles; k++) {
+	current = in[k+row_offset];
+	temp += native_sqrt(current.x*current.x+current.y*current.y);
+    buff[local_row] = temp/angles;
+    }
+    
+    barrier(CLK_GLOBAL_MEM_FENCE);
+    
+    out[global_row] = buff[local_row];
 	
 }

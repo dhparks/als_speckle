@@ -18,12 +18,20 @@ try:
     use_gpu = True
 except ImportError:
     use_gpu = False
+print "use_gpu in import: %s"%use_gpu
     
 try:
     import numexpr
     have_numexpr = True
 except ImportError:
     have_numexpr = False
+    
+try:
+    import pyfftw
+    pyfftw.interfaces.cache.enable()
+    have_fftw = True
+except ImportError:
+    have_fftw = False
     
 class phasing(common):
     
@@ -64,7 +72,7 @@ class phasing(common):
     Probably the richardson_lucy() method should be removed.
     """
     
-    def __init__(self,force_cpu=False,gpu_info=None):
+    def __init__(self,force_cpu=False,force_np_fft=False,gpu_info=None):
         global use_gpu
 
         # load the gpu if available
@@ -77,6 +85,20 @@ class phasing(common):
 
         if use_gpu: self.compute_device = 'gpu'  
         else: self.compute_device = 'cpu'
+        
+        # can switch between np.fft and pyfft by use of the force_np_fft switch. mainly
+        # this is just for testing
+        if not use_gpu:
+            
+            if have_fftw and not force_np_fft:
+                print "using fftw"
+                self.fft2  = pyfftw.interfaces.numpy_fft.fft2
+                self.ifft2 = pyfftw.interfaces.numpy_fft.ifft2
+                
+            else:
+                print "using np.fft"
+                self.fft2  = np.fft.fft2
+                self.ifft2 = np.fft.ifft2
             
         # state variables. certain of these must be changed from zero for the
         # reconstruction to proceed. these track which data is loaded into the
@@ -754,17 +776,19 @@ class phasing(common):
             self._fft2(convolved,convolved,inverse=True)
             
         if not use_gpu:
-            return np.fft.ifft2(np.fft.fft2(to_convolve)*kernel)
+            
+            return ifft2(fft2(to_convolve)*kernel)
 
     def _fft2(self,data_in,data_out,inverse=False):
         # unified wrapper for fft.
         # note that this does not expose the full functionatily of the pyfft
         # plan because of assumptions regarding the input (eg, is complex)
         
-        if use_gpu: self.fftplan.execute(data_in=data_in.data,data_out=data_out.data,inverse=inverse)
+        if use_gpu:
+            self.fftplan.execute(data_in=data_in.data,data_out=data_out.data,inverse=inverse)
         else:
-            if inverse: data_out = np.fft.ifft2(data_in)
-            else      : data_out = np.fft.fft2(data_in)
+            if inverse: data_out = self.ifft2(data_in)
+            else:       data_out = self.fft2(data_in)
         return data_out
 
     def _iteration(self,algorithm,beta=0.8,iteration=None):
@@ -817,13 +841,15 @@ class phasing(common):
                     
                     if have_numexpr:
                         div  = numexpr.evaluate("div**2")
-                        div2 = np.fft.fft2(div)
+                        div2 = self._fft2(div,div)
                         div  = numexpr.evaluate("div2*psf")
-                        div  = np.fft.ifft2(div)
+                        div  = self._fft2(div,div,inverse=True)
                         div  = numexpr.evaluate("sqrt(abs(div))")
                     else:
                         div = div**2
-                        div = np.fft.ifft2(np.fft.fft2(div)*psf)
+                        div = self._fft2(div,div)
+                        div = div*psf
+                        div = self._fft2(div,div,inverse=True)
                         div = np.sqrt(np.abs(div))
                     
             # step three: if a longitudinal coherence estimate has been supplied
@@ -868,7 +894,7 @@ class phasing(common):
                 m, pf, fd = self.modulus, self.psi_fourier,self.fourier_div
                 if have_numexpr: self.psi_fourier = numexpr.evaluate("m*pf/abs(fd)")
                 else:            self.psi_fourier = m*pf/np.abs(fd)
-
+                
             # 4. inverse fourier transform the new fourier estimate
             out = self._fft2(self.psi_fourier,out,inverse=True)
             
@@ -877,7 +903,8 @@ class phasing(common):
         # define the algorithm functions
         def _hio(psi_in,psi_out,support):
             # hio algorithm, given psi_in and psi_out
-            if use_gpu: self._kexec('hio',np.float32(beta),support,psi_in,psi_out,psi_in)
+            if use_gpu:
+                self._kexec('hio',np.float32(beta),support,psi_in,psi_out,psi_in)
             else:
                 if have_numexpr: psi_in = numexpr.evaluate("(1-support)*(psi_in-beta*psi_out)+support*psi_out")
                 else:            psi_in = (1-support)*(psi_in-beta*psi_out)+support*psi_out
@@ -969,11 +996,11 @@ def align_global_phase(data):
         was2d = True
         data.shape = (1,data.shape[0],data.shape[1])
         
+    I = 0+1j
     for frame in data:
         x = frame.ravel()
-        e = lambda p: np.sum(np.abs((x*np.exp(complex(0,1)*p)).imag))
+        e = lambda p: np.sum(np.abs((x*np.exp(I*p)).imag))
         opt, val, conv, num = fminbound(e,0,2*np.pi,full_output=1)
-        #print abs(x.imag).sum(),opt,abs((x*np.exp(complex(0,1)*opt)).imag).sum()
         frame *= np.exp(complex(0,1)*opt)
         
         # minimizing the imaginary component can give a degenerate solution (ie, 0, pi)

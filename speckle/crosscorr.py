@@ -7,6 +7,26 @@ import numpy as np
 
 from . import averaging, shape, wrapping, masking
 
+# check for numexpr and fftw
+try:
+    import pyfftw
+    pyfftw.interfaces.cache.enable()
+    have_fftw = True
+    DFT  = pyfftw.interfaces.numpy_fft.fft2
+    IDFT = pyfftw.interfaces.numpy_fft.ifft2
+    
+except ImportError:
+    have_fftw = False
+    DFT  = numpy.fft.fft2
+    IDFT = numpy.fft.ifft2
+
+try:
+    import numexpr
+    have_numexpr = True
+except ImportError:
+    have_numexpr = False
+
+
 def point_memory(imgA, imgB, darks=None, qacfs=None, qacfdarks=None, mask=None, flatten_width=30, removeCCBkg=True, pickPeakMethod="integrate", intermediates=False):
     """Calculates the cross-correlation coefficient between two image pairs imgA
         and imgB. This calculates the value rho where:
@@ -249,41 +269,44 @@ def crosscorr(imgA, imgB, axes=(0,1), already_fft=(), shift=True):
         cc(imgA, imgB) - cross correlation of imgA with imgB
     """
     
-    assert isinstance(imgA,np.ndarray) and isinstance(imgB,np.ndarray), "input must be arrays"
-    assert imgA.shape == imgB.shape, "images not the same size"
-    assert imgA.ndim == 2, "images must be two-dimensional"
-    assert isinstance(already_fft,(list,tuple,int)), "already_fft must be list or tuple"
-    if isinstance(already_fft, int):
-        already_fft = [already_fft]
-    assert all([e in (0, 1, -1, -2) for e in already_fft]), "unrecognized already_fft values"
-    assert isinstance(shift, (bool, int)), "shift must be bool or int"
+    def _check_types(already_fft):
+        assert isinstance(imgA,np.ndarray) and isinstance(imgB,np.ndarray), "input must be arrays"
+        assert imgA.shape == imgB.shape, "images not the same size"
+        assert imgA.ndim == 2, "images must be two-dimensional"
+        assert isinstance(already_fft,(list,tuple,int)), "already_fft must be list or tuple"
+        if isinstance(already_fft, int):
+            already_fft = [already_fft,]
+        assert all([e in (0, 1, -1, -2) for e in already_fft]), "unrecognized already_fft values"
+        assert isinstance(shift, (bool, int)), "shift must be bool or int"
+        return already_fft
+
+    already_fft = _check_types(already_fft)
 
     (ysize, xsize) = imgA.shape
 
     # This makes the FFT work for datatypes of '>f4'.  We occasionally see data that is in this format.
-    if imgA.dtype.byteorder == '>':
-        imgA = imgA.astype(imgA.dtype.name)
-    if imgB.dtype.byteorder == '>':
-        imgB = imgB.astype(imgB.dtype.name)
+    if imgA.dtype.byteorder == '>': imgA = imgA.astype(imgA.dtype.name)
+    if imgB.dtype.byteorder == '>': imgB = imgB.astype(imgB.dtype.name)
         
     if np.array_equal(imgA,imgB): # AC condition
         if already_fft != ():
             fftA = fftB = imgA
         else:
-            fftA = fftB = np.fft.fft2(imgA, axes=axes)
+            fftA = fftB = DFT(imgA, axes=axes)
     else:
         # compute forward ffts accounting for pre-computed ffts
         if 0 in already_fft:
             fftA = imgA
         else:
-            fftA = np.fft.fft2(imgA,axes=axes)
+            fftA = DFT(imgA,axes=axes)
 
         if 1 in already_fft:
             fftB = imgB
         else:
-            fftB = np.fft.fft2(imgB,axes=axes)
+            fftB = DFT(imgB,axes=axes)
 
-    cc = np.fft.ifft2(fftA*np.conjugate(fftB),axes=axes)
+    # conjugate an calculate inverse fft
+    cc = IDFT(fftA*np.conjugate(fftB),axes=axes)
 
     if shift:
         return np.fft.fftshift(cc, axes=axes)
@@ -332,7 +355,7 @@ def pairwise_covariances(data, save_memory=False):
 
     # precompute the dfts and autocorrelation-maxes for speed
     for n in range(frames):
-        dft = np.fft.fft2(data[n].astype('float'))
+        dft = DFT(data[n].astype('float'))
         if not save_memory: dfts[n] = dft
         ACs[n] = np.abs(crosscorr(dft,dft,already_fft=(0,1))).max()
           
@@ -370,14 +393,17 @@ def alignment_coordinates(obj, ref, already_fft=()):
             see above
     """
     
-    assert isinstance(ref,np.ndarray) and ref.ndim==2, "ref must be 2d array"
-    assert isinstance(obj,np.ndarray) and obj.ndim==2, "obj must be 2d array"
-    assert ref.shape == obj.shape, "ref and obj must have same same"
+    def _check_types():
+        assert isinstance(ref,np.ndarray) and ref.ndim==2, "ref must be 2d array"
+        assert isinstance(obj,np.ndarray) and obj.ndim==2, "obj must be 2d array"
+        assert ref.shape == obj.shape, "ref and obj must have same same"
+        
+    _check_types()
     
     rows,cols = ref.shape
     
     # compute the cross correlation and find the location of the max
-    corr = crosscorr(obj,ref,already_fft=already_fft)
+    corr   = crosscorr(obj,ref,already_fft=already_fft)
     cc_max = np.abs(corr).argmax()
     max_row,max_col = cc_max/cols,cc_max%cols
     

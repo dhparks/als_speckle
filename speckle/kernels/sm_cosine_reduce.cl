@@ -1,6 +1,6 @@
 __kernel void execute(
     __global float2* cor_vals, // fft of correlation values
-    __global float2*  out_vals) // output buffer
+    __global float2* out_vals) // output buffer
 
 {   
 	

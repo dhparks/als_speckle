@@ -179,8 +179,7 @@ def g2(data,numtau=None,norm="plain",qAvg=("circle",10),gpu_info=None,silent=Tru
         gpu_info - for fast calculation of the g2 function, a gpu context
             can be passed to this function. This requires the gpu context
             to be created outside of this function's invocation, typically
-            though speckle.gpu.init(). If gpu_info is supplied, fft methods are
-            automatically used and the value of the fft argument is overridden.
+            though speckle.gpu.init().
 
     returns:
         g2 - correlation function for numtau values 
@@ -345,7 +344,7 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
             
         return gpu_d
 
-    def _calc(data_in,flt,cpx):
+    def _calc_g2(data_in,flt,cpx):
         
         ds = data_in.shape
         
@@ -390,9 +389,20 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
         return numerator
 
     if gpu_info != None: batch_size = 2048
+    
+    print data.shape
+    
     cpu_data     = np.ascontiguousarray(data.reshape(fr,ys*xs).transpose())
     output       = np.zeros((ys*xs,fr),np.float32)
     batches, rem = (ys*xs)/batch_size, (ys*xs)%batch_size
+    
+    print data.shape, batches, rem
+    
+    # question for future: if someone passes an enormous dataset (like say 2GB)
+    # to this function, how does the above reshaping handle it? When the data
+    # is opened, it creates a mem-map... so does the actual float data get
+    # loaded to memory in the above or is something gnarly done with the
+    # representation returned by pyfits?
     
     # make plans, allocate memory, etc
     if gpu_info == None: cpu_d = _prep_cpu()
@@ -411,46 +421,12 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
     
     for n, job in enumerate(jobs):
         start, stop, flt, cpx = job
-        g2batch = _calc(cpu_data[start:stop],flt,cpx)
+        g2batch = _calc_g2(cpu_data[start:stop],flt,cpx)
         output[start:stop] = g2batch
         
     # normalize, reshape, and return data
     output *= 1./(fr-np.arange(fr))
     return output.transpose().reshape((fr,ys,xs))
-
-# opt_xx_tile are global variables which are set once by _tune_tile_size
-opt_fft_tile = None
-opt_sm_tile  = None
-def _tune_tile_size(data):
-    
-    global opt_fft_tile
-    global opt_sm_tile
-    
-    import time
-    print "tuning"
-    
-    times     = []
-    test_data = np.random.rand(nf,260,260)
-    print test_data.shape
-    tauvals   = np.arange(nf/2)
-    
-    if fft and opt_fft_tile != None:
-        return opt_fft_tile
-    if fft and opt_fft_tile == None:
-
-        tiles = (4,8,16,32,64,128)
-        for ts in tiles:
-            t0 = time.time()
-            test_data = np.random.rand(nf,260,260)
-            out = _g2_numerator(test_data,tauvals,tile_size=ts)
-            times.append(time.time()-t0)
-            
-        print times
-
-        #exit()
-        #return opt_fft_tile
-    
-    if not fft: return 128
 
 def g2_symm_borthwick_norm(img, numtau, qAvg = ("circle", 10), fft=False):
     """ calculate correlation function g_2 with Matt Borthwick's symmetric

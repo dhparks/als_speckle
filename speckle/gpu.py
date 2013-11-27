@@ -49,7 +49,7 @@ class common:
         
         self._kexec(func,in1,out)
    
-    def _cl_add(self,in1,in2,out):
+    def _cl_add(self,in1,in2,out,**kwargs):
         d1, d2, d3 = in1.dtype, in2.dtype, out.dtype
         assert d1 in self.array_dtypes, "in1 dtype not recognized; is %s"%d1
         assert d2 in self.array_dtypes, "in2 dtype not recognized; is %s"%d2
@@ -83,7 +83,7 @@ class common:
                 arg1 = in1
                 arg2 = in2
                 
-        self._kexec(func,arg1,arg2,out)
+        self._kexec(func,arg1,arg2,out,**kwargs)
         
     def _cl_copy(self,in1,out):
         d1, d2 = in1.dtype, out.dtype
@@ -142,7 +142,7 @@ class common:
                 
         self._kexec(func,arg1,arg2,out)
         
-    def _cl_map2d(self,in1,out,x_plan,y_plan):
+    def _cl_map2d(self,in1,out,x_plan,y_plan,**kwargs):
         """ Wrapper for two places where map_coords_f gets called."""
         
         # check types
@@ -162,9 +162,9 @@ class common:
         if d1 == 'float32':   func = 'map_coords_f'
         if d1 == 'complex64': func = 'map_coords_f2'
         
-        self._kexec(func,in1,c_in,r_in,out,x_plan,y_plan,np.int32(1),shape=(c_out,r_out))
+        self._kexec(func,in1,c_in,r_in,out,x_plan,y_plan,np.int32(1),**kwargs)
                 
-    def _cl_mult(self,in1,in2,out):
+    def _cl_mult(self,in1,in2,out,**kwargs):
         """ Wrapper function to the various array-multiplication kernels. Every
         combination of input requires a different kernel. This function checks
         dtypes and automatically selects the appropriate kernel.
@@ -238,8 +238,8 @@ class common:
             arg2 = in2
             if d1 == 'float32':   func = 'multiply_s_f'
             if d2 == 'complex64': func = 'multiply_s_f2'
-
-        self._kexec(func,arg1,arg2,out)
+            
+        self._kexec(func,arg1,arg2,out,kwargs)
 
     def _cl_sqrt(self,in1,out):
         """ Wrapper func to the various abs kernels. Checks types of in1 and out
@@ -294,8 +294,18 @@ class common:
                 except AttributeError:
                     pass
             shape = '(%s,)'%max(sizes)
+            
+        if 'local' in kwargs:
+            local = kwargs['local']
+            assert isinstance(local,(tuple,type(None)))
+            try:
+                for x in local: assert isinstance(x,int)
+            except TypeError: pass
+        else:
+            local=None
         
-        cmd = 'self.%s.execute(self.queue,%s'%(name,shape)
+        
+        cmd = 'self.%s.execute(self.queue,%s,%s'%(name,shape,local)
 
         for arg in args:
             try:
@@ -306,7 +316,7 @@ class common:
                 if isinstance(arg,self.floats):  cmd += ',np.float32(%s)'%arg
                 if isinstance(arg,self.float2s): cmd += ',np.complex64(%s)'%arg # not tested
         cmd += ').wait()'
-        
+
         # try to run the command. this fails if the kernel hasnt yet been built
         try: exec(cmd)
         except AttributeError:
@@ -372,6 +382,7 @@ class common:
                 self.gpu_info = gpu_info
                 self.context,self.device,self.queue,self.platform = self.gpu_info
             return True # becomes the new self.use_gpu
+        
         except:
             print "couldnt init gpu, reverting to cpu"
             return False # becomes the new self.use_gpu
@@ -544,6 +555,7 @@ def valid(gpu_info):
     Argument: gpu_info - that which is returned by gpu.init()
     Returns: a boolean True if gpu_info conforms; False otherwise
     """
+    
     import pyopencl
     
     assert isinstance(gpu_info,tuple) and len(gpu_info) == 4, "gpu info malformed %s"%gpu_info
@@ -563,3 +575,5 @@ def challenge(gpu_info):
     test_data = np.arange(128).astype(np.complex64)
     gpu_data  = cla.to_device(queue, c)
     abs2.execute(queue,(int(L),),gpu_data.data,gpu_data.data)
+    
+    
