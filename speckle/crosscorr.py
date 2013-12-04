@@ -17,8 +17,8 @@ try:
     
 except ImportError:
     have_fftw = False
-    DFT  = numpy.fft.fft2
-    IDFT = numpy.fft.ifft2
+    DFT  = np.fft.fft2
+    IDFT = np.fft.ifft2
 
 try:
     import numexpr
@@ -325,7 +325,7 @@ def autocorr(img, axes=(0,1)):
     """
     return crosscorr(img, img, axes=axes)
     
-def pairwise_covariances(data, save_memory=False):
+def pairwise_covariances(data, save_memory=False, gpu_info=None, mask=1):
     """ Given 3d data, cross-correlates every frame with every other frame to generate
     all the normalized pairwise covariances (ie, "similarity" or "rho" in Pierce etc).
     This is useful for determining which frames to sum in the presence of drift or slow
@@ -345,35 +345,168 @@ def pairwise_covariances(data, save_memory=False):
         cross-correlation max of frames data[row] and data[col].
     """
         
-    assert isinstance(data, np.ndarray) and data.ndim == 3, "data must be 3d ndarray"
-
-    frames = data.shape[0]
-    dfts = np.zeros_like(data).astype('complex')
-    ACs = np.zeros(frames,float)
-    
-    covar = lambda c,a,b: c/np.sqrt(a*b)
-
-    # precompute the dfts and autocorrelation-maxes for speed
-    for n in range(frames):
-        dft = DFT(data[n].astype('float'))
-        if not save_memory: dfts[n] = dft
-        ACs[n] = np.abs(crosscorr(dft,dft,already_fft=(0,1))).max()
-          
-    # calculate the pair-wise normalized covariances  
-    covars = np.zeros((frames,frames),float)
+    def _check_types():
+        assert isinstance(data, np.ndarray) and data.ndim == 3, "data must be 3d array"
+        if gpu_info != None:
+            from . import gpu
+            assert gpu.valid(gpu_info)
+        if gpu_info != None:
+            assert save_memory in (0,1,True,False)
         
-    for j in range(frames):
-        ac = ACs[j]
-        for k in range(frames-j):
-            k += j
-            bc = ACs[k]
-            if save_memory: corr = crosscorr(data[j],data[k])
-            else:
-                corr = crosscorr(dfts[j],dfts[k],already_fft=(0,1))
-                fill = covar(np.abs(corr).max(),ac,bc)
-            covars[j,k] = fill
-            covars[k,j] = fill
+    # cpu codepath
+    if gpu_info == None:
+
+        frames = data.shape[0]
+        dfts = np.zeros_like(data).astype('complex')
+        ACs = np.zeros(frames,float)
+        
+        covar = lambda c,a,b: c/np.sqrt(a*b)
+    
+        # precompute the dfts and autocorrelation-maxes for speed
+        for n in range(frames):
+            dft = DFT(data[n].astype('float'))
+            if not save_memory: dfts[n] = dft
+            ACs[n] = np.abs(crosscorr(dft,dft,already_fft=(0,1))).max()
+              
+        # calculate the pair-wise normalized covariances  
+        covars = np.zeros((frames,frames),float)
             
+        for j in range(frames):
+            ac = ACs[j]
+            for k in range(frames-j):
+                k += j
+                bc = ACs[k]
+                if save_memory: corr = crosscorr(data[j],data[k])
+                else:
+                    corr = crosscorr(dfts[j],dfts[k],already_fft=(0,1))
+                    fill = covar(np.abs(corr).max(),ac,bc)
+                covars[j,k] = fill
+                covars[k,j] = fill
+      
+    # gpu codepath          
+    if gpu_info != None:
+
+        def _embed(array):
+            # beat the array into shape. cast it to the correct complex64, then
+            # change the size to a power of 2 if necessary.
+            array = array.astype(np.complex64)
+            frames, rows, cols = array.shape
+            ispower2 = lambda num: ((num & (num - 1)) == 0) and num != 0
+            if rows != cols:
+                if rows > cols: cols = rows
+                if rows < cols: rows = cols
+            if ispower2(rows):
+                N = rows
+            else:
+                r2 = int(round(np.log2(rows)))+1
+                N = 2**(r2)
+                new_array = np.zeros((frames,N,N),np.complex64)
+                new_array[:,:rows,:cols] = array
+                array = new_array
+            return array
+        
+        def _sampling(mask):
+            # make the sampling mask. at whichever point mask > 0, we
+            # do that pair-wise correlation.
+            if isinstance(mask,np.ndarray):
+                pass
+            else:
+                new_mask = np.random.rand(frames,frames)
+                new_mask = np.where(new_mask < mask,1,0)
+                mask = new_mask
+            return mask
+            
+        def _prep_gpu():
+
+            # load gpu libs
+            try:
+                context,device,queue,platform = gpu_info
+                import sys
+                import pyopencl.array as cla
+                from pyopencl.elementwise import ElementwiseKernel as cl_kernel
+                from pyfft.cl import Plan
+                from . import gpu
+                kp = gpu.__file__.replace('gpu.pyc','kernels/')
+            except:
+                "phasing.covar_results failed on imports"
+                exit()
+
+            g = {}
+
+            # allocate memory
+            g['data'] = cla.empty(queue, (frames,N,N), np.complex64)
+            d['dft1'] = cla.empty(queue, (N,N), np.complex64) # hold first dft to crosscorrelate
+            g['dft2'] = cla.empty(queue, (N,N), np.complex64) # hold second dft to crosscorrelate
+            g['prod'] = cla.empty(queue, (N,N), np.complex64) # hold the product of conj(dft1)*dft2
+            g['corr'] = cla.empty(queue, (N,N), np.float32)   # hold the abs of idft(product)
+                
+            # make the gpu kernels
+            g['plan'] = Plan((N,N), queue=queue)
+            g['slice'] = gpu.build_kernel_file(context, device, kp+'phasing_copy_from_buffer.cl')
+            g['conj'] = cl_kernel(context,
+                        "float2 *dft1,"  
+                        "float2 *dft2,"  
+                        "float2 *out",  
+                        "out[i] = (float2)(dft1[i].x*dft2[i].x+dft1[i].y*dft2[i].y,dft1[i].x*dft2[i].y-dft1[i].y*dft2[i].x)",
+                        "conj_mult")
+            g['abs'] = cl_kernel(context,
+                        "float2 *in,"
+                        "float *out",
+                        "out[i] = hypot(in[i].x,in[i].y)",
+                        "make_abs")
+            
+            # done with gpu prep
+            return g
+        
+        def _gpu_crosscorr():
+            # multiply conj(dft1) and dft2. store in product. inverse transform
+            # product; keep in place. make the magnitude of product in corr. take
+            # the max of corr and return it to host.
+            gpud['conj'](gpud['dft1'],gpud['dft2'],gpud['prod']).wait() 
+            gpud['plan'].execute(gpu['prod'].data,inverse=True,wait_for_finish=True)
+            gpud['abs'](gpud['prod'],gpud['corr']).wait()
+            
+        def _get_do(n):
+            row = mask[n,n:]
+            return np.nonzero(row)[0]+n
+            
+        # prepare for the calculation
+        data = _embed(data)
+        mask = _sampling(mask)
+        gpud = _prep_gpu
+        cc   = np.zeros((frames,frames),float) # in host memory
+        cov  = np.zeros((frames,frames),float) # in host memory
+        
+        N, L = data.shape[:1]
+        
+        # put the data on the gpu and precompute the dfts
+        gpud['data'].set(data)
+        gpud['plan'].execute(gpud['data'].data,batch=N,wait_for_finish=True)
+        
+        # now iterate through the CCs, cross correlating each pair of dfts
+        for n in range(N):
+    
+            # slice the first dft into dft1
+            gpud['slice'].execute(queue,(L,L),gpud['dft1'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(n),np.int32(L)).wait()
+    
+            for m in _get_do(n):
+                
+                # slice the second dft into dft2, then find the maximum value of
+                # the cross correlation of dft1 and dft2
+                gpud['slice'].execute(queue,(L,L),gpud['dft2'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(m),np.int32(L))
+                _gpu_crosscorr()
+                max_val = cla.max(gpud['corr']).get()
+                cc[n,m] = max_val
+                cc[m,n] = max_val
+                
+        # now turn the cc values into normalized covars:
+        # covar(i,j) = cc(i,j)/sqrt(cc(i,i)*cc(j,j))
+        for n in range(N):
+            for m in _get_do(n):
+                covar = cc[n,m]/np.sqrt(cc[n,n]*cc[m,m])
+                covars[n,m] = covar
+                covars[m,n] = covar
+
     return covars
 
 def alignment_coordinates(obj, ref, already_fft=()):

@@ -820,7 +820,7 @@ def merge(data_to, data_from, fill_region, fit_region=None, width=10, align=Fals
     # return the merged data
     return data_to*blender + scaled_from*(1-blender) 
 
-def sort_configurations(weights,capture=0.5,louvain=False):
+def sort_configurations(data,capture=0.5,louvain=False,gpu_info=None):
     
     """ Sort a similarity matrix into configurations. This is used, for example,
     when collecting CDI or FTH frames and the beam is drifting. In these circumstances
@@ -843,10 +843,13 @@ def sort_configurations(weights,capture=0.5,louvain=False):
     
     Arguments:
     
-        weights - a 2d numpy array where the value entry (i,j) corresponds
-            to some similarity metric between frames i and j of the experimental
-            data. Such a metric may be obtained through
+        weights - a 2d or 3d numpy array. If 2d, the value of entry (i,j)
+            corresponds to some similarity metric between frames i and j of the
+            experimental data. Such a metric may be obtained through
             speckle.crosscorr.pairwise_covariances or through your own method.
+            If 3d, assume that the frame axis shows individual 2d frames, in which
+            case the data is passed to speckle.crosscorr.pairwise_covariances
+            before configurations are sroted.
             Must be real valued.
             
         louvain - optional, default False. If True, will attempt to interpret
@@ -859,19 +862,28 @@ def sort_configurations(weights,capture=0.5,louvain=False):
             is 0.95. This will try to reach a value of 0.95+capture*(1-0.95)
             by increasing the number of configurations.
             
+        gpu_info - optional, default None. If:
+            1. gpu_info is a valid gpu specification obtained by gpu.init()
+            2. data is 3d, meaning it must be correlated.
+            Then the correlations will be calculated on the gpu.
+            
     Returns:
         a list of lists. Each sub-list represents a configuration,
             and the elements of each list are the frame numbers which
             belong to the configuration."""
         
     def _check_types():
-        assert isinstance(weights,numpy.ndarray), "weights must be an array"
-        assert weights.ndim == 2, "weights must be 2d"
-        assert weights.shape[0] == weights.shape[1], "weights must be square"
+        assert isinstance(data,numpy.ndarray), "weights must be an array"
+        assert data.ndim in (2,3), "weights must be 2d"
+        assert data.shape[-2] == weights.shape[-1], "weights must be square"
         assert louvain in (True,False,0,1), "louvain must be boolean-evaluable"
         if not louvain:
             try: float(capture)
             except TypeError: raise TypeError("cant cast capture to float in conditioning.sort_configurations; value is %s"%capture)
+        if data.ndim == 3 and gpu_info != None:
+            from . import gpu
+            assert gpu.valid(gpu_info)
+        
    
     def _sort(weights,capture):
         
@@ -1015,5 +1027,15 @@ def sort_configurations(weights,capture=0.5,louvain=False):
         return configs
 
     _check_types()
+    
+    # correlate if necessary
+    if data.ndim == 3:
+        from . import crosscorr
+        weights = crosscorr.pairwise_covariances(data,gpu_info=gpu_info)
+        
+    # otherwise, just rename the data
+    if data.ndim == 2:
+        weights = data
+        
     if louvain: return _louvain(weights)
     else:       return _sort(weights,capture)

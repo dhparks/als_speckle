@@ -6,6 +6,21 @@ import numpy as np
 
 from . import shape, conditioning, scattering, wrapping
 
+try:
+    import numexpr
+    have_numexpr = True
+except ImportError:
+    have_numexpr = False
+    
+try:
+    import pyfftw
+    pyfftw.interfaces.cache.enable()
+    DFT  = pyfftw.interfaces.numpy_fft.fft2
+    IDFT = pyfftw.interfaces.numpy_fft.ifft2
+except ImportError:
+    DFT = np.fft.fft2
+    IDFT = np.fft.ifft2
+
 def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=None,phase=None,data_is_fourier=False,band_limit=False):
     """ Propagate a wavefield a single distance, by supplying either the energy
     (or wavelength) and the distance or by supplying a pre-calculated quadratic
@@ -36,9 +51,9 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
     returns: a complex array representing the propagated wavefield.
     """
     
-    def _check_types():
+    def _check_types(data, energy_or_wavelength, z, pixel_pitch, phase, data_is_fourier, band_limit):
         
-        assert isinstance(data,np.ndarray),               "data must be an array"
+        assert isinstance(data,np.ndarray),               "data must be an array; is %s"%type(data)
         assert data.shape[0] == data.shape[1],            "data must be square"
         data = data.astype(np.complex64)
         assert data.ndim == 2,                            "supplied wavefront data must be 2-dimensional"
@@ -56,7 +71,7 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
             assert phase.shape == data.shape,    "phase and data must be same shape"
             
     # check types
-    _check_types()
+    _check_types(data,energy_or_wavelength,z,pixel_pitch,phase,data_is_fourier,band_limit)
 
     I = complex(0,1)
     # first see if a phase is supplied. if not, make it from the supplied parameters.
@@ -253,13 +268,13 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
             print "save buffer was too large. either use a smaller set of distances or a smaller subregion"
             
         f = np.fft.fft2(data)
-        return f, store, complex(0,1)
+        return f, store
     
     def _calc(n,z):
         
         if gpu_info == None:
-            phase_z  = cpu_phase(z)
-            back     = np.fft.ifft2(f*phase_z)
+            phase_z  = _cpu_phase(z)
+            back     = IDFT(f*phase_z)
             store[n] = back[sr[0]:sr[1],sr[2]:sr[3]]
             
         if gpu_info != None:
@@ -314,6 +329,12 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
                 images.append(smp.toimage(image))
                 
             return store, images
+       
+    def _cpu_phase(z):
+        if have_numexpr:
+            return numexpr.evaluate('exp(-I*z*t*r)')
+        else:
+            return np.exp(-I*t*z*r)
         
     # check input types
     data, N, pxl_pitch, e_or_w, nf = _check_types()
@@ -326,14 +347,14 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
     else: w = scattering.energy_to_wavelength(e_or_w)*1e-10
     
     # define some useful common quantities
-    r = np.fft.fftshift((shape.radial((N,N)))**2)
+    I = complex(0,1)
     t = np.float32(np.pi*w/((pxl_pitch*N)**2))
+    r = np.fft.fftshift((shape.radial((N,N)))**2)
     upperlimit = (pxl_pitch*N)**2/(w*N)
-    
+
     # depending on the compute device, allocate memory etc
     if gpu_info == None:
-        f, store, I = _prep_cpu()
-        cpu_phase = lambda z: np.exp(-I*t*z*r)
+        f, store = _prep_cpu()
     if gpu_info != None:
         k_pf, k_ctb, k_m, fftplan, gpu_r, gpu_f, gpu_phase, gpu_back, gpu_store = _prep_gpu()
   

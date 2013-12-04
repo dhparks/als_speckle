@@ -291,7 +291,7 @@ def ellipse(size,axes,center=None,angle=0,AA=True):
     size, axes, center, angle, AA = _check_types(size, axes, center, angle, AA)
     
     # we can do this like a circle by stetching the coordinates along an axis
-    rows,cols = _make_indicies(size,center,angle)
+    rows,cols = _make_indices(size,center,angle)
 
     ratio = float(axes[1])/float(axes[0])
     if ratio >= 1:
@@ -357,13 +357,17 @@ def gaussian(size,lengths,center=None,angle=0,normalization=None):
                 assert x > 0, "center must be > 0 in shape.gaussian"
                 tc.append(x)
                 
-        try: norm = float(norm)
-        except: raise ValueError, "couldnt cast normalization to float in shape.gaussian"
+        if norm != None:
+            try: norm = float(norm)
+            except: raise ValueError("couldnt cast normalization to float in shape.gaussian")
+        
+        try: angle = float(angle)
+        except: raise ValueError("couldnt cast angle to float in shape.gaussian")
             
-        return ts, tl, tc, norm
+        return ts, tl, tc, angle, norm
     
     # check types
-    size, lengths, center, normalization = _check_types(size,lengths,center,normalization)
+    size, lengths, center, angle, normalization = _check_types(size,lengths,center,angle,normalization)
 
     # now build the gaussian. 
     if len(size) == 1:
@@ -391,35 +395,36 @@ def gaussian(size,lengths,center=None,angle=0,normalization=None):
         if angle != 0:
             # if angle != 0, we have to evaluate the whole array because the function
             # is no longer separable. this takes about 2x as long as the angle = 0 case
-            rows,cols = _make_indicies(size,center,angle)
+            rows,cols = _make_indices(size,center,angle)
             gaussian = numpy.exp(-rows**2/(2*lengths[0]**2))*numpy.exp(-cols**2/(2*lengths[1]**2))
 
     if normalization == None: return gaussian
     else: return gaussian*float(normalization)/(numpy.sum(gaussian))
 
-def _make_indicies(size,center,angle):
-    """Generate array indicies for an array of size, centered on center rotated
+def _make_indices(size,center,angle):
+    """Generate array indices for an array of size, centered on center rotated
     by angle.  The rotation is in a clockwise direction.
 
     arguments:
         size: The (rows, cols) size of the output array
         center: The center of the indexed array.
-        angle: Angle to rotate the matricies. The angle is clockwise.
+        angle: Angle to rotate the matrices, in degrees. The angle is clockwise.
 
     returns:
         rows, cols - two numpy arrays with the rows and cols indexed.
     """
-    rows,cols = numpy.indices(size).astype('float')
+    orows,ocols = numpy.indices(size).astype('float')
         
-    rows -= center[0]
-    cols -= center[1]
+    orows -= center[0]
+    ocols -= center[1]
     
     if angle != 0:
         angle *= numpy.pi/180.
-        rows = rows*numpy.cos(angle)+cols*numpy.sin(angle)
-        cols = cols*numpy.cos(angle)-rows*numpy.sin(angle)
+        rows = orows*numpy.cos(angle)+ocols*numpy.sin(angle)
+        cols = ocols*numpy.cos(angle)-orows*numpy.sin(angle)
+        return rows, cols
         
-    return rows, cols
+    return orows, ocols
 
 def lorentzian(size,widths,center=None,angle=0,normalization=None):
     """ Returns an 1-dimensional or 2-dimensional lorentzian. This implements
@@ -478,7 +483,7 @@ def lorentzian(size,widths,center=None,angle=0,normalization=None):
         if angle != 0:
             # if angle != 0, we have to evaluate the whole array because the function
             # is no longer separable. this takes about 2x as long as the angle = 0 case
-            rows,cols = _make_indicies(size,center,angle)
+            rows,cols = _make_indices(size,center,angle)
             lorentzian = 1. / ( (rows/widths[0])**2 + (cols/widths[1])**2 + 1)
 
     if normalization == None:
