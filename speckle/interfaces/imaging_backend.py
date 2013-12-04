@@ -183,6 +183,27 @@ class backend():
                 row = '%s,%.3f\n'%(zn,av)
                 acutancef.write(row)
             acutancef.close()
+            
+        def _propagation_to_sprite():
+            # convert to PIL objects which are an intermediate representation of the
+            # data which can be quickly saved to jpeg etc
+            t0 = time.time()
+            rgb, images = [], []
+            for n, frame in enumerate(propagated): rgb.append(speckle.io.complex_hsv_image(frame/numpy.abs(frame).max()))
+            for array in rgb: images.append(smp.toimage(array))
+            t1 = time.time()
+            
+            # save the images as a single large image which only requires a single GET
+            # request to the webserver. g is the dimensions of the grid in terms of
+            # number of images.
+            imgx, imgy = images[0].size
+            g = int(math.floor(math.sqrt(len(z)))+1)
+            big_image = Image.new('RGB',(g*imgx,g*imgy))
+            for n, img in enumerate(images):
+                r, c = n/g, n%g
+                big_image.paste(img,(imgx*c,imgy*r))
+            big_image = big_image.resize((g*self.resize,g*self.resize),Image.BILINEAR)
+            big_image.save('./static/imaging/images/bp_session%s_id%s.jpg'%(self.session_id,self.bp_id))
         
         # assign a unique id to the back-propagation results. this prevents
         # the browser from caching the results
@@ -226,7 +247,7 @@ class backend():
         e  = params['energy']
         z1 = params['zmin']
         z2 = params['zmax']
-        
+
         # make the range of distances. z2 > z1, always. libjpeg requires that
         # the maximum size of an image be (2**16, 2**16), so if the number of
         # propagations exceeds the maximum allowed clip the range of values.
@@ -244,45 +265,25 @@ class backend():
         # embed the data in a sea of zeros. if requested, attempt to apodize.
         # apodization typically requires an explicit estimate of the support.
         # here, i try to estimate the support from the sliced data.
-        mask, d2 = speckle.propagate.apodize(d,threshold=0.01,sigma=3)
+        m, d2 = speckle.propagate.apodize(d,threshold=0.01,sigma=3)
         if params['apodize']: d = d2
 
         data = numpy.zeros((1024,1024),numpy.complex64)
         data[512-d.shape[0]/2:512+d.shape[0]/2,512-d.shape[1]/2:512+d.shape[1]/2] = d
         
+        mask = numpy.zeros((1024,1024),numpy.float32)
+        mask[512-m.shape[0]/2:512+m.shape[0]/2,512-m.shape[1]/2:512+m.shape[1]/2] = m
+        mask = mask[512-int(sr/2):512+int(sr/2),512-int(sr/2):512+int(sr/2)]
+        
         # propagate
         pd = speckle.propagate.propagate_distances
-        if self.use_gpu:
-            propagated, images = pd(data,z*1e-6,e,p,subregion=sr,gpu_info=self.gpu,im_convert=True,silent=False)
-        else:
-            propagated, images = pd(data,z*1e-6,e,p,subregion=sr,im_convert=True,silent=False)
+        if self.use_gpu: propagated = pd(data,z*1e-6,e,p,subregion=sr,gpu_info=self.gpu,im_convert=False,silent=False)
+        else: propagated = pd(data,z*1e-6,e,p,subregion=sr,im_convert=False,silent=False)
         self.propagated = propagated
         
-        # convert to PIL objects which are an intermediate representation of the
-        # data which can be quickly saved to jpeg etc
-        t0 = time.time()
-        rgb, images = [], []
-        for n, frame in enumerate(propagated): rgb.append(speckle.io.complex_hsv_image(frame/numpy.abs(frame).max()))
-        for array in rgb: images.append(smp.toimage(array))
-        t1 = time.time()
-        
-        # save the images as a single large image which only requires a single GET
-        # request to the webserver. g is the dimensions of the grid in terms of
-        # number of images.
-        imgx, imgy = images[0].size
-        g = int(math.floor(math.sqrt(len(z)))+1)
-        big_image = Image.new('RGB',(g*imgx,g*imgy))
-        for n, img in enumerate(images):
-            r, c = n/g, n%g
-            big_image.paste(img,(imgx*c,imgy*r))
-        big_image = big_image.resize((g*self.resize,g*self.resize),Image.BILINEAR)
-        big_image.save('./static/imaging/images/bp_session%s_id%s.jpg'%(self.session_id,self.bp_id))
-
-        #for zn, img in zip(z,images):
-        #    img.save('./static/imaging/images/bp_%s_%s_%s.png'%(self.data_id,self.bp_id,int(zn)))
-            
-        # debug: save the fits
-        #speckle.io.save('propagated_%s_%s.fits'%(self.data_id,self.bp_id),self.propagated)
+        # convert the propagated data to a large image which the front end
+        # uses as a sprite for animation.
+        _propagation_to_sprite()
     
         # calculate the acutance, then save it to a csv
         self.acutance  = numpy.array(speckle.propagate.acutance(self.propagated,mask=mask))

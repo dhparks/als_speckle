@@ -88,8 +88,7 @@ def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=Non
         
         # calculate the upper limit
         upper_limit = N*pixel_pitch**2/wavelength # this is the nyquist limit on the far-field quadratic phase factor
-
-                
+ 
     else:
         # phase has been supplied, so check its types for correctness.
         # if phase-generating parameters are supplied they are ignored.
@@ -179,14 +178,13 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         # 3. a 4 element iterable, in which case the subregion is a rectangle specified by (rmin, rmax, cmin, cmax)
         
         sr = subregion
-        
+
         if sr == None: sr = N
         assert isinstance(sr,coord_types) or isinstance(sr,iterable_types), "sr type must be integer or iterable"
         
         # return a box with L = sr co-centered with supplied data
         if isinstance(sr, coord_types):
-            x = int(sr)/2
-            return (N/2-x,N/2+x,N/2-x,N/2+x)
+            sr = (int(sr),)
         
         # if we're at this point, sr must be iterable. check its spec then continue
         assert len(sr) in (1,2,4), "sr length must be 1, 2, or 4; is %s"%len(sr)
@@ -491,32 +489,33 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
         return exponent
     
     def _calc(frame):
-        
-        if bounds != None:
-            data = data[bounds[0]:bounds[1],bounds[2]:bounds[3]]
-            mask = mask[bounds[0]:bounds[1],bounds[2]:bounds[3]]
 
         if method == 'sobel':
             from scipy.ndimage.filters import sobel
-            dx = np.abs(sobel(data,axis=-1))
-            dy = np.abs(sobel(data,axis=0))
+            dx = np.abs(sobel(frame,axis=-1))
+            dy = np.abs(sobel(frame,axis=0))
                 
         if method == 'roll':
-            dx = data-np.roll(data,1,axis=0)
-            dy = data-np.roll(data,1,axis=1)
+            dx = frame-np.roll(frame,1,axis=0)
+            dy = frame-np.roll(frame,1,axis=1)
     
         gradient = np.sqrt(dx**2+dy**2)**exponent
                 
         a = np.sum(gradient*mask)
-        if normalized: a *= 1./np.sum(data*mask)
+        if normalized: a *= 1./np.sum(frame*mask)
         return a
 
     exponent = _check_types(data,method,exponent,normalized,mask)
     
     import masking
     if data.ndim == 2: data.shape = (1,data.shape[0],data.shape[1])
-    if mask == None: mask = np.ones(data.shape[1:],float)
+    if mask == None:   mask = np.ones(data.shape[1:],float)
+
     bounds = masking.bounding_box(mask)
+    
+    if bounds != None:
+        data = data[:,bounds[0]:bounds[1],bounds[2]:bounds[3]]
+        mask = mask[bounds[0]:bounds[1],bounds[2]:bounds[3]]
 
     # calculate the acutance
     acutance_list = []
