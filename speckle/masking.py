@@ -4,22 +4,38 @@ data that is not of interest.
 """
 import numpy as np
 
-def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0):
+def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0,power_of_2=False):
     """ Find the minimally-bounding subarray for data.
     
     arguments:
         data -- array to be bounded
         threshold -- (optional) value above which data is considered boundable
         force_to_square -- (optional) if True, forces the minimally bounding
-            subarray to be square in shape. Default is False.
+            subarray to be square in shape. Default is False. This can fail to be
+            achieved in certain cases, such as when the input data
+            is not square; a guarantee of a square bounding box requires
+            access to padding with zeros.
         pad -- (optional) expand the minimally bounding coordinates by this
             amount on each side. Default = 0 for minimally bounding.
+        power_of_2 -- (optional) Default False. If True, will try to make the
+            sides of the bounding box powers of 2 in length. If the next largest
+            power of 2 is larger than the array dimensions, the array dimension
+            is returned. If force_to_square = True, the larger power of 2, subject
+            to the array size limitation, is returned.
     
     returns:
         bounding coordinates -- an array of (row_min, row_max, col_min, col_max)
             which bound data.  These values can be used for slicing all of the
             data out of an array.
     """
+    
+    def _next_p2(fr):
+        import math
+        p2 = ((fr & (fr - 1)) == 0)
+        if p2:     L = fr
+        if not p2: L = int(2**(math.floor(math.log(fr,2))+1))
+        return L
+    
     assert isinstance(data, np.ndarray) and data.ndim == 2, "data must be a 2d ndarray"
     assert isinstance(pad, int), "data must be an integer"
     assert isinstance(force_to_square, bool), "force_to_square must be a bool"
@@ -30,13 +46,54 @@ def bounding_box(data,threshold=1e-10,force_to_square=False,pad=0):
     aw = np.argwhere(mask)
     (rmin, cmin) = aw.min(0)
     (rmax, cmax) = aw.max(0) + 1
-
+    
     # pad the boundaries
     rmin = 0 if rmin < pad else rmin - pad
     rmax = rows if rmax + pad > rows else rmax + pad
     cmin = 0 if cmin < pad else cmin - pad
     cmax = cols if cmax + pad > cols else cmax + pad
+
+    # try to expand the box to the next largest power of 2
+    if power_of_2:
+
+        bb_rows = rmax-rmin
+        bb_cols = cmax-cmin
+
+        r_p2 = _next_p2(rmax-rmin)
+        c_p2 = _next_p2(cmax-cmin)
         
+        if r_p2 >= rows: rmin, rmax = 0, rows
+        if c_p2 >= cols: cmin, cmax = 0, cols
+        
+        if r_p2 < rows:
+            r_diff = r_p2-bb_rows
+
+            if r_diff%2 == 1:
+                r_diff_l = math.floor(r_diff/2.)
+                r_diff_h = r_diff_l+1
+                
+            else:
+                r_diff_l = r_diff/2
+                r_diff_h = r_diff/2
+                
+            rmin -= r_diff_l
+            rmax += r_diff_h
+            
+        if c_p2 < cols:
+            c_diff = c_p2-bb_cols
+
+            if c_diff%2 == 1:
+                c_diff_l = math.floor(c_diff/2.)
+                c_diff_h = c_diff_l+1
+                
+            else:
+                c_diff_l = c_diff/2
+                c_diff_h = c_diff/2
+                
+            cmin -= c_diff_l
+            cmax += c_diff_h
+        
+    # try to make the bounding box a square; can fail
     if force_to_square:
         delta_r = rmax-rmin
         delta_c = cmax-cmin

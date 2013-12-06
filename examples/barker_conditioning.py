@@ -5,20 +5,11 @@ speckle.io.set_overwrite(True)
 import time
 
 # see if a gpu is available.
-try:
-    device_info = speckle.gpu.init()
-    context, device, queue, platform = device_info
-    import pyopencl as cl
-    import pyopencl.array as cla
-    kp = string.join(speckle.gpu.__file__.split('/')[:-1],'/')+'/kernels/'
-    gpu_median3 = speckle.gpu.build_kernel_file(context, device, kp+'medianfilter3.cl') # for signal
-    gpu_median5 = speckle.gpu.build_kernel_file(context, device, kp+'medianfilter5.cl') # for dark
-    gpu_hotpix  = speckle.gpu.build_kernel_file(context, device, kp+'remove_hot_pixels.cl')
-    use_gpu = True
-except:
-    use_gpu = False
+gpu_info = speckle.gpu.init()
+if gpu_info != None: use_gpu = True
+else: use_gpu = False
 
-def average_dark():
+def average_dark(i=3):
     
     """ This opens the dark file (at path dark_file) and computes an average
     along the frame axis. If the sum already exists, this function will open the
@@ -26,64 +17,44 @@ def average_dark():
     
     # from info in barker_conditioning_parameters, make the paths
     dark_file = '%s/%s'%(bcp.data_path,bcp.dark_name)
-    out_file  = '%s/barker average bg'%(bcp.data_path)
+    out_file  = '%s/barker conditioned dark'%(bcp.data_path)
 
     print "  working on dark file"
     
     if isfile('%s_mag.fits'%out_file) and bcp.use_old_files:
         print "    found saved calculation; opening"
-        dark_sum = speckle.io.open('%s_mag.fits'%out_file).astype(numpy.float32)
+        cleaned = speckle.io.open('%s_mag.fits'%out_file).astype(numpy.float32)
+        
     else:
         assert isfile(dark_file), "dark file %s not found! check path?"%dark_file
-        print "    round raw dark. calculating frame average."
+        print "    round raw dark. conditioning dark file."
         
-        # check the shape of the dark. if 2d, make trivially 3d
-        shape = speckle.io.get_fits_dimensions(dark_file)
-        if len(shape) == 2: shape = (1,)+tuple(shape)
+        # average the dark data along the frame axis if it is 3d
+        dark  = speckle.io.open(dark_file)
+        if dark.ndim == 2: average = dark
+        if dark.ndim == 3: average = numpy.mean(dark,axis=0)
         
-        # because the dark file may be very large, loading it all into memory
-        # is prohibitive. instead, open one frame at a time and add it to a running
-        # sum of all the frames.
-        dark_sum = numpy.zeros(shape[1:],numpy.float32)
-        for n in range(shape[0]):
-            frame     = speckle.io.openframe(dark_file,n)
-            dark_sum += frame.astype(numpy.float32)
-        dark_sum *= 1./shape[0] # turn the sum into an average
-        
-        # save the output to avoid repeating this calculation if the analysis is re-run.
-        # to avoid opening the file, delete it or set bcp.use_old_files = False.
-        speckle.io.save('%s.fits'%out_file,dark_sum)
-        
-    # return the sum
-    return dark_sum
-
-def clean_dark(i=3):
-    """ This function uses a median filter to remove hot pixels.
-    If a gpu is available, run the median filter on the gpu instead."""
-
-    # make paths
-    in_file = '%s/barker average bg_mag.fits'%bcp.data_path
-    out_file = '%s/barker cleaned bg_mag'%bcp.data_path
-
-    if isfile('%s_mag.fits'%out_file) and bcp.use_old_files:
-        print "    found old cleaned dark file; opening"
-        cleaned = speckle.io.open('%s_mag.fits'%out_file).astype(numpy.float32)
-
-    else:
-        
-        assert isfile(in_file), "couldnt find file %s"%in_file
-        data = speckle.io.open(in_file).astype(numpy.float32)
-        
-        print "    cleaning dark with median filter"
-        
-        if use_gpu: # gpu codepath
+        # put the average through a median filter to reduce noise
+        if use_gpu: 
+            
+            # gpu code path
+            import string
+            import pyopencl as cl
+            import pyopencl.array as cla
+            
+            # build the kernel
+            context, device, queue, platform = gpu_info
+            kp = string.join(speckle.gpu.__file__.split('/')[:-1],'/')+'/kernels/'
+            gpu_median5 = speckle.gpu.build_kernel_file(context, device, kp+'medianfilter5.cl')
 
             # put the data onto the gpu, then run the median filter the specified number of times.
-            gpu_data = cla.to_device(queue,data.astype(numpy.float32))
-            for n in range(i): gpu_median5.execute(queue,(data.shape[0],data.shape[1]), gpu_data.data, gpu_data.data)
+            gpu_data = cla.to_device(queue,average.astype(numpy.float32))
+            for n in range(i): gpu_median5.execute(queue, (average.shape[0],average.shape[1]), gpu_data.data, gpu_data.data)
             cleaned = gpu_data.get()
 
-        if not use_gpu: # cpu codepath
+        if not use_gpu:
+            
+            # cpu codepath
 
             from scipy.signal import medfilt
             cleaned = numpy.copy(data)
@@ -91,11 +62,11 @@ def clean_dark(i=3):
             
         # save the data
         speckle.io.save('%s.fits'%out_file,cleaned)
-
-    # return the cleaned dark
+        
+    # return the sum
     return cleaned
 
-def correlate_frames(L=256):
+def correlate_frames():
     """ Drift in the sample means that the speckle patterns collected over time
     fall into different configurations. Here, we calculate all pair-wise cross-
     correlation coefficients between frames i and j. This resulting (n x n) array
@@ -110,30 +81,34 @@ def correlate_frames(L=256):
     
     if isfile('%s_mag.fits'%out_file) and bcp.use_old_files:
         print "    find old file; opening"
-        correlations = speckle.io.open('%s_mag.fits'%out_file).astype(numpy.float32)
+        corrs = speckle.io.open('%s_mag.fits'%out_file).astype(numpy.float32)
     
     else:
-        # to speed the calculation, only correlate a box of size L around the
-        # central maximum in each frame. 
-        shape = speckle.io.get_fits_dimensions(in_file)
-        if len(shape) == 2: shape = (1,shape[0],shape[1])
-        maxima = numpy.zeros((shape[0],L,L),numpy.float32)
         
-        # slice the out the central maxima
-        for n in range(shape[0]):
-            frame     = speckle.io.openframe(in_file,n)
-            mr,mc     = numpy.unravel_index(frame.argmax(),(frame.shape)) # brightest pixel (row,col)
-            maxima[n] = frame[mr-L/2:mr+L/2,mc-L/2:mc+L/2]
-    
-        print "    correlating..."
-        #if use_gpu:     correlations = gpulib.gpu_phasing.covar_results(gpu_info,subarray,threshold=0.9)[1] # i seem to have deleted this...
-        if use_gpu: correlations = speckle.phasing.covar_results(device_info,maxima)[1]
-        else:      correlations = speckle.crosscorr.pairwise_covariances(maxima)
+        L = bcp.correlation_box
+        
+        # slice out a region around the brightest portion of each frame.
+        # note that for data which has been polluted by cosmic rays, for example,
+        # doing this first will give bad results. for REALLY dirty data, the
+        # order of operations should be to condition each frame, then do the
+        # frame correlations, then add the configurations.
+        print "    slicing"
+        shape  = speckle.io.get_fits_dimensions(in_file)
+        if len(shape) == 3:
+            maxima = numpy.zeros((shape[0],L,L),numpy.float32)
+            for f in range(shape[0]):
+                frame     = speckle.io.openframe(in_file,f)
+                mr,mc     = numpy.unravel_index(frame.argmax(),frame.shape) # brightest pixel (row,col)
+                maxima[f] = frame[mr-L/2:mr+L/2,mc-L/2:mc+L/2]
+        
+        # pairwise correlations between all frame pairs
+        print "    correlating"
+        corrs  = speckle.crosscorr.pairwise_covariances(maxima,gpu_info=gpu_info)
            
         # save the cross-correlations
-        speckle.io.save('%s.fits'%out_file,correlations)
+        speckle.io.save('%s.fits'%out_file,corrs)
         
-    return correlations
+    return corrs
 
 def average_signal():
     # make the dust plan
@@ -149,14 +124,10 @@ def average_signal():
     configurations using the correlations calculated in correlate_frames(), then
     have dust and hot-pixels removed, then the background subtracted. After
     alignment, the frames may then be averaged.
-    
-    This function is simplified from the most general case because we know that
-    there are only two configurations in the speckle patterns. This is not
-    always the case.
     """
     
     in_file  = '%s/%s'%(bcp.data_path,bcp.data_name)
-    out_file = '%s/barker sum config1'%bcp.data_path
+    out_file = '%s/barker sums'%bcp.data_path
 
     if bcp.dust_mask_name != None: dm = '%s/%s'%(bcp.data_path,bcp.dust_mask_name)
     else: dm = None
@@ -165,108 +136,65 @@ def average_signal():
     
     if isfile('%s_mag.fits'%out_file) and bcp.use_old_files:
         print "    found old file; opening"
-        sum1 = speckle.io.open('%s_mag.fits'%out_file).astype(numpy.float32)
+        config_sums = speckle.io.open('%s_mag.fits'%out_file).astype(numpy.float32)
 
     else:
         
         assert isfile(in_file), "didnt find the input data %s"%in_file
         
-        print "    planning"
+        rolls = lambda d,rr, rc: numpy.roll(numpy.roll(d,rr,axis=0),rc,axis=1)
+
+        print "    planning dust removal"
         # open the dust masks and make plans
         if dm != None:
             dust_mask = numpy.flipud(speckle.conditioning.open_dust_mask(dm))
             dust_plan = speckle.conditioning.plan_remove_dust(dust_mask)
         
-        # set up the sums for:
-        # 0. all data
-        # 1. configuration 1
-        # 2. configuration 2
+        # using the correlations data, sort the frames into configurations
+        print "    finding configurations"
+        configs = speckle.conditioning.sort_configurations(frame_corrs,louvain=True)
         
-        shape = speckle.io.get_fits_dimensions(in_file)
-        if len(shape) == 2: shape = (1,shape[0],shape[1])
-        sum0  = numpy.zeros(shape[1:],numpy.float32)
-        sum1  = numpy.zeros(shape[1:],numpy.float32)
-        sum2  = numpy.zeros(shape[1:],numpy.float32)
-
-        # open frames for configuration1 and configuration2. these
-        # will serve as the frames against which we align other frames in the
-        # configuration. alignment will be done using central speckle only.
-
-        print "    getting alignment frames"
-
-        L = 256
-
-        frame1   = speckle.io.openframe(in_file,0)
-        mr1, mc1 =  numpy.unravel_index(frame1.argmax(),frame1.shape)
-        align1   = frame1[mr1-L/2:mr1+L/2,mc1-L/2:mc1+L/2]
-        
-        frame2   = speckle.io.openframe(in_file,frame_corrs[0].argmin())
-        mr2, mc2 =  numpy.unravel_index(frame2.argmax(),frame2.shape)
-        align2   = frame2[mr2-L/2:mr2+L/2,mc2-L/2:mc2+L/2]
-
-        # now that the alignment frames have been extracted, go through each
-        # frame, discover its configuration, do the processing, and add it
-        # to the correct sum.
-        
-        rolls = lambda d, rr, rc: numpy.roll(numpy.roll(d,rr,axis=0),rc,axis=1)
-        
-        hot_time = 0
-        dust_time = 0
-        align_time = 0
-        open_time = 0
-        dark_time = 0
-        
-        for n in range(shape[0]):
+        # for each configuration, iterate over frames. for each frame,
+        # align to a reference, remove dust, remove hot pixels, subtract dark,
+        # and add to the configuration sum.
+        config_sums = numpy.zeros(((len(configs),)+dust_mask.shape),numpy.float32)
+        for nc, config in enumerate(configs):
             
-            print "    working on frame %s of %s"%(n,shape[0])
+            print "working on configuration %s of %s"%(nc+1,len(configs))
             
-            # find the configuration
-            if frame_corrs[0,n] >= 0.98:
-                add_to   = sum1
-                align_to = align1
-                r,c      = mr1, mc1
-                
-            if frame_corrs[0,n] <  0.98:
-                add_to   = sum2
-                align_to = align2
-                r,c      = mr2, mc2
-                
-            # open the data, subtract background, remove dust, remove hot pixels
-            # we can do dark subtraction simply because acquisition parameters were the same
-            frame = speckle.io.openframe(in_file,n)
-            frame = speckle.conditioning.subtract_dark(frame,cleaned_dark)
-            if dm != None: frame = speckle.conditioning.remove_dust(frame,dust_mask,dust_plan=dust_plan)[0]
+            # set up the frame sum of this configuration
+            config_sum = numpy.zeros_like(dust_mask)
             
-            if use_gpu:
-                # gpu code path for hot pixels. execute two kernels. first, medfilt.
-                # second, replace hot pixels with median.
-                if n == 0:
-                    gpu_data_hot  = cla.empty(queue, frame.shape, numpy.float32)
-                    gpu_data_cold = cla.empty(queue, frame.shape, numpy.float32)
-                gpu_data_hot.set(frame.astype(numpy.float32))
-                gpu_median3.execute(queue,frame.shape,  gpu_data_hot.data, gpu_data_cold.data)
-                gpu_hotpix.execute(queue, (frame.size,),gpu_data_hot.data, gpu_data_cold.data,numpy.float32(1.25))
-                frame = gpu_data_hot.get()
-                
-            if not use_gpu:
-                # cpu code path for hot pixel removal
-                frame = speckle.conditioning.remove_hot_pixels(frame)
-                
-            time4 = time.time()
+            # slice out a portion of the first frame in the configuration to
+            # serve as alignment fiducial
+            L         = bcp.frame_align_box
+            ref_frame = speckle.io.open(in_file)[config[0]]
+            mr, mc    = numpy.unravel_index(ref_frame.argmax(),ref_frame.shape)
+            reference = ref_frame[mr-L/2:mr+L/2,mc-L/2:mc+L/2]
+            
+            # pre-calculate the roll coordinates for all frames. this saves
+            # recalculating the FFT of the reference frame each time.
+            frames = speckle.io.open(in_file)[config,mr-L/2:mr+L/2,mc-L/2:mc+L/2]
+            coords = speckle.conditioning.align_frames(frames,align_to=reference,return_type='coordinates')
 
-            # figure out how much we have to roll the data to align it. slice out a
-            # subframe to speed this calculation
-            sub  = frame[r-L/2:r+L/2,c-L/2:c+L/2]
-            x, y = speckle.conditioning.align_frames(sub,align_to=align_to,return_type='coordinates')[0]
-    
-            # using the coordinates from the subframe, shift the whole frame.
-            add_to += rolls(frame,x,y)
+            for nf,f in enumerate(config):
+                
+                frame = speckle.io.open(in_file)[f]
+                frame = speckle.conditioning.subtract_dark(frame,average_dark)
+                if dm!= None:
+                    frame = speckle.conditioning.remove_dust(frame,dust_mask,dust_plan=dust_plan)[0]
+                frame = speckle.conditioning.remove_hot_pixels(frame,gpu_info=gpu_info,threshold=1.5)
+                
+                x, y  = coords[nf]
+                config_sum += rolls(frame,coords[nf][0],coords[nf][1])
+                
+            config_sums[nc] = config_sum
         
-        # save configuration 1
-        speckle.io.save('%s.fits'%out_file,sum1)
+        # save the configurations
+        speckle.io.save('%s.fits'%out_file,config_sums)
     
     # return the sum
-    return sum1
+    return config_sums
      
 def prep_speckles():
     # resize through band limiting
@@ -278,26 +206,29 @@ def prep_speckles():
     
     L = 512
 
-    # put the brightest pixel at (0,0)
+    # each frame of data is a different configuration
     data = cleaned_signal
-    indx = numpy.unravel_index(data.argmax(),data.shape)
-    data = numpy.roll(numpy.roll(data,-indx[0],axis=0),-indx[1],axis=1)
-    
-    # inverse transform the data. cut the oversampling ratio. save it.
-    idata = numpy.fft.fftshift(numpy.fft.ifft2(data))
-    s = idata.shape
-    cut   = idata[s[0]/2-L/2:s[0]/2+L/2,s[1]/2-L/2:s[1]/2+L/2]
-    
-    speckle.io.save('%s/inverse data.fits'%bcp.data_path,cut,components='polar')
-    speckle.io.save('%s/inverse data.jpg'%bcp.data_path, cut,components='complex_hls')
-    
-    mag, phase = abs(cut),numpy.angle(cut)
-    mag = numpy.sqrt(numpy.sqrt(mag))
-    speckle.io.save('%s/inverse data rescaled.jpg'%bcp.data_path, mag*numpy.exp(phase*complex(0,1)),components='complex_hls')
-    
-    # prepare the speckle pattern for phasing
-    speckles = numpy.sqrt(abs(numpy.fft.fft2(cut)))
-    speckle.io.save('%s/barker phasing 512.fits'%bcp.data_path,speckles)
+    for nf, frame in enumerate(data):
+        
+        # put the brightest pixel at (0,0)
+        indx  = numpy.unravel_index(frame.argmax(),frame.shape)
+        frame = numpy.roll(numpy.roll(frame,-indx[0],axis=0),-indx[1],axis=1)
+        
+        # inverse transform the data. cut the oversampling ratio. save it.
+        iframe = numpy.fft.fftshift(numpy.fft.ifft2(frame))
+        s      = iframe.shape
+        cut    = iframe[s[0]/2-L/2:s[0]/2+L/2,s[1]/2-L/2:s[1]/2+L/2]
+        
+        speckle.io.save('%s/inverse data config%s.fits'%(bcp.data_path,nf),cut,components='polar')
+        speckle.io.save('%s/inverse data config%s.jpg'%(bcp.data_path,nf), cut,components='complex_hsv')
+        
+        mag, phase = numpy.abs(cut),numpy.angle(cut)
+        mag = numpy.log(mag)
+        speckle.io.save('%s/inverse data rescaled config%s.jpg'%(bcp.data_path,nf), mag*numpy.exp(phase*complex(0,1)),components='complex_hsv')
+        
+        # prepare the speckle pattern for phasing
+        speckles = numpy.sqrt(numpy.abs(numpy.fft.fft2(cut)))
+        speckle.io.save('%s/barker phasing 512 config%s.fits'%(bcp.data_path,nf),speckles)
          
 def dumb_average_signal():
     # this is basically just to get the location of the dust
@@ -341,9 +272,7 @@ def dumb_average_signal():
 import barker_conditioning_parameters as bcp
 
 print "running barker conditioning script"
-
 average_dark   = average_dark()
-cleaned_dark   = clean_dark()
 frame_corrs    = correlate_frames()
 cleaned_signal = average_signal()
 prep_speckles()
