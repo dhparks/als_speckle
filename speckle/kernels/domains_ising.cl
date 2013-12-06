@@ -1,6 +1,7 @@
 __kernel void execute(
     float a,
-    __global float* domains)
+    int mode,
+    __global float* data)
 
     {	
 	// this function clamps the output from the rescaling
@@ -10,8 +11,24 @@ __kernel void execute(
 	
 	int i = get_global_id(0);
 	
-	float x = domains[i];
-	float y = pown(x,3);
-	domains[i] = (1+a)*x-a*y;
+	float z = 0;
+	
+	if (mode == 0) {
+	    float x = data[i];
+	    //float y = pown(x,3);
+	    z = (1+a)*x-a*x*x*x;
+	};
+	
+	if (mode == 1) {
+	    float x = a*data[i];
+	    float k = native_exp(-2*x);
+	    float j = native_exp(-2*a);
+	    float t1 = (1-k)*(1+j);
+	    float t2 = native_recip((1+k)*(1-j));
+	    z = t1*t2;
+	    //z = tanh(x)/tanh(a);
+	}
+
+	data[i] = clamp(z,-1.0f,1.0f);
     
     }

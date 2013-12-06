@@ -2,59 +2,118 @@ __kernel void execute(
     __global float2 *input,
     __global uchar *walls,
     __global uchar *poswalls,
-    __global uchar *negwalls) // size
+    __global uchar *negwalls,
+    __local  float *localmem,
+    __global float *scratch
+    )
 
 {	
 	#define compare(a,b) (1-sign(a)*sign(b))/2
+	#define localindex(i,j,M) (1+i+(j+1)*(M+2))
 	
-	// i and j are the x and y coordinates of the candidate pixel
-	int i = get_global_id(0);
-	int j = get_global_id(1);
-	int N = get_global_size(0); // array is square
-	int io = i+N*j;
+	// it turns out that using local memory for this kernel does not
+	// make things faster. presumably, this is because the
+	// memory is already aligned? in the matrix transpose example,
+	// the use of local memory prevents wasted memory transfers.
+	// in this example, the compiler might already be able to send
+	// an entire bank of results...
 	
-	// grab the 8 nearest neighbors of point (i,j). use modulo arithmetic to enforce cyclic boundary conditions.
-	// loops have been manually unrolled for speed increase
-	int nx1 = i-1;
-	int nx2 = i;
-	int nx3 = i+1;
-	int ny1 = j-1;
-	int ny2 = j;
-	int ny3 = j+1;
+	// define the global and local indices for each worker
+	int gi = get_global_id(0);
+	int gj = get_global_id(1);
+	int N  = get_global_size(0);
+	int io = gi+N*gj;
 	
-	if (nx1 < 0 || nx1 >= N) {nx1 = (nx1+N)%N;}
-	if (nx2 < 0 || nx2 >= N) {nx2 = (nx2+N)%N;}
-	if (nx3 < 0 || nx3 >= N) {nx3 = (nx3+N)%N;}
+	int li = get_local_id(0);
+	int lj = get_local_id(1);
+	int M  = get_local_size(0);
 	
-	if (ny1 < 0 || ny1 >= N) {ny1 = (ny1+N)%N;}
-	if (ny2 < 0 || ny2 >= N) {ny2 = (ny2+N)%N;}
-	if (ny3 < 0 || ny3 >= N) {ny3 = (ny3+N)%N;}
+	// this is the index of each worker in the local memory
+	int il = localindex(li,lj,M);
+
+	// each worker needs to copy some data from global into local
+	// workers on the edge have to copy more data than workers in the
+	// center of the workgroup. for reasons that are unclear,
+	// doing sign(input[io].x) causes a crash, but storing it first
+	// in localmem then taking sign() seems ok.
+	localmem[il] = input[io].x;
+	localmem[il] = sign(localmem[il]);
 	
-	float val11 = input[nx1+ny1*N].x; 
-	float val12 = input[nx1+ny2*N].x;
-	float val13 = input[nx1+ny3*N].x;
-	float val21 = input[nx2+ny1*N].x;
-	float val22 = input[nx2+ny2*N].x; // this is the candidate value; the others are the neighbors
-	float val23 = input[nx2+ny3*N].x;
-	float val31 = input[nx3+ny1*N].x;
-	float val32 = input[nx3+ny2*N].x;
-	float val33 = input[nx3+ny3*N].x; 
+	int gi_pad;
+	int gj_pad;
+	int right_side = (M+2)*(lj+1);
+	int left_side  = (M+2)*(lj+1)+(M+1);
+	int bottom_row = li+1;
+	int top_row    = li+1+(M+2)*(M+1);
 	
-	// the function "compare" returns 0 if both inputs are the same sign and 1 if the signs differ. this is how a domain wall is detected.
-	float preout = compare(val11,val22)+compare(val12,val22)+compare(val13,val22)+
-		       compare(val21,val22)                     +compare(val23,val22)+ //skip comparing val22 to itself!
-		       compare(val31,val22)+compare(val32,val22)+compare(val33,val22);
-				 
-	// write to the output buffers
-	float out    = 0.0f;
-	float posout = 0.0f;
-	float negout = 0.0f;
+	if (li == 0) {
+	  gi_pad = gi-1;
+	  if (gi == 0) {gi_pad = N-1;}
+	  localmem[left_side] = input[gi_pad+N*gj].x;
+	  localmem[left_side] = sign(localmem[left_side]);
+	}
+
+	if (li == M-1) {
+	  gi_pad = gi+1;
+	  if (gi == N-1) {gi_pad = 0;}
+	  localmem[right_side] = input[gi_pad+N*gj].x;
+	  localmem[right_side] = sign(localmem[right_side]);
+	}
 	
-	if (preout > 0.1f) {out = 1;}
-	if (preout > 0.1f && val22 > 0.0f)  {posout = 1;}
-	if (preout > 0.1f && val22 <= 0.0f) {negout = 1;}
+	if (lj == 0) {
+	  // copy pixels from below because we are on the bottom edge
+	  gj_pad = gj-1;
+	  if (gj == 0) {gj_pad = N-1;}
+	  localmem[bottom_row] = input[gi+N*gj_pad].x;
+	  localmem[bottom_row] = sign(localmem[bottom_row]);
+	}
 	
-	walls[io]    = (uchar) out;
-	poswalls[io] = (uchar) posout;
-	negwalls[io] = (uchar) negout;
+	if (lj == M-1) {
+	  // copy pixels from above because we are on the top edge
+	  gj_pad = gj+1;
+	  if (gj == N-1) {gj_pad = 0;}
+	  localmem[top_row] = input[gi+N*gj_pad].x;
+	  localmem[top_row] = sign(localmem[top_row]);
+	}
+	
+	// for the corner cases we have already checked the coordinates
+	float corner = input[gi_pad+N*gj_pad].x;
+	corner = sign(corner);
+	int a = -1;
+	if (li == 0   && lj == 0)   {a = 0;}
+	if (li == M-1 && lj == 0)   {a = M+1;}
+	if (li == 0   && lj == M-1) {a = (M+2)*(M+1);}
+	if (li == M-1 && lj == M-1) {a = (M+2)*(M+2)-1;}
+	if (a > -1) {localmem[a] = corner;}
+	
+	// signal that this worker is done copying to localmem
+	barrier(CLK_LOCAL_MEM_FENCE);
+	
+	// The overprovisioned data for the workgroup has been copied
+	// into local memory. For each pixel, check neighbors
+	float v0   = localmem[(M+2)*(lj+1)+li+1];
+	float comp = -1;
+	for (int lx = 0; lx < 3; lx ++) {
+		for (int ly = 0; ly < 3; ly++) {
+			comp += (1-v0*localmem[(M+2)*(lj+ly)+li+lx])/2;
+		}
+	}
+
+	// values to be written to output arrays
+	uchar out    = 0;
+	uchar posout = 0;
+	uchar negout = 0;
+	
+	if (comp > 0.1f) {
+		out = 1;
+		if (v0  > 0.) {posout = 1;}
+		if (v0 <= 0.) {negout = 1;}
+	}
+		
+	// write to output arrays
+	walls[io]    = out;
+	poswalls[io] = posout;
+	negwalls[io] = negout;
+	
 }
+//}

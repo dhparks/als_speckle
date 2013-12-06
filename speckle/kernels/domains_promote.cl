@@ -1,13 +1,10 @@
 __kernel void execute(
     __global float *domains,
-    __global uchar *available,
+    __global float *available,
     float x)
 
     {	
         int i = get_global_id(0);
-		uchar t = 1;
-	
-	if (available[i] = t){
-	    float d = domains[i];
-	    domains[i] = d+x;}
+	float a = available[i];
+	domains[i] += a*x;
     }

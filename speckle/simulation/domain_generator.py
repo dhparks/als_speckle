@@ -8,6 +8,8 @@ import sys, warnings, time
 w = sys.stdout.write
 common = gpu.common
 
+shift = np.fft.fftshift
+
 try:
     import string
     import pyopencl
@@ -17,6 +19,15 @@ try:
     
 except ImportError:
     use_gpu = False
+    
+try:
+    import pyfftw
+    pyfftw.interfaces.cache.enable()
+    DFT = pyfftw.interfaces.numpy_fft.fft2
+    IDFT = pyfftw.interfaces.numpy_fft.ifft2
+except ImportError:
+    have_fftw = False
+    
 
 class generator(common):
     
@@ -45,10 +56,11 @@ class generator(common):
             
         # these are gpu memory objects associated with making envelopes or with rescaling
         # envelopes
-
-        self.keywords = ('converged','envelope')
+        self.keywords = ('converged','envelope','speckles')
         self.returnables = {}
         
+        # these are the acceptable array dtypes for gpu computation.
+        # there should be no reason to require double precision floats
         self.array_dtypes = ('float32','complex64')
         
         # most of the arguments that come in need to be made into class variables to be accessible
@@ -58,12 +70,13 @@ class generator(common):
         self.converged_at = 0.002
         self.converged = False
         self.cutoff    = 200
-        self.spa_max   = 0.4
+        self.spa_max   = 0.1
         self.powerlist = [] # for convergence tracking
         self.goal_m    = 0  # set to 0 just as initial value; can be changed
         self.extrastop = False # for sending a stop signal during a trajectory
         self.only_walls = False
         self.transitions   = 0
+        self.sites = 0
         
         self.envelope_state = 0
         self.ggr_state = 0
@@ -78,13 +91,16 @@ class generator(common):
         
         self.power = self._sum(self.domain_diff)/self.N2
         self.powerlist.append(self.power)
-        #print iteration, self.power
+        print iteration, self.power
         
         # set the convergence condition
         if self.power <= self.converged_at: self.converged = True
         if iteration > self.cutoff: self.converged = True
 
-        if 'converged' in self.returnables_list and self.converged: self.returnables['converged'] = self.get(self.domains_f)
+        # if converged, prep output
+        if self.converged:
+            if 'converged' in self.returnables_list: self.returnables['converged'] = self.get(self.domains_f)
+            if 'speckles'  in self.returnables_list: self.returnables['speckles']  = shift(np.abs(self.speckles.get()))
 
     def get(self,something):
         if use_gpu: return something.get()
@@ -93,7 +109,18 @@ class generator(common):
     def iterate(self,iteration):
         
         def _findwalls():
-            if use_gpu: self._kexec('findwalls',self.domains,self.allwalls,self.poswalls,self.negwalls,shape=(self.N,self.N))
+            # find all the sites in the array which constitute domain walls.
+            # by definition, a site in a domain wall has a nearest-neighbor
+            # with an opposite sign
+            if use_gpu:
+                #self._kexec('findwalls',self.domains,self.allwalls,self.poswalls,self.negwalls,shape=(self.N,self.N),local=(8,8))
+                self.findwalls.execute(self.queue,(self.N,self.N),(16,16),
+                                       self.domains.data,
+                                       self.allwalls.data,
+                                       self.poswalls.data,
+                                       self.negwalls.data,
+                                       self.localbuffer,
+                                       self.scratch.data).wait()
             else:
                 rolls = lambda d, r0, r1: np.roll(np.roll(d,r0,axis=0),r1,axis=1)
             
@@ -111,10 +138,16 @@ class generator(common):
                 self.poswalls = self.allwalls*np.where(self.domains > 0,1,0)
         
         def _ising():
-            if use_gpu: self._kexec('ising',self.alpha,self.domains_f)
-            else: self.domains_f = (1+self.alpha)*self.domains_f-self.alpha*self.domains_f**3
+            # enforce the +- 1 bias
+            if use_gpu:
+                self._kexec('ising_tanh',np.float32(2),self.domains_f)
+                #self._kexec('ising',np.float32(0.5),np.int32(0),self.domains_f)
+            else:
+                self.domains_f = (1+self.alpha)*self.domains_f-self.alpha*self.domains_f**3
+                np.clip(self.domains_f,-1,1,out=self.domains_f)
 
         def _bound():
+            # bound the spins to the range (-1,1)
             if use_gpu: self._kexec('bound',self.domains_f,self.domains_f)
             else: np.clip(self.domains_f,-1,1,out=self.domains_f)
         
@@ -123,14 +156,16 @@ class generator(common):
             else: self.domains_f = self.domains_f*w+(1-w)*self.incoming
             
         def _make_available(which):
-            
+            # find out which spins are available for changing.
             if use_gpu: self._kexec('mkavailable',self.available,which,self.negpins,self.pospins)
             else: self.available = which*self.negpins*self.pospins
             
         def _promote_spins(x):
-            if use_gpu:
-                self._kexec('promote',self.domains_f,self.available,np.float32(x))
-            else: self.domains_f += self.available*x
+            # add an amount x to the spins identified by the mask self.available
+            if use_gpu: self._kexec('promote',self.domains_f,self.available,np.float32(x))
+            else:
+                self.domains_f += self.available*x
+                np.clip(self.domains_f,-1,1,out=self.domains_f)
         
         if use_gpu:
             self._cl_copy(self.domains,self.incoming) # basically, just discard the imaginary component
@@ -141,11 +176,9 @@ class generator(common):
         self._rescale_speckle(iteration=iteration)
         if use_gpu: self._cl_copy(self.domains,self.domains_f)
         else: self.domains_f = self.domains.real # _f for "float"
-        
-        _bound()
 
         #_findwalls() # now find the domain walls. modifications to the domain pattern due to rescaling only take place in the walls
-        _ising() # run the ising bias
+        _ising() # run the ising bias; includes bounding
 
         if 'bounded' in self.returnables_list: self.returnables['bounded'] = self.get(self.domains_f)
         
@@ -159,45 +192,40 @@ class generator(common):
             _update_domains()
         
         if iteration > self.m_turnon:
-            _findwalls()
             
+            _findwalls()
             if 'walls'     in self.returnables_list: self.returnables['walls']     = self.get(self.allwalls)
             if 'pos_walls' in self.returnables_list: self.returnables['pos_walls'] = self.get(self.poswalls)
             if 'neg_walls' in self.returnables_list: self.returnables['neg_walls'] = self.get(self.negwalls)
 
             # now attempt to adjust the net magnetization in real space to achieve the target magnetization.
-            net_m = self._sum(self.domains_f)
+            net_m    = self._sum(self.domains_f)
             needed_m = self.goal_m-net_m
-
-            if needed_m > 0:
-                _make_available(self.negwalls)
-                sites = self._sum(self.available,d=np.int32)
-                amount = min([self.spa_max,needed_m/sites])
+            if needed_m > 0: which, cfunc, sign = self.negwalls, min, 1
+            if needed_m < 0: which, cfunc, sign = self.poswalls, max, -1
                 
-            if needed_m < 0:
-                _make_available(self.poswalls)
-                sites = self._sum(self.available,d=np.int32)
-                amount = max([-1*self.spa_max,needed_m/sites])
+            _make_available(which)
+            sites = self._sum(self.available,d=np.int32)
+            amount = cfunc([sign*self.spa_max,needed_m/sites])
                 
-            _promote_spins(amount)
-            
+            _promote_spins(amount) # promote the spins; includes bounding
+        
             if 'promoted' in self.returnables_list: self.returnables['promoted'] = self.get(self.domains_f)
-            
-            _bound()
             
         # now copy domains_f back to domains for another fft
         if use_gpu: self._cl_copy(self.domains_f,self.domains)
         else: self.domains = np.copy(self.domains_f)
         if 'domains' in self.returnables_list: self.returnables['domains'] = self.get(self.domains_f)
        
-    def load(self,envelope=None,goal_growth_rate=None,returnables=('converged',)):
+    def load(self,envelope=None,goal_growth_rate=None,returnables=('converged','speckles')):
         
         if envelope != None:
-            assert isinstance(envelope,np.ndarray), "enveleop is %s"%type(sample)
+            assert isinstance(envelope,np.ndarray), "envelope is %s"%type(sample)
             assert envelope.ndim == 2
             
             s = envelope.shape
             
+            # we're assuming that the incoming function is the modulus
             envelope = np.fft.fftshift(envelope.astype(np.float32))
             envelope += -envelope.min()
             envelope *= 1./envelope.max()
@@ -215,13 +243,19 @@ class generator(common):
                 self.N2 = s[0]**2
                 
                 d1_names = ('domains','fourier_domains','speckles','ipsf') # complex64
-                d2_names = ('envelope','domains_f','speckles_f','incoming','domain_diff','kicker') # float32
-                d3_names = ('allwalls','poswalls','negwalls','negpins','pospins','available') #uint (8) -> uchar
+                d2_names = ('envelope','domains_f','speckles_f','incoming','domain_diff','kicker','available','scratch') # float32
+                d3_names = ('allwalls','poswalls','negwalls','negpins','pospins') #uint (8) -> uchar
                 
                 # allocate memory and namespace for the names in the above tuples
                 for n in d1_names: exec("self.%s = self._allocate(s,d1,name='%s')"%(n,n))
                 for n in d2_names: exec("self.%s = self._allocate(s,d2,name='%s')"%(n,n))
                 for n in d3_names: exec("self.%s = self._allocate(s,d3,name='%s')"%(n,n))
+                
+                self.localbuffer = pyopencl.LocalMemory(18*18*4)
+                
+                # build the kernels which use local memory
+                if use_gpu:
+                    self.findwalls = gpu.build_kernel_file(self.context, self.device, self.kp+'domains_findwalls.cl')
             
                 # these don't actually have anything to do with the envelope but this is a
                 # convenient spot to put the allocations
@@ -318,6 +352,7 @@ class generator(common):
             if supplied == None: supplied = np.random.rand(self.N,self.N)-0.5
             self.domains = self._set(supplied.astype(np.complex64),self.domains)
             self.converged = False
+            print "seeded"
             
     def kick(self,amount):
         """ If the simulation has reached an acceptable degree of convergence,
@@ -342,7 +377,7 @@ class generator(common):
         
         # inverse transform the domains, ending the kick
         if use_gpu: self._fft2(self.fourier_domains,self.domains,inverse=True)
-        else: self.domains = np.fft.ifft2(self.fourier_domains)
+        else: self.domains = IDFT(self.fourier_domains)
         
         self.converged = False
         
@@ -400,19 +435,19 @@ class generator(common):
             self._cl_abs(self.speckles,self.speckles)
                 
         else:
-            self.speckles = abs(np.fft.fft2(np.fft.fft2(self.speckles)*self.ipsf))
+            self.speckles = np.abs(IDFT(DFT(self.speckles)*self.ipsf))
 
     def _fft2(self,data_in,data_out,inverse=False,plan=None):
         # unified wrapper for fft.
         # note that this does not expose the full functionatily of the pyfft
         # plan because of assumptions regarding the input (eg, is complex)
-        
+
         if use_gpu:
             if plan == None: plan = self.fftplan
             plan.execute(data_in=data_in.data,data_out=data_out.data,inverse=inverse,wait_for_finish=True)
         else:
-            if inverse: return np.fft.ifft2(data_in)
-            else      : return np.fft.fft2(data_in)
+            if inverse: return IDFT(data_in)
+            else      : return DFT(data_in)
 
     def _preserve_power(self,stage):
         
@@ -470,27 +505,29 @@ class generator(common):
             self._cl_abs(self.fourier_domains,self.speckles,square=True)
         else:
             self.fourier_domains = self._fft2(self.domains,self.fourier_domains)
-            self.speckles = abs(self.fourier_domains)**2
+            self.speckles = np.abs(self.fourier_domains)**2
 
         if 'speckle_in' in self.returnables_list:
             self.make_speckle(self.domains_dft_re,self.domains_dft_im, self.speckles)
-            self.returnables['speckle_in'] = shift(abs(self.speckles.get()))
+            self.returnables['speckle_in'] = shift(np.abs(self.speckles.get()))
 
         # this is the first half of the power preservation. it extracts the dc component
         # from the speckle pattern to ensure that the average magnetization remain uneffected
         # by the rescaling process.
         self._preserve_power('in')
 
-        self._blur() # convolve self.speckles with self.ipsf to form blurry speckles
-        if 'blurred' in self.returnables_list: self.returnables['blurred'] = shift(abs(self.speckles.get()))
+        # convolve self.speckles with self.ipsf to form blurry speckles. store blurry speckles in
+        # self.speckles (ie, in place)
+        self._blur() 
+        if 'blurred' in self.returnables_list: self.returnables['blurred'] = shift(np.abs(self.speckles.get()))
         
         # multiply the domain pattern by the rescaler function. calculate the new speckle for power comparison.
         if use_gpu:
             self._kexec('erescale',self.fourier_domains,self.envelope,self.speckles)
-            self._cl_abs(self.fourier_domains,self.speckles,square=True)
+            #self._cl_abs(self.fourier_domains,self.speckles,square=True)
         else:
             self.fourier_domains *= np.sqrt(self.envelope/self.speckles)
-            self.speckles = abs(self.fourier_domains)**2
+            self.speckles = np.abs(self.fourier_domains)**2
 
         # this is the second half of the power preservation, which ensures that the total power of the
         # speckle pattern remains unchanged over the rescaling, and which also puts the dc component
@@ -504,14 +541,16 @@ class generator(common):
         if use_gpu:
             self._fft2(self.fourier_domains,self.domains,inverse=True)
         else:
-            self.domains = np.fft.ifft2(self.fourier_domains)
+            self.domains = IDFT(self.fourier_domains)
 
     def _sum(self,array,d=None):
         if use_gpu:
             assert array.dtype != 'complex64'
-            return cla.sum(array,dtype=d).get()
+            x = cla.sum(array,dtype=d).get()
+            return x
         else:
-            return np.sum(array)
+            x = np.sum(array)
+            return x
 
     def set_returnables(self,returnables=('converged',)):
         
@@ -581,6 +620,12 @@ class generator(common):
             "only_in_walls")
 
     def ggr_iteration(self,iteration):
+        
+        """ Run a single iteration of the ggr (goal-growth-rate) algorithm.
+        This algorithm attempts to change the total magnetization of the sample
+        between iterations by a certain fixed multiple according to
+        m@iteration(n-1)/m@iteration(n).  The reason for this algorithm is to
+        allow gentle worm-like growth at high magnetization."""
         
         assert self.can_has_domains, "no domains set!"
         assert self.can_has_envelope, "no goal envelope set!"
