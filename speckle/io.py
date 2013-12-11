@@ -9,7 +9,6 @@ Author: Daniel Parks (dhparks@lbl.gov)
 
 """
 import numpy
-from . import shape
 
 # If you need to use the python open() function, use this!!
 import types as _t
@@ -173,9 +172,6 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
 
     # zip output
     if do_zip != False: _zip(filename,do_zip)
-    
-    
-
 
 #
 ############### Text ########################

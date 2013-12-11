@@ -159,9 +159,10 @@ def rot_sym(speckles,uwplan=None,resize_to=360,get_back=('spectra_ds',)):
     # if resizing is requested, as it is by default, create a resizing plan
     if resize_to != None:
         rsplan = wrapping.resize_plan((rows,cols),(rows,resize_to))
-        cols = resize_to
+        cols   = resize_to
         
     # initialize the output
+    if 'i0'            in get_back: i0s          = np.zeros((L,rows,resize_to),  np.float32)
     if 'spectra'       in get_back: spectra      = np.zeros((L,rows,resize_to/4),np.float32)
     if 'spectra_ds'    in get_back: spectra_ds   = np.zeros((L,rows,resize_to/4),np.float32)
     if 'unwrapped'     in get_back: unwrappeds   = np.zeros((L,rows,resize_to),  np.float32)
@@ -182,9 +183,10 @@ def rot_sym(speckles,uwplan=None,resize_to=360,get_back=('spectra_ds',)):
         if resize_to != None: unwrapped = wrapping.resize(unwrapped,rsplan)
         
         # correlate and normalize
-        i0        = np.outer(np.average(unwrapped,axis=1)**2,np.ones(cols)) # this is the denominator (<I>)^2
-        autocorr  = crosscorr.crosscorr(unwrapped,unwrapped,axes=(1,),shift=False).real/cols
-        autocorr  = autocorr/i0-1
+        i0       = np.outer(np.average(unwrapped,axis=1)**2,np.ones(cols)) # this is the denominator (<I>)^2
+        #autocorr = crosscorr.crosscorr(unwrapped,unwrapped,axes=(1,),shift=False).real/cols
+        autocorr = np.fft.ifft2(np.abs(np.fft.fft2(unwrapped,axes=(1,)))**2,axes=(1,)).real/cols
+        autocorr = autocorr/i0-1
 
         # maybe despike and decompose
         if 'correlated_ds' in get_back or 'spectra_ds' in get_back:
@@ -200,10 +202,12 @@ def rot_sym(speckles,uwplan=None,resize_to=360,get_back=('spectra_ds',)):
         if 'unwrapped'      in get_back: unwrappeds[f]      = unwrapped
         if 'correlated'     in get_back: correlations[f]    = autocorr
         if 'correldated_ds' in get_back: correlations_ds[f] = despiked
+        if 'i0'             in get_back: i0s[f]             = i0
         
     if was_2d: speckles.shape = (speckles.shape[1],speckles.shape[2])
 
     to_return = {}
+    if 'i0'            in get_back: to_return['i0']            = i0s
     if 'spectra'       in get_back: to_return['spectra']       = spectra
     if 'spectra_ds'    in get_back: to_return['spectra_ds']    = spectra_ds
     if 'unwrapped'     in get_back: to_return['unwrapped']     = unwrappeds

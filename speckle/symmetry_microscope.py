@@ -63,35 +63,28 @@ class microscope(common):
         self.ipsf_state         = 0
         self.unwrap_state       = 0
         self.blocker_state      = 0
-        self.counter = 0
-        self.sumspectra = False
-
         self.can_run_scan       = False
         self.resize_speckles    = False
-        
+ 
         self.array_dtypes = ('float32','complex64')
         
-        # the keywords are the types of output that can be added to the output dictionary.
-        # returnables is the output dictionary.
+        # these class variables control analysis flow and which intermediates are pulled
+        # in order to return as output. the keywords are the types of output that can be
+        # added to the output dictionary. returnables is the output dictionary.
         self.keywords = ('sliced','illuminated','speckle',
                         'blurred','unwrapped','correlated',
                         'spectrum','spectrum_ds','correlate_ds','rspeckle')
-        
-        self.returnables = {}    
-        
+        self.returnables = {}
+        self.sumspectra = False
+        self.despike = True
+
         # set up timings. this is for optimization and gpu/cpu comparisons.
         # the method for these attributes is timings()
         self.times = {}
-        self.times['slice'] = 0
-        self.times['illum'] = 0
-        self.times['spckl'] = 0
-        self.times['resiz'] = 0
-        self.times['blur '] = 0
-        self.times['unwrp'] = 0
-        self.times['dcomp'] = 0
-        self.times['dspik'] = 0
-        self.times['corrl'] = 0
-        self.times['mastr'] = 0
+        time_keys = ('slice','illum','spckl','resiz','blur ','unwrp',
+                     'dcomp','dspik','corrl','mastr','reduc','crrl1',
+                     'crrl2','crrl3','dcrrl','fillz')
+        self.times = {key:0 for key in time_keys}
 
     def load(self,sample=None,illumination=None,ipsf=None,unwrap=None,returnables=('spectrum_ds',),blocker=None):
         """ Load data into the class namespace. While some data is required to
@@ -222,7 +215,7 @@ class microscope(common):
                 self.ipsf = self._allocate(s,d,name='ipsf')
             self.ipsf = self._set(ipsf,self.ipsf)
 
-            self.blurred = self._allocate(ipsf.shape,d,name='blurred')
+            self.blurred   = self._allocate(ipsf.shape,d,name='blurred')
             self.blurred_f = self._allocate(ipsf.shape,d2,name='blurred_f')
             self.ipsf_state = 2
                 
@@ -236,10 +229,12 @@ class microscope(common):
             self.ur   = min([ur,uR])
             self.uR   = max([ur,uR])
             self.rows = self.uR-self.ur
+            assert self.rows%16 == 0, "uR-ur must be divisible by 16 for gpu speed reasons"
             
             # allocate memory for cosine decompositions
             s4, d = (self.rows,128), np.complex64
             for n in ('spectrum','spectrumsum','spectrumds','spectrumsum'): exec("self.%s = self._allocate(s4,d,name='%s')"%(n,n))
+            self.spectrum_buffer = self._allocate_local(16*16*8,'spectrum_buffer')
             
             self.unwrap_state = 1
             
@@ -303,13 +298,6 @@ class microscope(common):
             upx   = wrapping.resize(uplan[1],(self.rows,512))
             upy   = np.mod(upy+self.N2,self.N2-1)
             upx   = np.mod(upx+self.N2,self.N2-1)
-            
-            #io.save('upx.fits',upx)
-            #io.save('upy.fits',upy)
-            #io.save('upx int.fits',upx.astype(np.int16))
-            #io.save('upy int.fits',upy.astype(np.int16))
-            #exit()
-            
             s3, d1, d2 = (self.rows,512), np.complex64, np.float32
             
             if not use_gpu:
@@ -322,7 +310,6 @@ class microscope(common):
                 for n in ('upx','upy'): exec("self.%s = self._allocate(s3,d2,name='%s')"%(n,n))
                 self.upx = self._set(upx.astype(np.float32),self.upx)
                 self.upy = self._set(upy.astype(np.float32),self.upy)
-                self.localaverage = pyopencl.LocalMemory(upx.astype(np.float32).nbytes/512)
                 self.correl1 = gpu.build_kernel_file(self.context, self.device, self.kp+'sm_correl_denoms.cl')
                 self.correl2 = gpu.build_kernel_file(self.context, self.device, self.kp+'sm_correl_norm.cl')
                 
@@ -451,49 +438,62 @@ class microscope(common):
         spectrum-without-spike is in self.spectrumds
         """
         
-        time0 = time.time()
+        
         
         if use_gpu:
             
+            entries = ((self.spectrum,self.unwrapped),)
+            
             # copy the correlation
-            self._cl_copy(self.unwrapped,self.despiked)
-            self._kexec('despike',self.despiked,self.despiked,np.int32(4),np.float32(5),shape=(self.rows,))
-            time1 = time.time()
+            if self.despike:
+                self._cl_copy(self.unwrapped,self.despiked)
+                time0 = time.time()
+                self._kexec('despike',self.despiked,self.despiked,np.int32(4),np.float32(5),shape=(self.rows,))
+                time1 = time.time()
+                entries = ((self.spectrum,self.unwrapped),(self.spectrumds,self.despiked))
+                self.times['dspik'] += time1-time0
 
-            # this correlates the spectrum without despiking
-            #self._kexec('set_zero_f2',self.spectrum)
-            self.spectrum.fill(0)
-            self.fftplan_correls.execute(self.unwrapped.data,batch=self.rows,wait_for_finish=True) # fft
-            self._kexec('cosine_reduce',self.unwrapped,self.spectrum,shape=(128,int(self.rows)),local=None)
-            
-            # now do the spectrum with despiking
-            #self._kexec('set_zero_f2',self.spectrumds)
-            self.spectrumds.fill(np.complex64(0))
-            self.fftplan_correls.execute(self.despiked.data,batch=self.rows,wait_for_finish=True) # fft
-            self._kexec('cosine_reduce',self.despiked,self.spectrumds,shape=(128,int(self.rows)))
+            # correlate and pull out the even components.
+            for entry in entries:
+                time6 = time.time()
+                entry[0].fill(np.complex64(0))
+                time5 = time.time()
+                self.fftplan_correls.execute(entry[1].data,batch=self.rows,wait_for_finish=True) # fft
+                time3 = time.time()
+                self._kexec('cosine_reduce',entry[1],entry[0],self.spectrum_buffer,shape=(128,int(self.rows)),local=(16,16))
+                time4 = time.time()
+                self.times['reduc'] += time4-time3
+                self.times['dcrrl'] += time3-time5
+
             if self.sumspectra: self.spectrumsum.__add__(self.spectrum)
-            #self._cl_add(self.spectrum,self.spectrumsum,self.spectrumsum,shape=self.spectrum.shape,local=(2,2))
             time2 = time.time()
+
             
-            self.times['dspik'] += time1-time0
             self.times['dcomp'] += time2-time1
+            self.times['fillz'] += time5-time6
 
         else:
             # cpu path uses function in symmetries library
             import symmetries
             
-            self.despiked   = symmetries.despike(self.unwrapped,width=5)
-            time1 = time.time()
-            self.spectrum   = symmetries.fft_decompose(self.unwrapped)
-            self.spectrumds = symmetries.fft_decompose(self.despiked)
-            dt = time.time()
+            entries = ((self.unwrapped,self.spectrum),)
             
-            self.times['dspik'] += time1-time0
-            self.times['dcomp']  += dt-time1
+            if self.despike:
+                time0 = time.time()
+                self.despiked = symmetries.despike(self.unwrapped,width=5)
+                time1 = time.time()
+                entries = ((self.unwrapped,self.spectrum),(self.despiked,self.spetrum_ds))
+                self.times['dspik'] += time1-time0
+                
+            for entry in entries:
+                time2 = time.time()
+                entry[1] = symmetries.fft_decompose(entry[0])
+                time3 = time.time()
+                self.times['dcomp'] += time3-time2
             
-        if 'correlated_ds' in self.returnables_list: self.returnables['correlated_ds'] = self.get(self.despiked)    
+        if 'correlated_ds' in self.returnables_lis and self.despike: self.returnables['correlated_ds'] = self.get(self.despiked)    
         if 'spectrum' in self.returnables_list: self.returnables['spectrum'] = self.get(self.spectrum)
-        if 'spectrum_ds' in self.returnables_list: self.returnables['spectrum_ds'] = self.get(self.spectrumds)
+        if 'spectrum_ds' in self.returnables_list and self.despike: self.returnables['spectrum_ds'] = self.get(self.spectrumds)
                
     def _fft2(self,data_in,data_out,inverse=False,plan=None):
         # unified wrapper for fft.
@@ -603,6 +603,10 @@ class microscope(common):
         t2 = time.time()
         _corr_norm() # normalize the autocorrelations
         t3 = time.time()
+    
+        self.times['crrl1'] += t1-t0
+        self.times['crrl2'] += t3-t2
+        self.times['crrl3'] += t2-t1
 
         self.times['corrl'] += time.time()-corr_time0
         

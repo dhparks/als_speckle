@@ -15,9 +15,18 @@ class common:
             x = cla.empty(self.queue,size,dtype)
             x.name = name # basically we need a name to run _kexec
             x.isgpu = True
-            return x
+            return x 
         else:
             return np.zeros(size,dtype)
+        
+    def _allocate_local(self,size,name=None):
+        if self.use_gpu:
+            import pyopencl
+            x = pyopencl.LocalMemory(size)
+            x.name = name
+            return x
+        else:
+            return None
     
     def _cl_abs(self,in1,out,square=False):
         """ Wrapper func to the various abs kernels. Checks types of in1 and out
@@ -277,6 +286,8 @@ class common:
         """
         
         assert isinstance(name,str), "name is %s"%name
+        import pyopencl.array as cla
+        import pyopencl._cl as cl_
         
         # build the command from name and *args and **kwargs. right now the only
         # kwarg is shape, but other options can be added.
@@ -304,17 +315,14 @@ class common:
         else:
             local=None
         
-        
+        # build the command string for execution
         cmd = 'self.%s.execute(self.queue,%s,%s'%(name,shape,local)
-
         for arg in args:
-            try:
-                arg.isgpu
-                cmd += ',self.%s.data'%arg.name
-            except AttributeError:
-                if isinstance(arg,self.ints):    cmd += ',np.int32(%s)'%arg
-                if isinstance(arg,self.floats):  cmd += ',np.float32(%s)'%arg
-                if isinstance(arg,self.float2s): cmd += ',np.complex64(%s)'%arg # not tested
+            if isinstance(arg,cla.Array):       cmd += ',self.%s.data'%arg.name
+            if isinstance(arg,cl_.LocalMemory): cmd += ',self.%s'%arg.name
+            if isinstance(arg,self.ints):       cmd += ',np.int32(%s)'%arg
+            if isinstance(arg,self.floats):     cmd += ',np.float32(%s)'%arg
+            if isinstance(arg,self.float2s):    cmd += ',np.complex64(%s)'%arg # not tested
         cmd += ').wait()'
 
         # try to run the command. this fails if the kernel hasnt yet been built

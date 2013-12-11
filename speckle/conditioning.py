@@ -163,10 +163,8 @@ def remove_dust(data,dust_mask,dust_plan=None):
         interpolated[ymin-1:ymax+1,xmin-1:xmax+1] = interpolation
         interpolated = numpy.nan_to_num(interpolated)
         
-        if have_numexpr:
-            fill = numexpr.evaluate("interpolated*dust_mask+frame*(1-dust_mask)")
-        else:
-            fill = interpolated*dust_mask+frame*(1-dust_mask)
+        if have_numexpr: fill = numexpr.evaluate("interpolated*dust_mask+frame*(1-dust_mask)")
+        else:            fill = interpolated*dust_mask+frame*(1-dust_mask)
         
         data_in[n] = fill
         
@@ -300,6 +298,7 @@ def subtract_dark(data_in, dark, match_region=20, return_type='data'):
     assert data_in.shape[-2:] == dark.shape, "dark and data must be commensurate"
 
     if isinstance(match_region,int):
+        x = match_region
         match_region = numpy.zeros(dark.shape,numpy.uint8)
         match_region[:x,:x] = 1
         
@@ -368,11 +367,6 @@ def remove_hot_pixels(data_in, iterations=1, threshold=2, gpu_info=None):
     if gpu_info != None:
         
         failed = False
-        
-        if not gpu.valid(gpu_info):
-            print "malformed gpu info in conditioning.remove_hot_pixels, reverting to cpu"
-            failed = True
-
         # load libraries
         try:
             import gpu
@@ -380,6 +374,10 @@ def remove_hot_pixels(data_in, iterations=1, threshold=2, gpu_info=None):
             import pyopencl as cl
             import pyopencl.array as cla
             context, device, queue, platform = gpu_info
+            
+            if not gpu.valid(gpu_info):
+                print "malformed gpu info in conditioning.remove_hot_pixels, reverting to cpu"
+                failed = True
 
         except ImportError:
             print "couldnt load gpu libraries, falling back to cpu"
@@ -388,7 +386,7 @@ def remove_hot_pixels(data_in, iterations=1, threshold=2, gpu_info=None):
         # build kernels
         try:
             kp = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/'
-            gpu_median3 = gpu.build_kernel_file(context, device, kp+'medianfilter3.cl') # for signal
+            gpu_median3 = gpu.build_kernel_file(context, device, kp+'medianfilter3_ex.cl') # for signal
             gpu_median5 = gpu.build_kernel_file(context, device, kp+'medianfilter5.cl') # for dark
             gpu_hotpix  = gpu.build_kernel_file(context, device, kp+'remove_hot_pixels.cl')
         except:
@@ -411,7 +409,7 @@ def remove_hot_pixels(data_in, iterations=1, threshold=2, gpu_info=None):
         for m in range(iterations):
             
             if gpu_info != None:
-                gpu_median3.execute(queue,frame.shape,  gpu_data_hot.data, gpu_data_cold.data)
+                gpu_median3.execute(queue,frame.shape, (16,16), gpu_data_hot.data, gpu_data_cold.data,cl.LocalMemory(18*18*4))
                 gpu_hotpix.execute(queue, (frame.size,),gpu_data_hot.data, gpu_data_cold.data,numpy.float32(threshold))
             else:
                 median = medfilt(frame)+.1
@@ -544,6 +542,7 @@ def match_counts(img1, img2, region=None, nparam=3, silent=True, return_type='da
         have_numexpr = True
     except ImportError:
         have_numexpr = False
+        
     def diff3(c, img1, img2):
         """ minimize (I1 - d1) - s(I2-d2)
             = I1 - s*I2 + (s*d2 - d1)
@@ -593,7 +592,8 @@ def match_counts(img1, img2, region=None, nparam=3, silent=True, return_type='da
         region = numpy.ones_like(img1)
     else:
         # convert region to 1/0 just to be sure
-        region = numpy.where(region >= 1, 1, 0) 
+        region = numpy.where(region >= 1, 1, 0)
+    if region.sum() < 1e5: have_numexpr = False 
 
     if region.sum() == 0:
         print("***** match_counts: Region of interest is empty! *****")
@@ -875,7 +875,7 @@ def sort_configurations(data,capture=0.5,louvain=False,gpu_info=None):
     def _check_types():
         assert isinstance(data,numpy.ndarray), "weights must be an array"
         assert data.ndim in (2,3), "weights must be 2d"
-        assert data.shape[-2] == weights.shape[-1], "weights must be square"
+        assert data.shape[-2] == data.shape[-1], "weights must be square"
         assert louvain in (True,False,0,1), "louvain must be boolean-evaluable"
         if not louvain:
             try: float(capture)

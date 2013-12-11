@@ -411,16 +411,19 @@ def pairwise_covariances(data, save_memory=False, gpu_info=None, mask=1):
             if isinstance(mask,np.ndarray):
                 pass
             else:
-                new_mask = np.random.rand(frames,frames)
+                new_mask = np.random.rand(N,N)
                 new_mask = np.where(new_mask < mask,1,0)
                 mask = new_mask
             return mask
             
         def _prep_gpu():
 
+            g = {} # this gets returned
+
             # load gpu libs
             try:
-                context,device,queue,platform = gpu_info
+                context, device, queue, platform = gpu_info
+                g['queue'] = queue; g['context'] = context; g['device'] = device
                 import sys
                 import pyopencl.array as cla
                 from pyopencl.elementwise import ElementwiseKernel as cl_kernel
@@ -431,17 +434,15 @@ def pairwise_covariances(data, save_memory=False, gpu_info=None, mask=1):
                 "phasing.covar_results failed on imports"
                 exit()
 
-            g = {}
-
             # allocate memory
-            g['data'] = cla.empty(queue, (frames,N,N), np.complex64)
-            d['dft1'] = cla.empty(queue, (N,N), np.complex64) # hold first dft to crosscorrelate
-            g['dft2'] = cla.empty(queue, (N,N), np.complex64) # hold second dft to crosscorrelate
-            g['prod'] = cla.empty(queue, (N,N), np.complex64) # hold the product of conj(dft1)*dft2
-            g['corr'] = cla.empty(queue, (N,N), np.float32)   # hold the abs of idft(product)
+            g['data'] = cla.empty(queue, (N,L,L), np.complex64)
+            g['dft1'] = cla.empty(queue, (L,L),   np.complex64) # hold first dft to crosscorrelate
+            g['dft2'] = cla.empty(queue, (L,L),   np.complex64) # hold second dft to crosscorrelate
+            g['prod'] = cla.empty(queue, (L,L),   np.complex64) # hold the product of conj(dft1)*dft2
+            g['corr'] = cla.empty(queue, (L,L),   np.float32)   # hold the abs of idft(product)
                 
             # make the gpu kernels
-            g['plan'] = Plan((N,N), queue=queue)
+            g['plan'] = Plan((L,L), queue=queue)
             g['slice'] = gpu.build_kernel_file(context, device, kp+'phasing_copy_from_buffer.cl')
             g['conj'] = cl_kernel(context,
                         "float2 *dft1,"  
@@ -463,7 +464,7 @@ def pairwise_covariances(data, save_memory=False, gpu_info=None, mask=1):
             # product; keep in place. make the magnitude of product in corr. take
             # the max of corr and return it to host.
             gpud['conj'](gpud['dft1'],gpud['dft2'],gpud['prod']).wait() 
-            gpud['plan'].execute(gpu['prod'].data,inverse=True,wait_for_finish=True)
+            gpud['plan'].execute(gpud['prod'].data,inverse=True,wait_for_finish=True)
             gpud['abs'](gpud['prod'],gpud['corr']).wait()
             
         def _get_do(n):
@@ -471,31 +472,32 @@ def pairwise_covariances(data, save_memory=False, gpu_info=None, mask=1):
             return np.nonzero(row)[0]+n
             
         # prepare for the calculation
-        data = _embed(data)
-        mask = _sampling(mask)
-        gpud = _prep_gpu
-        cc   = np.zeros((frames,frames),float) # in host memory
-        cov  = np.zeros((frames,frames),float) # in host memory
-        
-        N, L = data.shape[:1]
-        
+        data   = _embed(data)
+        N, L   = data.shape[:2]
+        mask   = _sampling(mask)
+        gpud   = _prep_gpu()
+        cc     = np.zeros((N,N),float) # in host memory
+        covars = np.zeros((N,N),float) # in host memory
+
         # put the data on the gpu and precompute the dfts
         gpud['data'].set(data)
         gpud['plan'].execute(gpud['data'].data,batch=N,wait_for_finish=True)
+        
+        from pyopencl.array import max as cm
         
         # now iterate through the CCs, cross correlating each pair of dfts
         for n in range(N):
     
             # slice the first dft into dft1
-            gpud['slice'].execute(queue,(L,L),gpud['dft1'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(n),np.int32(L)).wait()
+            gpud['slice'].execute(gpud['queue'],(L,L),gpud['dft1'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(n),np.int32(L)).wait()
     
             for m in _get_do(n):
                 
                 # slice the second dft into dft2, then find the maximum value of
                 # the cross correlation of dft1 and dft2
-                gpud['slice'].execute(queue,(L,L),gpud['dft2'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(m),np.int32(L))
+                gpud['slice'].execute(gpud['queue'],(L,L),gpud['dft2'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(m),np.int32(L))
                 _gpu_crosscorr()
-                max_val = cla.max(gpud['corr']).get()
+                max_val = cm(gpud['corr']).get()
                 cc[n,m] = max_val
                 cc[m,n] = max_val
                 

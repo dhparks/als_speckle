@@ -127,7 +127,8 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         gpu_info -- what gets returned by speckle.gpu.init(). If None, the
             calculations are performed on the CPU.
         im_convert -- if True, will convert each of the propagated frames
-            to hsv color space and then into PIL objects. 
+            to hsv color space and then into PIL objects. If gpu_info is supplied,
+            the complex -> hsv -> rgb conversion
     
     Returns:
     
@@ -241,9 +242,8 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
     
         # if everything is OK, allocate memory and build kernels
         kp             = string.join(gpu.__file__.split('/')[:-1],'/')+'/kernels/'
-        phase_factor   = gpu.build_kernel_file(context, device, kp+'propagate_phase_factor.cl')
+        phase_multiply = gpu.build_kernel_file(context, device, kp+'propagate_phase_multiply.cl')
         copy_to_buffer = gpu.build_kernel_file(context, device, kp+'propagate_copy_to_save_buffer.cl')
-        multiply       = gpu.build_kernel_file(context, device, kp+'common_multiply_f2_f2.cl')
         fftplan        = Plan((N,N),queue=queue)
 
         # put the signals onto the gpu along with buffers for the various operations
@@ -256,7 +256,7 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         # precompute the fourier transform of data. 
         fftplan.execute(fourier.data,wait_for_finish=True)
 
-        return phase_factor, copy_to_buffer, multiply, fftplan, rarray, fourier, phase, back, store
+        return phase_multiply, copy_to_buffer, fftplan, rarray, fourier, phase, back, store
         
     def _prep_cpu():
         
@@ -278,14 +278,15 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         if gpu_info != None:
             
             # make the phase factor; multiply the fourier rep; inverse transform
-            k_pf.execute(gpu_info[2],(int(N*N),),gpu_r.data,np.float32(t*z), gpu_phase.data)
-            k_m.execute(gpu_info[2], (int(N*N),),gpu_f.data,gpu_phase.data,gpu_phase.data) 
+            k_pm.execute(gpu_info[2],(int(N*N),),gpu_r.data,np.float32(t*z),gpu_f.data,gpu_phase.data)
             fftplan.execute(data_in=gpu_phase.data,data_out=gpu_back.data,inverse=True,wait_for_finish=True)
 
             # slice the subregion from the back-propagation and save in store
             k_ctb.execute(gpu_info[2],(rows,cols), gpu_store.data, gpu_back.data, np.int32(n), np.int32(N), np.int32(sr[0]), np.int32(sr[2]))
         
-    def _im_convert():
+    def _im_convert(norm='local'):
+
+        assert norm in ('global','local')
 
         if gpu_info != None:
             
@@ -298,21 +299,46 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
             hsv_convert = gpu.build_kernel_file(context, device, kp+'complex_to_rgb.cl')
             cl_abs      = gpu.build_kernel_file(context, device, kp+'common_abs_f2_f.cl')
             
-            # calculate abs of entire buffer. this is so we can get the maxval
-            abs_store = cla.empty(queue,gpu_store.shape,np.float32)
-            cl_abs.execute(queue,(gpu_store.size,),gpu_store.data,abs_store.data)
-            maxval = np.float32(cla.max(abs_store).get())
-            
             # allocate new memory (frames, rows, columns, 3); uchar -> uint8?
             new_shape    = gpu_store.shape+(3,)
             image_buffer = cla.empty(queue,new_shape,np.uint8)
             debug_buffer = cla.empty(queue,gpu_store.shape,np.float32)
-            hsv_convert.execute(queue,gpu_store.shape,gpu_store.data,image_buffer.data,maxval).wait()
-    
+            
+            # each frame must be normalized by SOMETHING. if norm=='local', that
+            # something is the max value of the abs of each frame. if norm == 'global',
+            # that something is the max value of the entire array. in either case,
+            # we make a list of maxvals which will correspond to each frame so that
+            # we can use the same hsv conversion kernel.
+            
+            if norm == 'global':
+                # calculate the max for the entire array
+                abs_store = cla.empty(queue,gpu_store.shape,np.float32)
+                mv_gpu    = cla.empty(queue,(gpu_store.shape[0],),np.float32)
+                cl_abs.execute(queue,(gpu_store.size,),gpu_store.data,abs_store.data)
+                max_vals.fill(np.float32(cla.max(abs_store).get()))
+
+            if norm == 'local':
+                # calculate the max for one frame at a time. pull this value and save
+                # it in the max_vals list. when finished, move max_vals to the gpu.
+                nz          = len(distances)
+                max_vals    = np.zeros(nz,np.float32)
+                slice_frame = gpu.build_kernel_file(context, device, kp+'common_slice_frame_f2.cl')
+                slice_store = cla.empty(queue,(rows,cols),np.complex64)
+                abs_store   = cla.empty(queue,(rows,cols),np.float32)
+                for n in xrange(nz):
+                    slice_frame.execute(gpu_info[2], (rows,cols), slice_store.data, gpu_store.data, np.int32(n)) # slice and do abs at the same time
+                    cl_abs.execute(queue,(slice_store.size,), slice_store.data, abs_store.data)
+                    max_vals[n] = np.float32(cla.max(abs_store).get())
+                mv_gpu = cla.to_device(queue,max_vals.astype(np.float32))
+
+            # run the complex -> hsv -> rgb converter on each pixel
+            hsv_convert.execute(queue,gpu_store.shape,gpu_store.data,image_buffer.data,mv_gpu.data).wait()
+
             # now convert to pil objects
             import scipy.misc as smp
             images = []
             image_buffer = image_buffer.get()
+            print image_buffer.shape
             for image in image_buffer: images.append(smp.toimage(image))
             return gpu_store.get(), images # done
         
@@ -354,7 +380,7 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
     if gpu_info == None:
         f, store = _prep_cpu()
     if gpu_info != None:
-        k_pf, k_ctb, k_m, fftplan, gpu_r, gpu_f, gpu_phase, gpu_back, gpu_store = _prep_gpu()
+        k_pm, k_ctb, fftplan, gpu_r, gpu_f, gpu_phase, gpu_back, gpu_store = _prep_gpu()
   
     # now compute the propagations
     for n, z in enumerate(distances):
