@@ -157,11 +157,11 @@ var userFunctions = {
 	    // define the relevant common attributes of the boxes
 	    var rs = front.sizes.r, ds = front.sizes.d, ss = front.sizes.s;
 	    var allBoxes = [
-		{h:rs, w: rs, x:tc.cmin,    y:tc.rmin,    c:"mainRegion"},
-		{h:ds, w: ds, x:tc.cmin+rs, y:tc.rmin+rs, c:"lowerRight"},
-		{h:ds, w: ds, x:tc.cmin+rs, y:tc.rmin-ds, c:"upperRight"},
-		{h:ds, w: ds, x:tc.cmin-ds, y:tc.rmin+rs, c:"lowerLeft"},
-		{h:ds, w: ds, x:tc.cmin-ds, y:tc.rmin-ds, c:"upperLeft"}];
+		{h:rs, w: rs, x:tc.cmin,    y:tc.rmin,    c:"mainRegion", curs: "move"},
+		{h:ds, w: ds, x:tc.cmin+rs, y:tc.rmin+rs, c:"lowerRight", curs: "se-resize"},
+		{h:ds, w: ds, x:tc.cmin+rs, y:tc.rmin-ds, c:"upperRight", curs: "ne-resize"},
+		{h:ds, w: ds, x:tc.cmin-ds, y:tc.rmin+rs, c:"lowerLeft",  curs: "sw-resize"},
+		{h:ds, w: ds, x:tc.cmin-ds, y:tc.rmin-ds, c:"upperLeft",  curs: "nw-resize"}];
 		
 	    // make the rectangular elements using d3
 	    for (var k=0;k<allBoxes.length;k++) {
@@ -178,6 +178,7 @@ var userFunctions = {
 		    .attr("location",thisBox.c)
 		    .style("fill",reg.color)
 		    .style("fill-opacity",0)
+		    .style('cursor',thisBox.curs)
 		    .call(dragFunctions.drag) // attaches the dragging behavior
 		    ;
     
@@ -185,6 +186,7 @@ var userFunctions = {
 		    newBox.style("stroke",reg.color)
 		    .style("stroke-width",2)
 		    .style("stroke-opacity",1);}
+		    
 		if (thisBox.c !="mainRegion") {
 		    newBox.style("fill-opacity",1);}
 	    }
@@ -200,6 +202,7 @@ var userFunctions = {
 		.style("stroke",reg.color)
 		.classed("selecter",true)
 		.classed("region",true)
+		.classed('interactive',true)
 		.attr("regionId",reg.regionId)
 		.on("click",function () {
 		    var t = d3.select(this);
@@ -442,6 +445,7 @@ var userFunctions = {
 		.append("g")
 		.attr("class","dataSeries")
 		.attr("id", function (d) {return "g2Group"+d.regionId;})
+		.style("cursor","pointer")
 		.on("click",function () {userFunctions.selectPlot(d3.select(this).attr("id"))});
 	
 	    newLines.append("path")
@@ -489,6 +493,8 @@ var userFunctions = {
 	    }
 	
 	var parse = function (data) {
+	    
+	    console.log(data)
 	    
 	    // take the data returned from the backend fitting and attach
 	    // it to the correct locations in front.intensity etc

@@ -271,17 +271,22 @@ def calculate_bragg((a, b, c), (h, k, l), energy):
     returns:
         TwoTheta - Bragg angle, in degrees, if it exists.
     """
-    assert type(a) in (float, int), "a must be an integer or float"
-    assert type(b) in (float, int), "b must be an integer or float"
-    assert type(c) in (float, int), "c must be an integer or float"
-    assert type(h) in (float, int), "h must be an integer or float"
-    assert type(k) in (float, int), "k must be an integer or float"
-    assert type(l) in (float, int), "l must be an integer or float"
-    assert type(energy) in (float, int), "energy must be an integer or float"
+    
+    def _convert_to_float(x,n):
+        try: return float(x)
+        except: raise ValueError("cant set value of %s to float"%n)
+    
+    a = _convert_to_float(a,'a')
+    b = _convert_to_float(b,'b')
+    c = _convert_to_float(c,'c')
+    h = _convert_to_float(h,'h')
+    k = _convert_to_float(k,'k')
+    l = _convert_to_float(l,'l')
+    energy = _convert_to_float(energy,'energy')
         
     lam = energy_to_wavelength(energy)
     
-    d = 1.0/np.sqrt( (float(h)/float(a))**2 + (float(k)/float(b))**2 + (float(l)/float(c))**2 )
+    d = 1.0/np.sqrt( (h/a)**2 + (k/b)**2 + (l/c)**2 )
 
     Theta = np.arcsin(lam/(2*d))*180/np.pi
     TwoTheta = 2*Theta

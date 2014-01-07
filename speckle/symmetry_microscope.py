@@ -12,6 +12,10 @@ w = sys.stdout.write
 common = gpu.common
 shift = np.fft.fftshift
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 from . import io
 
 try:
@@ -52,9 +56,13 @@ class microscope(common):
             use_gpu = False
         common.use_gpu = use_gpu # tell the methods in common which device we're using
 
-        if use_gpu: self.compute_device = 'gpu'  
-        else: self.compute_device = 'cpu'
-            
+        if use_gpu:
+            self.compute_device = 'gpu'
+            self.correl1 = gpu.build_kernel_file(self.context, self.device, self.kp+'sm_correl_denoms.cl')
+            self.correl2 = gpu.build_kernel_file(self.context, self.device, self.kp+'sm_correl_norm.cl')
+        else:
+            self.compute_device = 'cpu'
+
         # these attributes change value in the load function. based on what has been
         # loaded, execution may be disallowed (ie, need an sample and illumination function).
         # 0 indicates no information, 1 partial information, 2 complete information
@@ -85,6 +93,10 @@ class microscope(common):
                      'dcomp','dspik','corrl','mastr','reduc','crrl1',
                      'crrl2','crrl3','dcrrl','fillz')
         self.times = {key:0 for key in time_keys}
+        self.counter = 0
+        
+        # these variables get populated during load but are instantiated here to avoid errors
+        self.N1, self.N2, self.ur, self.uR, self.uwp_params = None, None, None, None, None
 
     def load(self,sample=None,illumination=None,ipsf=None,unwrap=None,returnables=('spectrum_ds',),blocker=None):
         """ Load data into the class namespace. While some data is required to
@@ -142,48 +154,48 @@ class microscope(common):
                 to host memory.
         """
         
-        #### load the pieces of information which do not require dependencies.
-        
-        # load the sample. has no dependencies.
-        if sample != None:
+        def _load_sample(sample):
+            
             assert isinstance(sample,np.ndarray), "sample is %s"%type(sample)
             assert sample.ndim == 2
             sample = sample.astype(np.complex64)
             
-            if self.sample_state == 2:
-                if self.sample.shape != sample.shape:
-                    #if use_gpu: self.sample.data.release()
-                    self.sample = self._allocate(sample.shape,np.complex64,name='sample')
-                self.sample = self._set(sample,self.sample)
-            
-            if self.sample_state != 2:
-                self.sample = self._allocate(sample.shape,np.complex64,name='sample')
-                self.sample = self._set(sample,self.sample)
-                self.sample_state = 2
+            def _need_new(sample):
+                a = self.sample_state == 2
+                try:    b = self.sample.shape == sample.shape
+                except: b = False
+                return (a and b) or (not a)
+                
+            if _need_new(sample): self.sample = self._allocate(sample.shape,np.complex64,name='sample')
+            self.sample = self._set(sample,self.sample)
+            self.sample_state = 2
                 
             self.N0a, self.N0b = self.sample.shape
-  
-        # load the illumination. has no dependencies.
-        if illumination != None:
-            assert isinstance(illumination,np.ndarray)
-            assert illumination.ndim == 2
-            assert illumination.shape[0] == illumination.shape[1]
+            
+        def _load_illumination(illumination):
+            
+            def _need_new(illumination):
+                a = self.illumination_state == 2
+                try:    b = self.illumination.shape != illumination.shape
+                except: b = False
+                return (not a) or (a and b)
+
+            assert self._is_square_array(illumination)
+            
             illumination = illumination.astype(np.complex64)
             self.N1  = illumination.shape[0]
             self.N11 = illumination.size
             s, d = illumination.shape, np.complex64
             
             # see if we need to allocate memory, then set illumination
-            if self.illumination_state == 2:
-                if self.illumination.shape != illumination.shape:
-                    self.illumination = self._allocate(illumination.shape,np.complex64,name='illumination')
-            if self.illumination_state != 2:
-                self.illumination = self._allocate(illumination.shape,np.complex64,name='illumination')
+            if _need_new(illumination): self.illumination = self._allocate(s,d,name='illumination')
             self.illumination = self._set(illumination,self.illumination)
               
             # allocate memory for all the buffers of same size and shape as illumination
-            names = ('sliced','illuminated','far_field','speckles') # complex64
-            for n in names: exec("self.%s = self._allocate(s,d,name='%s')"%(n,n))
+            self.sliced      = self._allocate(s,d,name='sliced')
+            self.speckles    = self._allocate(s,d,name='speckles')
+            self.far_field   = self._allocate(s,d,name='far_field')
+            self.illuminated = self._allocate(s,d,name='illuminated')
             
             # make fft plans. when no gpu is present, try to use fftw. when fftw
             # is not present, use numpy.fft
@@ -200,12 +212,10 @@ class microscope(common):
 
             self.illumination_state = 2
             
-        # load the ipsf. has no essential dependencies. for now, require an array. later,
-        # add ability to use a list specification.
-        if ipsf != None:
-            assert isinstance(ipsf,np.ndarray)
-            assert ipsf.ndim == 2
-            assert ipsf.shape[0] == ipsf.shape[1]
+        def _load_ipsf(ipsf):
+            
+            assert self._is_square_array(ipsf)
+            
             ipsf = ipsf.astype(np.complex64)
             self.N2  = ipsf.shape[0]
             self.N22 = ipsf.size
@@ -218,9 +228,8 @@ class microscope(common):
             self.blurred   = self._allocate(ipsf.shape,d,name='blurred')
             self.blurred_f = self._allocate(ipsf.shape,d2,name='blurred_f')
             self.ipsf_state = 2
-                
-        # load the unwrapping data. 
-        if unwrap != None:
+            
+        def _load_unwrap(unwrap):
 
             assert isinstance(unwrap,(list,tuple,np.ndarray)), "unwrap must be iterable type"
             assert len(unwrap) == 2, "unwrap must be length 2"
@@ -229,17 +238,22 @@ class microscope(common):
             self.ur   = min([ur,uR])
             self.uR   = max([ur,uR])
             self.rows = self.uR-self.ur
-            assert self.rows%16 == 0, "uR-ur must be divisible by 16 for gpu speed reasons"
+            if use_gpu: assert self.rows%16 == 0, "uR-ur must be divisible by 16 for gpu speed reasons"
             
             # allocate memory for cosine decompositions
             s4, d = (self.rows,128), np.complex64
-            for n in ('spectrum','spectrumsum','spectrumds','spectrumsum'): exec("self.%s = self._allocate(s4,d,name='%s')"%(n,n))
+            
+            self.spectrum      = self._allocate(s4,d,name='spectrum')
+            self.spectrumds    = self._allocate(s4,d,name='spectrumds')
+            self.spectrumsum   = self._allocate(s4,d,name='spectrumsum')
+            self.spectrumsumds = self._allocate(s4,d,name='spectrumsumds')
+            
             self.spectrum_buffer = self._allocate_local(16*16*8,'spectrum_buffer')
             
             self.unwrap_state = 1
             
-        if returnables != None:
-            
+        def _load_returnables(returnables):    
+        
             # check types
             assert isinstance(returnables,(list,tuple)), "returnables must be list or tuple"
             assert all([isinstance(r,str) for r in returnables]), "all elements of returnables must be strings"
@@ -250,48 +264,35 @@ class microscope(common):
                     sys.stdout.write("requested returnable %s is unrecognized and will be ignored\n"%r)
                 else:
                     self.returnables_list.append(r)
+
+        def _make_resize_plan():
             
-        #### now calculate information with multiple dependencies
-
-        # if illumination and ipsf are differing sizes, we require a resize plan.
-        if self.illumination_state == 2:
-            if self.ipsf_state != 2:
-                self.N2 = self.N1
-                self.resize_speckles = False
-            if self.ipsf_state == 2:
-                if self.N1 != self.N2:
-                    
-                    self.resize_speckles = True
-                    s1 = (self.N1,self.N1) # old size, set by illumination
-                    s2 = (self.N2,self.N2) # new size, set by ipsf
-                    d  = np.float32
-                    
-                    # make the resizing plan
-                    if use_gpu:
-                        plan = wrapping.resize_plan(s1,s2,target='gpu')
-                        for n in ('rpx','rpy'): exec("self.%s = self._allocate(s2,d,name='%s')"%(n,n))
-                        self.rpx = self._set(plan[0].astype(np.float32),self.rpx)
-                        self.rpy = self._set(plan[1].astype(np.float32),self.rpy)
-                    else:
-                        plan = wrapping.resize_plan(s1,s2,target='cpu')
-                        self.r_out, self.c_out = plan[:,-1]
-                        self.rp = plan[:,:-1] # cpu plan
-                        
-                    self.resized_speckles = self._allocate(s2,np.complex64,name='resized_speckles')
-
-                if self.N1 == self.N2: self.resize_speckles = False
-                    
-            if use_gpu: self.fftplan_blur = fft_plan((self.N2,self.N2), queue=self.queue)
-            else: self.fftplan_blur = None
-
-        if self.unwrap_state > 0 and self.illumination_state == 2:
+            s1 = (self.N1,self.N1) # old size, set by illumination
+            s2 = (self.N2,self.N2) # new size, set by ipsf
+            d  = np.float32
             
-            # make the unwrap/resize plan. this is a hybrid plan which unwraps and resizes
-            # to 512 columns in a single step for slightly faster calculation.
+            # make the resizing plan
+            if use_gpu:
+                plan = wrapping.resize_plan(s1,s2,target='gpu')
+                self.rpx = self._allocate(s2,d,name='rpx')
+                self.rpy = self._allocate(s2,d,name='rpy')
+                self.rpx = self._set(plan[0].astype(np.float32),self.rpx)
+                self.rpy = self._set(plan[1].astype(np.float32),self.rpy)
+            else:
+                plan = wrapping.resize_plan(s1,s2,target='cpu')
+                self.r_out, self.c_out = plan[:,-1]
+                self.rp = plan[:,:-1] # cpu plan
+                
+            self.resized_speckles = self._allocate(s2,np.complex64,name='resized_speckles')
+
+        def _make_unwrap_plan():
+            # make the unified unwrap/resize plan
             
             if self.uR > self.N2/2:
                 warnings.warn('\nThe supplied unwrap outer radius larger than the size of the speckle to unwrap.\nSetting outer radius to largest allowable value.\n')
                 self.uR == self.N2/2
+                self.rows = self.uR-self.uR
+                if use_gpu: assert self.rows%16 == 0, "uR-ur must be divisble by 16 for gpu speed reasons"
             
             uplan = wrapping.unwrap_plan(self.ur,self.uR,(0,0),target='gpu') # y,x
             upy   = wrapping.resize(uplan[0],(self.rows,512))
@@ -307,22 +308,58 @@ class microscope(common):
                 
             # put the plan into memory.
             if use_gpu:
-                for n in ('upx','upy'): exec("self.%s = self._allocate(s3,d2,name='%s')"%(n,n))
-                self.upx = self._set(upx.astype(np.float32),self.upx)
-                self.upy = self._set(upy.astype(np.float32),self.upy)
-                self.correl1 = gpu.build_kernel_file(self.context, self.device, self.kp+'sm_correl_denoms.cl')
-                self.correl2 = gpu.build_kernel_file(self.context, self.device, self.kp+'sm_correl_norm.cl')
+                self.upx = self._allocate(s3,d2,name='upx')
+                self.upy = self._allocate(s3,d2,name='upy')
+                self.upx = self._set(upx.astype(d2),self.upx)
+                self.upy = self._set(upy.astype(d2),self.upy)
                 
-            # allocate buffers
-            for n in ('unwrapped','despiked'): exec("self.%s = self._allocate(s3,d1,name='%s')"%(n,n))
-            self.rowaverage  = self._allocate((self.rows,),np.float32,name='rowaverage')
-            #self.dummy  = self._allocate((self.rows,),np.float32,name='dummy')
+            # allocate memory
+            self.unwrapped  = self._allocate(s3,d1,name='unwrapped')
+            self.despiked   = self._allocate(s3,d1,name='despiked')
+            self.rowaverage = self._allocate((self.rows,),d2,name='rowaverage')
+                
+            # write down the parameters for this plan so that we don't have to remake it on
+            # every re-load of sample or ipsf or illumination
+            self.uwp_params = (self.ur,self.uR,self.N2)
             
-            # make fftplan for correlations
+            # correlation plan for gpu
             if use_gpu: self.fftplan_correls = fft_plan((512,),queue=self.queue)
-            else: self.fftplan_correls = None
-
+                
             self.unwrap_state = 2
+
+        #### load the pieces of information which do not require dependencies.
+        if ipsf         != None: _load_ipsf(ipsf)
+        if sample       != None: _load_sample(sample)
+        if unwrap       != None: _load_unwrap(unwrap)
+        if returnables  != None: _load_returnables(returnables)
+        if illumination != None: _load_illumination(illumination)
+
+        #### now calculate information with multiple dependencies
+        
+        if self.illumination_state == 2:
+            
+            if self.ipsf_state != 2:
+                # have illumination but no coherence
+                self.N2, self.resize_speckles = self.N1, False
+                
+            if self.ipsf_state == 2:
+                
+                if self.N1 == self.N2:
+                    # have illumination and equally sized coherence
+                    self.resize_speckles = False
+                    
+                if (self.N1 != self.N2 and (ipsf != None or illumination != None)):
+                    # have illumination and differently size coherence and at least
+                    # one of them is being loaded RIGHT NOW
+                    self.resize_speckles = True
+                    _make_resize_plan()
+                    
+                if use_gpu: self.fftplan_blur = fft_plan((self.N2,self.N2),np.complex64,queue=self.queue)
+            
+            # see if we need a new unwrap plan. we require an unwrap plan before we can run
+            # the microscope.
+            if self.unwrap_state > 0 and (unwrap != None or illumination != None or ipsf != None) and self.uwp_params != (self.ur,self.uR,self.N2):
+                _make_unwrap_plan()
 
         if self.sample_state == 2 and self.illumination_state == 2 and self.unwrap_state == 2:
             self.can_run_scan = True
@@ -346,13 +383,8 @@ class microscope(common):
             components: (optional) decompose into these components
         """
         
-        #assert self.sample_state == 2,       "no object set"
-        #assert self.illumination_state == 2, "no pinhole set"
-        #assert self.unwrap_state == 2,       "no unwrap set"
-        #assert self.cosines_state == 2,      "no cosines set"
-        #assert self.can_run_scan
-        #assert isinstance(y,int) and isinstance(x,int), "site coordinates must be integer"
-        
+        assert self.can_run_scan
+
         time0 = time.time()
         self._slice_sample(y,x)
         self._make_speckle()
@@ -400,6 +432,13 @@ class microscope(common):
                 sys.stdout.write("%s time:  %.3e (%.2f %%)\n"%(key,t,t/mt*100))
         sys.stdout.write("mastr time: %.3e\n"%mt)
 
+    def _is_square_array(self, array):
+        # check if an array is square. this gets used a lot in loading.
+        a = isinstance(array,np.ndarray)
+        b = array.ndim == 2
+        c = array.shape[0] == array.shape[1]
+        return a and b and c
+
     def _blur(self):
         
         """ Blur the current speckle pattern.
@@ -423,7 +462,7 @@ class microscope(common):
             self._cl_abs(self.blurred,self.blurred)
                 
         else:
-            self.blurred = self.ifft2(self.fft2(to_blur)*self.ipsf)
+            self.blurred = np.abs(self.ifft2(self.fft2(to_blur)*self.ipsf))
             
         self.times['blur '] += time.time()-time0
 
@@ -437,26 +476,25 @@ class microscope(common):
         spectrum-with-spike is in self.spectrum
         spectrum-without-spike is in self.spectrumds
         """
-        
-        
-        
+
         if use_gpu:
             
-            entries = ((self.spectrum,self.unwrapped),)
+            entries = [(self.spectrum,self.unwrapped),]
+            time7 = time.time()
             
             # copy the correlation
-            if self.despike:
+            if 'spectrum_ds' in self.returnables or 'correlated_ds' in self.returnables:
                 self._cl_copy(self.unwrapped,self.despiked)
-                time0 = time.time()
+                time0    = time.time()
                 self._kexec('despike',self.despiked,self.despiked,np.int32(4),np.float32(5),shape=(self.rows,))
-                time1 = time.time()
-                entries = ((self.spectrum,self.unwrapped),(self.spectrumds,self.despiked))
+                time1    = time.time()
+                entries += (self.spectrumds,self.despiked)
                 self.times['dspik'] += time1-time0
 
             # correlate and pull out the even components.
             for entry in entries:
                 time6 = time.time()
-                entry[0].fill(np.complex64(0))
+                #entry[0].fill(np.complex64(0))
                 time5 = time.time()
                 self.fftplan_correls.execute(entry[1].data,batch=self.rows,wait_for_finish=True) # fft
                 time3 = time.time()
@@ -464,37 +502,40 @@ class microscope(common):
                 time4 = time.time()
                 self.times['reduc'] += time4-time3
                 self.times['dcrrl'] += time3-time5
+                self.times['fillz'] += time5-time6
 
-            if self.sumspectra: self.spectrumsum.__add__(self.spectrum)
+            if self.sumspectra:
+                self.spectrumsum.__add__(self.spectrum)
+                if 'spectrum_ds' in self.returnables: self.spectrumsumds.__add__(self.spectrumds)
+                
             time2 = time.time()
 
+            self.times['dcomp'] += time2-time7
             
-            self.times['dcomp'] += time2-time1
-            self.times['fillz'] += time5-time6
 
         else:
             # cpu path uses function in symmetries library
             import symmetries
             
-            entries = ((self.unwrapped,self.spectrum),)
+            entries = [(self.unwrapped,self.spectrum),]
             
-            if self.despike:
-                time0 = time.time()
+            if 'spectrum_ds' in self.returnables:
+                time0         = time.time()
                 self.despiked = symmetries.despike(self.unwrapped,width=5)
-                time1 = time.time()
-                entries = ((self.unwrapped,self.spectrum),(self.despiked,self.spetrum_ds))
+                time1         = time.time()
+                entries      += (self.despiked,self.spetrum_ds)
                 self.times['dspik'] += time1-time0
                 
             for entry in entries:
-                time2 = time.time()
+                time2    = time.time()
                 entry[1] = symmetries.fft_decompose(entry[0])
-                time3 = time.time()
+                time3    = time.time()
                 self.times['dcomp'] += time3-time2
-            
-        if 'correlated_ds' in self.returnables_lis and self.despike: self.returnables['correlated_ds'] = self.get(self.despiked)    
-        if 'spectrum' in self.returnables_list: self.returnables['spectrum'] = self.get(self.spectrum)
-        if 'spectrum_ds' in self.returnables_list and self.despike: self.returnables['spectrum_ds'] = self.get(self.spectrumds)
-               
+        
+        if 'spectrum' in self.returnables_list:      self.returnables['spectrum']      = self.get(self.spectrum)
+        if 'spectrum_ds' in self.returnables_list:   self.returnables['spectrum_ds']   = self.get(self.spectrumds)
+        if 'correlated_ds' in self.returnables_list: self.returnables['correlated_ds'] = self.get(self.despiked)    
+
     def _fft2(self,data_in,data_out,inverse=False,plan=None):
         # unified wrapper for fft.
         # note that this does not expose the full functionatily of the pyfft
@@ -565,7 +606,7 @@ class microscope(common):
                 #self._kexec('correl_denoms',self.unwrapped,self.rowaverage,np.int32(0),shape=(self.rows,))
                 #self._kexec('correl_denoms',self.unwrapped,self.rowaverage,np.int32(0),shape=(self.rows,))
                 ls = 2
-                self.correl1.execute(self.queue,(self.rows,),(ls,),self.unwrapped.data, self.rowaverage.data, pyopencl.LocalMemory(ls*4)).wait()
+                self.correl1.execute(self.queue,(self.rows,),(ls,),self.unwrapped.data, self.rowaverage.data, pyopencl.LocalMemory(ls*4))
                 
             else:
                 r = np.average(self.unwrapped,axis=1)
@@ -576,7 +617,7 @@ class microscope(common):
 
             if use_gpu:
                 #self._kexec('correl_norm',self.unwrapped,self.rowaverage,self.unwrapped,shape=(512,self.rows))
-                self.correl2.execute(self.queue, (512,self.rows), (16, 16), self.unwrapped.data,self.rowaverage.data,pyopencl.LocalMemory(16*4),self.unwrapped.data,).wait()
+                self.correl2.execute(self.queue, (512, self.rows), (16, 16), self.unwrapped.data, self.rowaverage.data, pyopencl.LocalMemory(16*4),self.unwrapped.data)
                 
             else:
                 self.unwrapped /= (self.rowaverage**2)
@@ -590,9 +631,10 @@ class microscope(common):
 
         # calculate the autocorrelation of the rows using a 1d plan and the batch command in pyfft
         if use_gpu:
-            self.fftplan_correls.execute(self.unwrapped.data,wait_for_finish=True,batch=self.rows)
+            self.fftplan_correls.execute(self.unwrapped.data,batch=self.rows)
             self._cl_abs(self.unwrapped,self.unwrapped,square=True)
-            self.fftplan_correls.execute(self.unwrapped.data,batch=self.rows,inverse=True,wait_for_finish=True)
+            self.fftplan_correls.execute(self.unwrapped.data,batch=self.rows,inverse=True)
+            self.queue.finish()
 
         else:
             t1 = self.fft2(self.unwrapped,axes=(1,))
@@ -605,8 +647,8 @@ class microscope(common):
         t3 = time.time()
     
         self.times['crrl1'] += t1-t0
-        self.times['crrl2'] += t3-t2
-        self.times['crrl3'] += t2-t1
+        self.times['crrl2'] += t2-t1
+        self.times['crrl3'] += t3-t2
 
         self.times['corrl'] += time.time()-corr_time0
         

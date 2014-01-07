@@ -168,6 +168,7 @@ var userFunctions = {
 		// create the slider
 		var slider = d3.select("#slidergroup").append("g")  
 		    .attr("class", "slider")
+		    .style("cursor","move")
 		    .call(front.slider.brush);
 		
 		// unknown purpose
@@ -440,9 +441,13 @@ var start = function () {
 	d3.select("#svghologram").append("image")
 	    .attr("id","hologramimage")
 	    .attr("width", function() {return front.zooms*300;})
-	    .attr("height",300)
+	    .attr("height","100%")
 	    .attr("x",0)
-	    .attr('xlink:href',front.zoom_strip.src);
+	    .attr("y",0)
+	    .attr('xlink:href',front.zoom_strip.src)
+	    //.attr('transform','scale(2)') // zoom!
+	    //.attr('transform','translate(-150)') // move around
+	    //.attr('transform','scale(2),translate(-20)') // do both
 	    
 	d3.select("#svghologram").append("g")
 	    .attr("id","hologrambuttons")
@@ -596,11 +601,11 @@ var start = function () {
 	// define the relevant common attributes of the boxes
 	d3.select("#svghologram").append("g").attr("id","hologramRegion")
 	var allBoxes = [
-	    {h:rs, w: rs, x:tc.cmin,    y:tc.rmin,    c:"mainRegion"},
-	    {h:ds, w: ds, x:tc.cmin+rs, y:tc.rmin+rs, c:"lowerRight"},
-	    {h:ds, w: ds, x:tc.cmin+rs, y:tc.rmin-ds, c:"upperRight"},
-	    {h:ds, w: ds, x:tc.cmin-ds, y:tc.rmin+rs, c:"lowerLeft"},
-	    {h:ds, w: ds, x:tc.cmin-ds, y:tc.rmin-ds, c:"upperLeft"}];
+	    {h:rs, w: rs, x:tc.cmin,    y:tc.rmin,    c:"mainRegion", curs:"move"},
+	    {h:ds, w: ds, x:tc.cmin+rs, y:tc.rmin+rs, c:"lowerRight", curs:"se-resize"},
+	    {h:ds, w: ds, x:tc.cmin+rs, y:tc.rmin-ds, c:"upperRight", curs:"ne-resize"},
+	    {h:ds, w: ds, x:tc.cmin-ds, y:tc.rmin+rs, c:"lowerLeft",  curs:"sw-resize"},
+	    {h:ds, w: ds, x:tc.cmin-ds, y:tc.rmin-ds, c:"upperLeft",  curs:"nw-resize"}];
 
 	var group = d3.select("#hologramRegion")
     
@@ -618,6 +623,7 @@ var start = function () {
 		.attr("location",thisBox.c)
 		.style("fill","white")
 		.style("fill-opacity",0)
+		.style("cursor",thisBox.curs)
 		
 	    //newBox.call(drag)
 

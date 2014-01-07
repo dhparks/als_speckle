@@ -1,11 +1,16 @@
-from flask import Flask, jsonify, request, redirect, send_from_directory, json, session, escape
+from flask import Flask, jsonify, request, redirect, send_from_directory, json, session, escape, render_template
 from werkzeug import secure_filename
 import os
-app = Flask(__name__)
+import uuid
+from os.path import getctime
 
 import time
 from datetime import timedelta
+import sys
+sys.path.insert(0,'../pycommon')
 import speckle, numpy
+
+app = Flask(__name__)
 
 # if everything is present for a gpu, turn it on
 try:
@@ -24,19 +29,61 @@ from speckle.interfaces import imaging_backend
 # concurrent user sessions are managed through a dictionary which holds
 # the backends and the time last seen
 sessions = {}
-def check_session():
+def manage_session():
     # see if there is currently a session attached to the incoming request.
     # if not, assign one. the way to check for a session is to try to get a
     # key; an error indicates no session
     
-    try:
-        s_id = session['s_id']
-    
-    except KeyError:
+    def _delete_old_files(ct):
         
-        # make a new session
-        t    = int(time.time()*10)
-        s_id = str(t)[-8:]
+        def _get_session(f):
+            try: session_id = int(f.split('_')[1].split('session')[1])
+            except ValueError: session_id = int(f.split('_')[1].split('session')[1].split('.')[0])
+            return session_id
+
+        # define the expiration time constant
+        life_hours = 8
+        expired_at = time.time()-3600*life_hours
+        
+        # delete old files (currently they live for %life_hours% hours)
+        import glob
+        files, kept_sessions, del_sessions, kept, deleted = [], [], [], 0, 0
+        for path in ('static/*/images/*session*.*','static/*/csv/*session*.*','data/*session*.*'): files += glob.glob(path)
+        
+        for f in files:
+            
+            # get the session id for the file
+            session_id = _get_session(f)
+            
+            # see how old the file is. if too old, delete it.
+            if getctime(f) < expired_at:
+                os.remove(f)
+                deleted += 1
+                del_sessions.append(session_id)
+                
+            else:
+                kept += 1
+                kept_sessions.append(session_id)
+                
+        del_sessions  = set(del_sessions)
+        kept_sessions = set(kept_sessions)
+        print "kept %s files from %s distinct sessions"%(kept,len(kept_sessions))
+        print "deleted %s files from %s distinct sessions"%(deleted,len(del_sessions))
+        
+    def _delete_old_sessions():
+        # delete old sessions from the sessions dictionary. this removes the gpu
+        # contexts, backends, etc.
+        tx = time.time()
+        session_life_hours = 8
+        for sk in sessions.keys():
+            if tx-sessions[sk]['last'] > 60*60*session_life_hours:
+                del sessions[sk]
+                
+    def _make_new_session():
+        
+        # make a new uuid for the session
+        u    = uuid.uuid4()
+        s_id = str(u.time_low)
         t2   = int(s_id)
         
         # spin up a new gpu context and new analysis backends
@@ -57,71 +104,80 @@ def check_session():
         session['s_id']   = s_id
         print "session %s"%s_id
         
-        # delete old files (currently they live for 8 hours)
-        import glob
-        files  = glob.glob('static/*/images/*session*.*')
-        files += glob.glob('static/*/csv/*session*.*')
-        files += glob.glob('data/*session*.*')
-        kept, deleted = 0, 0
-        kept_sessions = []
-        del_sessions  = []
-        for f in files:
-            
-            try: session_id = int(f.split('_')[1].split('session')[1])
-            except ValueError: session_id = int(f.split('_')[1].split('session')[1].split('.')[0])
-            if t2-session_id > 10*60*60*session_hours:
-                os.remove(f)
-                deleted += 1
-                del_sessions.append(session_id)
-            else: 
-                kept += 1
-                kept_sessions.append(session_id)
-                
-        del_sessions  = set(del_sessions)
-        kept_sessions = set(kept_sessions)
-        print "kept %s files from %s sessions"%(kept,len(kept_sessions))
-        print "deleted %s files from %s sessions"%(deleted,len(del_sessions))
-            
-        # delete old sessions
-        tx = time.time()
-        for sk in sessions.keys():
-            if tx-sessions[sk]['last'] > 60*60*session_hours:
-                del sessions[sk]
-
+        return t2
+        
+    try:
+        s_id = session['s_id']
+    except KeyError:
+        ct = _make_new_session()
+        _delete_old_files(ct)
+        _delete_old_sessions()
 
 # functions to handle file uploading, mostly just taken from flask online documents
 def allowed_file(name):
-    return '.' in name and name.rsplit('.', 1)[1] in allowed_exts
+    
+    ext, error, allowed = None, None, False
+    
+    if '.' in name:
+        ext = name.rsplit('.',1)[1]
+        if ext in allowed_exts:
+            allowed = True
+        else:
+            error = "Uploaded file has wrong extension (%s). Must be .fits"%ext
+    else:
+        error = "Uploaded file has no extension; can't determine type"
+    
+    return allowed, ext, error
 
 @app.route('/upload',methods=['GET','POST'])
 def upload_file():
 
     # get (or make) the session id
-    check_session()
+    manage_session()
     s_id = session['s_id']
-    print session
 
     # make an id for the data
     t    = int(time.time()*10)
     d_id = str(t)[-8:]
-
+    
+    # for error checking
+    allowed, ext, error, backend_id = None, None, None, None
+    
     if request.method == 'POST':
         project = request.files.keys()[0]
-        file = request.files[project]
-        success = False
-        if file and allowed_file(file.filename):
+        file    = request.files[project]
+        
+        # check the file extension
+        allowed, ext, error = allowed_file(file.filename)
+        
+        if allowed:
             
             filename = secure_filename(file.filename)
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], '%sdata_session%s.fits'%(project,s_id)))
+            save_to  = os.path.join(app.config['UPLOAD_FOLDER'], '%sdata_session%s.fits'%(project,s_id))
+            file.save(save_to)
             
+            # get the appropriate backend
             if project in ('cdi','fth'):
                 backend = sessions[s_id]['backendi']
+                backend_id = 'imaging'
+                
             if project in ('xpcs',):
                 backend = sessions[s_id]['backendx']
                 backend.regions = {}
+                backend_id = 'xpcs'
                 
-            backend.load_data(project)
-            return redirect('/'+project)
+            # check if the data is ok. if yes, load it into the backend.
+            # then, redirect the web browswer to the project page.
+            checked, error = backend.check_data(save_to)
+            if checked:
+                backend.load_data(project,app.config['UPLOAD_FOLDER'])
+                return redirect('/'+project)
+            
+        # if an error was generated during allowed_file or during
+        # check_data, generate an error page so the user understands there
+        # was a problem with the data.
+        if error != None:
+            return render_template('load_error.html',error_msg=error,backend=backend_id)
 
 # the rest of the decorators are switchboard functions which take a request
 # and send it to the correct backend
@@ -150,6 +206,10 @@ def serve_cdi():
 @app.route('/expired')
 def serve_expired():
     return send_from_directory('.','static/html/expired.html')
+
+@app.route('/load_error')
+def serve_error_page():
+    return render_template('load_error.html',error_msg=None,backend=None)
 
 @app.route('/xpcs/<cmd>',methods=['GET','POST'])
 def xpcs_cmd(cmd):
@@ -320,18 +380,15 @@ def cdi_cmd(cmd):
         backend.propagate(params,'cdi')
         return jsonify(result="propagation finished",propagationId=backend.bp_id)
         
-upload_folder = './data'
 allowed_exts  = set(['fits',])
-app.config['UPLOAD_FOLDER'] = upload_folder
+app.config['UPLOAD_FOLDER'] = './data'
 app.config['MAX_CONTENT_LENGTH'] = 1024**3
-session_hours = 8
 
 # for session management
 import os
 app.secret_key = os.urandom(24)
-app.permanent_session_lifetime = timedelta(hours=8)
+app.permanent_session_lifetime = timedelta(minutes=60*8)
 
 if __name__ == '__main__':
-    #app.run(host="0.0.0.0")
-    app.run(debug=True)
+    app.run(host="0.0.0.0")
     

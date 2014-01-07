@@ -19,7 +19,7 @@ __kernel void execute(
     if (local_col == 0) {
 	float d = denoms[global_row];
 	locald[local_row] = native_recip(d*d);}
-    barrier(CLK_GLOBAL_MEM_FENCE);
+    barrier(CLK_LOCAL_MEM_FENCE);
 
     // get the denominator from local to register
     int index = global_row*angles+global_col;
@@ -27,8 +27,8 @@ __kernel void execute(
     float mag;
     
     float2 a = in[index];
-    mag = native_sqrt(a.x*a.x+a.y*a.y);
+    mag = native_sqrt(a.x*a.x+a.y*a.y); // this caused an overflow and nans!
 
-    out[index] = (float2)(mag*d-1,0);
+    out[index] = (float2)(a.x*d-1,0); // make this approximation to mag because a.y/a.x = 1e-9, usually
 	
 }

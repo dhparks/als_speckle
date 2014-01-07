@@ -10,6 +10,7 @@ import numpy as np
 import sys
 from . import averaging, io
 import math
+import time
 
 try:
     import pyfftw
@@ -309,8 +310,8 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
         # if the number of frames is not a power of two, find the next power of
         # 2 larger than twice the number of frames.
         p2 = ((fr & (fr - 1)) == 0)
-        if p2:     L = int(2*p2)
-        if not p2: L = int(2**(math.floor(math.log(2*fr,2))+1))
+        if p2: L = int(2*p2)
+        else:  L = int(2**(math.floor(math.log(2*fr,2))+1))
         gpu_d['L']   = np.int32(L)
         
         # build the kernels necessary for the correlation
@@ -363,6 +364,7 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
             # six steps: 1. move to cpx after zeroing 2. fft 3. abs**2 4. ifft 5. abs 6. pull data, cast to float
             # in the future, combine abs1 and cpy2. however this will be a very small speedup...
             pxls = int(rows*gpu_d['L'])
+            t0 = time.time()
             gpu_d['setz'].execute(gpu_d['q'],(pxls,),cpx.data).wait()
             gpu_d['cpy1'].execute(gpu_d['q'],(rows,fr),flt.data,cpx.data,gpu_d['L'])
             gpu_d['fftp'].execute(cpx.data,batch=rows,wait_for_finish=True)
@@ -370,8 +372,11 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
             gpu_d['fftp'].execute(cpx.data,batch=rows,wait_for_finish=True,inverse=True)
             gpu_d['abs1'].execute(gpu_d['q'],(pxls,),cpx.data,cpx.data).wait()
             gpu_d['cpy2'].execute(gpu_d['q'],(rows,fr),cpx.data,flt.data,gpu_d['L'])
+            t1 = time.time()
             f = flt.get()
-            return f
+            t2 = time.time()
+
+            return f, t1-t0, t2-t1
             
         def _cpu_correlate(run_on):
             x  = np.abs(cpu_d['IDFT'](np.abs(cpu_d['DFT'](run_on,axes=(1,)))**2,axes=(1,)))[:,:fr].real
@@ -383,20 +388,18 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
             numerator = _cpu_correlate(run_on)
         
         if gpu_info != None:
+            t0 = time.time()
             _gpu_set(data_in)
-            numerator = _gpu_correlate(flt,cpx,ds[0])
+            set_time = time.time()-t0
+            numerator, calc_time, get_time = _gpu_correlate(flt,cpx,ds[0])
             
-        return numerator
+        return numerator, set_time, calc_time, get_time
 
     if gpu_info != None: batch_size = 2048
-    
-    print data.shape
     
     cpu_data     = np.ascontiguousarray(data.reshape(fr,ys*xs).transpose())
     output       = np.zeros((ys*xs,fr),np.float32)
     batches, rem = (ys*xs)/batch_size, (ys*xs)%batch_size
-    
-    print data.shape, batches, rem
     
     # question for future: if someone passes an enormous dataset (like say 2GB)
     # to this function, how does the above reshaping handle it? When the data
@@ -419,10 +422,15 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
     for n in range(batches): jobs.append((n*batch_size,(n+1)*batch_size,flt,cpx))
     if  rem > 0:             jobs.append((-rem, ys*xs, fltr, cpxr))
     
+    set_time, calc_time, get_time = 0, 0, 0
+    
     for n, job in enumerate(jobs):
         start, stop, flt, cpx = job
-        g2batch = _calc_g2(cpu_data[start:stop],flt,cpx)
+        g2batch, set_time0, calc_time0, get_time0 = _calc_g2(cpu_data[start:stop],flt,cpx)
         output[start:stop] = g2batch
+        set_time += set_time0
+        calc_time += calc_time0
+        get_time += get_time0
         
     # normalize, reshape, and return data
     output *= 1./(fr-np.arange(fr))

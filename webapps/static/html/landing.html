@@ -7,20 +7,20 @@
 
     #container {
         left:50%;
-	margin:0 0 0 -452px;
+	margin:0 0 0 -332px;
         display:inline-block;
 	position:absolute;
     }
 
     .experiment {
-	height:470px;
-	width:300px;
-	border-radius:10px;
+	height:290px;
+	width:220px;
+	border-radius: 6px;
 	display:inline-block;
 	border:2px solid black;
 	float:left;
 	margin:2 2 2 2;
-	
+	cursor:pointer;
     }
     
     img {margin: 0 auto;
@@ -28,55 +28,56 @@
     
     h1 {text-align:center}
     
-    #div1 {
-    
+    #experiments {
+	display:inline-block;
     }
     
-    #div2 {
-    
-    }
-    
-    #div3 {
-    
+    #fileSelection {
+	height: 110px;
+	width: 658px;
+	border-radius:6px;
+	display:inline-block;
+	border:2px solid black;
+	padding:10;
+	
     }
 
 </style>
+<script src="static/scripts/jquery-2.0.3.min.js"></script>
+<script src="static/scripts/d3.v3.min.js"></script>
 </head>
 <body>
     
     <div id="container">
-	<div id="div1" class="experiment">
-	    <h1 >FTH</h1>
-	    <img src="static/landing/fthimage.png" height=280 width=280>
-	    <p> &nbsp Expects conditioned Fourier intensity
-	    <form method="POST" enctype="multipart/form-data" action="/upload">
-		<input type="file" name="fth" multiple="" size="10">
-		<input type="submit" value="Analyze">
-	    </form>
+	
+	<div id="experiments">
+	    <div id="fth" class="experiment">
+		<h1>FTH</h1>
+		<img src="static/landing/fthimage.png" height=200 width=200>
+	    </div>
+	    
+	    <div id="cdi" class="experiment">
+		<h1>CDI</h1>
+		<img src="static/landing/cdiimage.png" height=200 width=200>
+	    </div>
+	    
+	    <div id="xpcs" class="experiment">
+		<h1>XPCS</h1>
+		<img src="static/landing/xpcsimage.png" height=200 width=200>
+	    </div>
 	</div>
 	
-	<div id="div2" class="experiment">
-	    <h1>CDI</h1>
-	    <img src="static/landing/cdiimage.png" height=280 width=280>
-	    <p> &nbsp Expects conditioned Fourier intensity
-	    <form method="POST" enctype="multipart/form-data" action="/upload">
-		<input type="file" name="cdi" multiple="">
-		<input type="submit" value="Analyze">
-	    </form>
-	</div>
-	
-	<div id="div3" class="experiment">
-	    <h1>XPCS</h1>
-	    <img src="static/landing/xpcsimage.png" height=280 width=280>
-	    <p> &nbsp Expects conditioned Fourier intensity
-	    <form method="POST" enctype="multipart/form-data" action="/upload">
-		<input type="file" name="xpcs" multiple="">
-		<input type="submit" value="Analyze">
+	<div id="fileSelection">
+	    Select an experiment above by clicking on its icon, then choose a file
+	    to analyze below. All experiments expect conditioned scattering intensity.
+	    <p id="readout">Selected experiment: None</p>
+	    <form id="uploadform" method="POST" enctype="multipart/form-data" action="/upload" onsubmit="return validateForm()">
+	    <input id="fileinput" type="file" name="" multiple="" required>
+	    <input id="submitter" type="submit" value="Analyze">
 	    </form>
 	</div>
     </div>
-    
-    
-<script></script>
+
+<script src="static/scripts/loading.js"></script>
     
 </body>

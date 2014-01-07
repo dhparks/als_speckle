@@ -95,13 +95,8 @@ class backend():
         self.data_shape = io.get_fits_dimensions(new_name)
         self.frames = self.data_shape[0]
         
-        if len(self.data_shape) !=  3:
-            pass
-            # actually, Raise an Error
-            
-        if len(self.data_shape) == 3 and self.data_shape[0] == 1:
-            pass
-            # raise the same error
+        if len(self.data_shape) !=  3 or (len(self.data_shape) == 3 and self.data_shape[0] == 1):
+            raise TypeError("Data is 2 dimensional")
             
         # resize the data to fit within a 512x512 image. this also calculates
         # scale factors and offsets necessary for coordinate transformations between
@@ -317,6 +312,31 @@ class backend():
     def _new_id(self):
         return str(int(time.time()*10))
 
+    def check_data(self,data_name):
+        
+        # Check the incoming data for the attributes necessary for imaging
+        # IMPORTANT: this assumes that the flask_server has already checked
+        # the mimetype and extension of the data, and found that it is
+        # in fact a FITS file. hopefully this limits the ability of a user
+        # to upload executable/malicious data which could be executed by
+        # opening the file.
+
+        try: data_shape = io.get_fits_dimensions(data_name)
+        except:
+            error = "couldn't get fits dimensions; file may be invalid"
+            return False, error
+
+        # basically, the only requirement for xpcs data is that the data be
+        # 3d, and not trivially so.
+        if len(data_shape) < 3:
+            return False, "Fits files for xpcs must be 3d; this is %sd"%len(data_shape)
+        
+        if data_shape[0] < 2 or data_shape[1] < 2 or data_shape[2] < 2:
+            return False, "fits file is only trivially 3d with shape %s"((data_shape),)
+        
+        # success! data seems ok to basic checks
+        return True, None
+    
         
 class region():
     """ empty class for holding various attributes of a selected region.

@@ -1,5 +1,5 @@
 #container {
-    margin:0 0 0 -300px;
+    margin:0 0 0 -324px;
     display:inline-block;
     position:absolute;
     left:50%;
@@ -45,7 +45,7 @@
 
 #controls {
     height:25px;
-    width:602px;
+    width:650px;
     border:2px solid #999999;
     border-radius:4px;
     vertical-align:middle;

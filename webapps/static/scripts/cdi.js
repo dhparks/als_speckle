@@ -189,6 +189,8 @@ var userFunctions = {
 		console.log(error)
 	    };
 	    
+	    console.log("here1")
+	    
 	    var name = "reconstruction_id"+front.dataId+"_round"+front.reconstruction.selectedRound+"_zipped.gz"
 	    var fileId = "static/imaging/fits/"+name;
 	    
@@ -196,11 +198,19 @@ var userFunctions = {
 	    save.href = fileId;
 	    save.target = '_blank';
 	    save.download = name;
+	    
+	    console.log("here2")
+	    console.log(save)
 
 	    var event = document.createEvent('Event');
 	    event.initEvent('click', true, true);
 	    save.dispatchEvent(event);
 	    (window.URL || window.webkitURL).revokeObjectURL(save.href)
+	    
+	    console.log("here3")
+	    
+	    console.log(window.URL)
+	    
 	}
 	
 	queue().defer(backend).await(frontend)
@@ -321,7 +331,8 @@ var userFunctions = {
 		.attr("cy", a0)
 		.attr("r",5)
 		.attr("fill","red")
-		.attr("id","acutanceMarker");
+		.attr("id","acutanceMarker")
+		.style("cursor","move");
 		
 	    var drag = d3.behavior.drag()
 		.origin(function() { 
@@ -536,11 +547,11 @@ var userFunctions = {
 	// define the relevant common attributes of the boxes
 	d3.select("#"+where).append("g").attr("id","imageRegion_"+uid)
 	var allBoxes = [
-	    {h:rs, w: rs, x:rc.cmin,    y:rc.rmin,    c:"mainRegion"},
-	    {h:ds, w: ds, x:rc.cmin+rs, y:rc.rmin+rs, c:"lowerRight"},
-	    {h:ds, w: ds, x:rc.cmin+rs, y:rc.rmin-ds, c:"upperRight"},
-	    {h:ds, w: ds, x:rc.cmin-ds, y:rc.rmin+rs, c:"lowerLeft"},
-	    {h:ds, w: ds, x:rc.cmin-ds, y:rc.rmin-ds, c:"upperLeft"}];
+	    {h:rs, w: rs, x:rc.cmin,    y:rc.rmin,    c:"mainRegion", curs:"move"},
+	    {h:ds, w: ds, x:rc.cmin+rs, y:rc.rmin+rs, c:"lowerRight", curs:"se-resize"},
+	    {h:ds, w: ds, x:rc.cmin+rs, y:rc.rmin-ds, c:"upperRight", curs:"ne-resize"},
+	    {h:ds, w: ds, x:rc.cmin-ds, y:rc.rmin+rs, c:"lowerLeft",  curs:"sw-resize"},
+	    {h:ds, w: ds, x:rc.cmin-ds, y:rc.rmin-ds, c:"upperLeft",  curs:"nw-resize"}];
 
 	var group = d3.select("#imageRegion_"+uid)
     
@@ -558,6 +569,7 @@ var userFunctions = {
 		.attr("location",thisBox.c)
 		.attr("uid",uid)
 		.attr("where",where)
+		.style("cursor",thisBox.curs)
 		.style("fill","white")
 		.style("fill-opacity",0)
 		
@@ -604,6 +616,7 @@ var userFunctions = {
 		.style("stroke","white")
 		.attr("location","selecter")
 		.attr("uid",uid)
+		.style("cursor","pointer")
 		.on("click",function () {
 		    var t = d3.select(this);
 		    var u = t.attr("uid");
@@ -1149,7 +1162,6 @@ var starts = {
 	},
  
     // query the backend, then turn on div elements
-    
     start: function() {
 	console.log("in cdi.js");
 	queue().defer(starts.backend).await(starts.frontend)
