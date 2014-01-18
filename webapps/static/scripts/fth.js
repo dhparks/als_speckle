@@ -1,5 +1,34 @@
 var backendTasks = {}
-var front = {dragSize:5,regionSize:30,svgHeight:300,svgWidth:300,tlds:300,filename:null,hasdata:false}
+
+// front-end variables are stored in the "front" object
+var front = {};
+
+// configurable element sizes
+front.sizes = {};
+front.sizes.dragger = 5;
+front.sizes.region  = 30;
+front.sizes.window  = 300;
+front.sizes.tlds    = 300;
+front.sizes.scaler  = front.sizes.window/300; // don't change this
+
+// variables pertaining to the hologram element
+front.hologram = {}
+front.hologram.hasdata = false;
+front.hologram.translateX = 0;
+front.hologram.translateY = 0;
+front.hologram.staticTranslateX = 0;
+front.hologram.staticTranslateY = 0;
+front.hologram.zoomFactor = 1.25
+front.hologram.unlocked = true;
+
+// variables for the slider element
+front.slider = {}
+
+// variables which describe the data. populated later.
+front.data = {};
+front.data.exists = false;
+
+//var front = {dragSize:5,regionSize:30,svgHeight:300,svgWidth:300,tlds:300,filename:null,hasdata:false,zoom:1,translateX:0,translateY:0,staticTranslateX:0,staticTranslateY:0}
 
 var lock = function (id) {backendTasks[id] = null;}
 var unlock = function (id) {delete backendTasks[id];}
@@ -23,10 +52,10 @@ var dragFunctions = {
 	var ll = group.select('[location="lowerLeft"]');
 	var cw = parseInt(mr.attr("width"));
 	var ch = parseInt(mr.attr("height"));
-	
+
 	// define shorthands so that lines don't get out of control
 	var mx, my, ulx, uly, urx, ury, llx, lly, lrx, lry;
-	var ds = front.dragSize, wh = front.svgHeight, ww = front.svgWidth;
+	var ds = front.sizes.dragger, wh = front.sizes.window, ww = front.sizes.window;
 	var dx = d3.event.x, dy = d3.event.y
 	
 	// one behavior for dragging .main...
@@ -53,18 +82,18 @@ var dragFunctions = {
 	    x2 = parseInt(ur.attr("x"));
 	    y1 = parseInt(ur.attr("y"));
 	    y2 = parseInt(lr.attr("y"));
-	    
+
 	    // calculate bounding functions
-	    x1b = Math.min(x2-ds,Math.max(0,dx));
+	    x1b = Math.min(x2-ds,Math.max(0,    dx));
 	    x2b = Math.max(x1+ds,Math.min(ww-ds,dx));
-	    y1b = Math.min(y2-ds,Math.max(0,dy));
+	    y1b = Math.min(y2-ds,Math.max(0,    dy));
 	    y2b = Math.max(y1+ds,Math.min(wh-ds,dy));
 	    
 	    // calculate the new values
-	    if (what === 'upperLeft')  {new_x1 = x1b; new_x2 = x2; new_y1 = y1b; new_y2 = y2;}
-	    if (what === 'upperRight') {new_x1 = x1; new_x2 = x2b; new_y1 = y1b; new_y2 = y2;}
-	    if (what === 'lowerLeft')  {new_x1 = x1b; new_x2 = x2; new_y1 = y1;  new_y2 = y2b;}
-	    if (what === 'lowerRight') {new_x1 = x1; new_x2 = x2b; new_y1 = y1;  new_y2 = y2b;}
+	    if (what === 'upperLeft')  {new_x1 = x1b; new_x2 = x2;  new_y1 = y1b; new_y2 = y2;}
+	    if (what === 'upperRight') {new_x1 = x1;  new_x2 = x2b; new_y1 = y1b; new_y2 = y2;}
+	    if (what === 'lowerLeft')  {new_x1 = x1b; new_x2 = x2;  new_y1 = y1;  new_y2 = y2b;}
+	    if (what === 'lowerRight') {new_x1 = x1;  new_x2 = x2b; new_y1 = y1;  new_y2 = y2b;}
 	    var new_width  = new_x2-new_x1;
 	    var new_height = new_y2-new_y1;
 	    
@@ -91,13 +120,64 @@ var dragFunctions = {
 
 	// update the region as known by javascript
 	var group = d3.select("#hologramRegion")
-	front.region.coords.rmin = parseInt(group.select('[location="mainRegion"]').attr("y"));
-	front.region.coords.cmin = parseInt(group.select('[location="mainRegion"]').attr("x"));
-	front.region.coords.rmax = parseInt(group.select('[location="lowerRight"]').attr("y"));
-	front.region.coords.cmax = parseInt(group.select('[location="lowerRight"]').attr("x"));   
+	front.hologram.region.coords.rmin = parseInt(group.select('[location="mainRegion"]').attr("y"));
+	front.hologram.region.coords.cmin = parseInt(group.select('[location="mainRegion"]').attr("x"));
+	front.hologram.region.coords.rmax = parseInt(group.select('[location="lowerRight"]').attr("y"));
+	front.hologram.region.coords.cmax = parseInt(group.select('[location="lowerRight"]').attr("x"));   
 
 	// region information only goes to python on click of propagate button
-	}
+	},
+	
+    updateBackground: function () {
+
+	// update the front.translateX and front.translateY parameters
+	// with the information coming from the drag event; then
+	// update the image transform properties
+	
+	var dx = d3.event.x, dy = d3.event.y;
+	front.hologram.translateX = front.hologram.staticTranslateX+dx/front.hologram.zoom;
+	front.hologram.translateY = front.hologram.staticTranslateY+dy/front.hologram.zoom;
+	var str = "scale("+front.hologram.zoom+") translate("+front.hologram.translateX+","+front.hologram.translateY+")"
+	d3.select('#hologramImage').attr("transform",str)
+	
+    },
+    
+    // this is the whole d3 drag behavior for the region box
+    boxDragBehavior: d3.behavior.drag()
+			.origin(function() { 
+			    var t  = d3.select(this);
+			    return {x: t.attr("x"),y: t.attr("y")};})
+			.on("drag", function() {
+			    if (Object.keys(backendTasks).length === 0) {
+			    var t = d3.select(this);
+			    dragFunctions.updateBoxes(t.attr("location"))}
+			    })
+			.on("dragend",function () {
+			    // when dragging has finished, update the region information both here
+			    // and in the python backend. then recalculate and replot.
+			    if (Object.keys(backendTasks).length === 0) {
+				dragFunctions.updateRegion()
+				}
+			    }),
+			
+    // this is the drag behavior for the background image
+    imgDragBehavior: d3.behavior.drag()
+			.origin(function() { 
+			    var t  = d3.select(this);
+			    console.log("imgdrag")
+			    return {x: t.attr("x"),y: t.attr("y")};})
+			.on("drag", function() {
+			    if (Object.keys(backendTasks).length === 0 && front.hologram.unlocked) {
+			    var t = d3.select(this);
+			    dragFunctions.updateBackground()}
+			    })
+			.on("dragend",function () {
+			    // when dragging has finished, update the javascript information about the position
+			    if (Object.keys(backendTasks).length === 0 && front.hologram.unlocked) {
+				front.hologram.staticTranslateX = front.hologram.translateX;
+				front.hologram.staticTranslateY = front.hologram.translateY;
+				}
+			    }),
 }
 
 var userFunctions = {
@@ -109,7 +189,13 @@ var userFunctions = {
 	if (isNaN(what))  {who.className="fieldr"};
 	if (!isNaN(what)) {who.className="fieldg"};
 	if (what==='')    {who.className="field0"};
-    }, 
+    },
+    
+    convertCoord: function (val) {
+	console.log(val)
+	return {'x':(val-front.hologram.staticTranslateX*front.hologram.zoom)/front.hologram.zoom,
+		'y':(val-front.hologram.staticTranslateY*front.hologram.zoom)/front.hologram.zoom}
+    },
 
     holoclick: function (what) {
 	
@@ -119,12 +205,39 @@ var userFunctions = {
 	
 	var zooms = ['zoomIn','zoomOut']
 	if (zooms.indexOf(what) > -1) {
-	    if (what === 'zoomIn') {front.zoom += 1}
-	    if (what === 'zoomOut') {front.zoom -=1}
-	    if (front.zoom < 0) {front.zoom = 0}
-	    if (front.zoom > front.zooms) {front.zoom = front.zooms}
-	    d3.select('#hologramimage').attr("x", -300*front.zoom)};
 	    
+	    console.log(what)
+
+	    // the current center coordinates  given by:
+	    var cc = userFunctions.convertCoord(front.sizes.window/2);
+	    console.log(cc)
+	    
+	    // update the zoom factor
+	    if (what === 'zoomIn')  {front.hologram.zoom *= front.hologram.zoomFactor}
+	    if (what === 'zoomOut') {front.hologram.zoom /= front.hologram.zoomFactor}
+	    
+	    // calculate the new translation values to keep the current center
+	    front.hologram.staticTranslateX = front.sizes.window/(2*front.hologram.zoom)-cc.x;
+	    front.hologram.staticTranslateY = front.sizes.window/(2*front.hologram.zoom)-cc.y;
+	    
+	    // apply the updated transformation
+	    var str = "scale("+front.hologram.zoom+") translate("+front.hologram.staticTranslateX+","+front.hologram.staticTranslateY+")"
+	    d3.select('#hologramImage').attr("transform",str);
+	};
+
+	if (what === 'lockBg') {
+	    
+	    // 3 changes: cursor; background of button; logical state front.hologram.unlocked
+	    
+	    if  (front.hologram.unlocked) {var curs = "default"; fill = "grey"};
+	    if (!front.hologram.unlocked) {var curs = "crosshair"; fill = "white"};
+	    
+	    $("#hologramimage").css("cursor",curs);
+	    $("#lockBg").css("fill",fill)
+	    front.hologram.unlocked = !front.hologram.unlocked;
+
+	};
+	
 	if (what === 'propagate') {
 	    // primary function
 	    
@@ -186,8 +299,7 @@ var userFunctions = {
 		    .attr("transform", "translate(0," + front.slider.height / 2 + ")")
 		    .attr("r", 9);
 	    }
-	    
-	    
+	        
 	    var resetSVG = function () {
 		d3.select("#acutanceGroup").remove();
 		d3.select("#svgacutance")
@@ -287,7 +399,7 @@ var userFunctions = {
 		    
 		    // define new scales
 		    front.acutance.xScale = d3.scale.linear().range([0, front.acutance.width]).domain([front.zmin,front.zmax]);
-		    front.acutance.yScale = d3.scale.linear().range([front.acutance.height, 0]).domain([0,1]);
+		    front.acutance.yScale = d3.scale.linear().range([front.acutance.height,0]).domain([0,1]);
 		    
 		    // now draw the plot; component functions are broken up for readability
 		    resetSVG();
@@ -298,10 +410,12 @@ var userFunctions = {
 		    // bring up the opacity of the group
 		    d3.select("#acutance").transition().duration(250).style("opacity",1);
 		    
+		    console.log('loaded acutance')
+		    
 		};
 
 		queue()
-		    .defer(d3.csv, '/static/imaging/csv/acutance_session'+front.sessionId+'_id'+front.propagationId+'.csv')
+		    .defer(d3.csv, '/static/imaging/csv/acutance_session'+front.data.sessionId+'_id'+front.data.propagationId+'.csv')
 		    .await(afterLoad);
 	    };
 	    
@@ -311,9 +425,9 @@ var userFunctions = {
 		// the zoom value; from this, the backend will calculate
 		// the pixel coordinates of the region and do the back
 		// propagation
-		
-		// draw the clock
-		d3.select("#svgaperture").selectAll(".clockface").transition().duration(250).style("opacity",1)
+
+		// change the user cursor tp busy indicator
+		$("body").css("cursor", "progress");
 		
 		// lock user actions
 		ts = new Date().getTime()
@@ -326,34 +440,37 @@ var userFunctions = {
 		
 		// format the request
 		var url  = "fth/propagate"
-		var info = {'rmin':1.*front.region.coords.rmin/front.svgHeight,
-			    'rmax':1.*front.region.coords.rmax/front.svgHeight,
-			    'cmin':1.*front.region.coords.cmin/front.svgWidth,
-			    'cmax':1.*front.region.coords.cmax/front.svgWidth,
-			    'zoom':front.zoom,'energy':e,'zmin':z1,'zmax':z2,'pitch':p,'apodize':ap};
+		var info = {'rmin':userFunctions.convertCoord(front.hologram.region.coords.rmin).y,
+			    'rmax':userFunctions.convertCoord(front.hologram.region.coords.rmax).y,
+			    'cmin':userFunctions.convertCoord(front.hologram.region.coords.cmin).x,
+			    'cmax':userFunctions.convertCoord(front.hologram.region.coords.cmax).x,
+			    'energy':e,'zmin':z1,'zmax':z2,'pitch':p,'apodize':ap,'window':front.sizes.window};
 		
 		$.getJSON(url, info,
 		    function(json_data) {
+			
 			console.log(json_data.result)
-			front.propagationId = json_data.propagationId
+			front.data.propagationId = json_data.propagationId;
+			front.aperture.frameSize = json_data.frameSize;
+			front.aperture.scale     = front.sizes.window/front.aperture.frameSize;
 			
 			// load the propagation strip. set the background correctly.
-			front.bp_strip = new Image()
-			front.bp_strip.onload = function () {
+			front.aperture.bp_strip = new Image()
+			
+			front.aperture.bp_strip.onload = function () {
 			    var w = this.width, h = this.height;
-			    front.g = w/300;
+			    front.aperture.gridSize = w/front.aperture.frameSize
 			    d3.select("#apertureimage")
-				.attr("width",w)
-				.attr("height",h)
-				.attr("x",0)
-				.attr("xlink:href",front.bp_strip.src);
-			    d3.select("#svgaperture").selectAll(".clockface").transition().duration(150).style("opacity",0);
+				.attr("width",this.width)
+				.attr("height",this.height)
+				.attr("xlink:href",front.aperture.bp_strip.src)
+				.attr("transform","scale("+front.aperture.scale+")");
 			    unlock(ts);
 			    callback(null)
 			};
-			
-			var path = 'static/imaging/images/bp_session'+front.sessionId+'_id'+front.propagationId+'.jpg'
-			front.bp_strip.src = path;
+			$("body").css("cursor", "default");
+			var path = 'static/imaging/images/bp_session'+front.data.sessionId+'_id'+front.data.propagationId+'.jpg'
+			front.aperture.bp_strip.src = path;
 		    }
 		);
 	    };
@@ -374,7 +491,11 @@ var userFunctions = {
 	    var z1 = parseFloat($('#zmin').val());
 	    var z2 = parseFloat($('#zmax').val());
 	    
+	    console.log(e,p,z1,z2)
+	    
 	    var typesOK = !(isNaN(e) || isNaN(p) || isNaN(z1) || isNaN(z2))
+	    
+	    console.log(typesOK)
     
 	    // save zmin and zmax to the front tracker. if zmin > zmax, reverse the assignment
 	    var z3 = parseInt(z1);
@@ -383,7 +504,8 @@ var userFunctions = {
 	    if (z4 > z3) {front.zmin = z3; front.zmax = z4};
 	    if (z4 === z3) {typesOK = false};
 
-	    if (e != '' && p != '' && z1 != '' && z2 != '' && front.hasdata && typesOK) {queue().defer(backend).await(frontend)};
+	    if (e != '' && p != '' && (z1 != '' || z1 === 0) && (z2 != '' || z2 === 0) && front.data.exists && typesOK) {
+		queue().defer(backend).await(frontend)};
 	};
     },
     
@@ -401,8 +523,10 @@ var userFunctions = {
 	// move the slider
 	d3.select("#handle").attr("cx",front.slider.sx(value));
 
-	var ix = idx%front.g, iy = Math.floor(idx/front.g)
-	$("#apertureimage").attr('x',-300*ix).attr('y',-300*iy);
+	// raster the image
+	var ix  = idx%front.aperture.gridSize, iy = Math.floor(idx/front.aperture.gridSize)
+	var str = 'scale('+front.aperture.scale+') translate(-'+front.aperture.frameSize*ix+',-'+front.aperture.frameSize*iy+')'
+	$("#apertureimage").attr('transform',str);
 	
 	// move the acutance ball and lines
 	d3.select("#acutancemarker")
@@ -435,19 +559,24 @@ var start = function () {
 	// add svgs to hologram panel
 	d3.select("#hologram").append("svg")
 	    .attr("id","svghologram")
-	    .attr("width",300)
-	    .attr("height",300)
+	    .attr("width",front.sizes.window)
+	    .attr("height",front.sizes.window)
 	    
+	// calculate the correct zoom factor for to make
+	// the image fit in the image window
+	front.hologram.zoom = front.sizes.window/front.hologram.image.width;
+	
+	// add the hologram image
 	d3.select("#svghologram").append("image")
 	    .attr("id","hologramimage")
-	    .attr("width", function() {return front.zooms*300;})
-	    .attr("height","100%")
-	    .attr("x",0)
-	    .attr("y",0)
-	    .attr('xlink:href',front.zoom_strip.src)
-	    //.attr('transform','scale(2)') // zoom!
-	    //.attr('transform','translate(-150)') // move around
-	    //.attr('transform','scale(2),translate(-20)') // do both
+	    .attr("width", front.hologram.image.width)
+	    .attr("height",front.hologram.image.height)
+	    .attr('xlink:href',front.hologram.image.src)
+	    .attr('transform','scale ('+front.hologram.zoom+')')
+	    .style("cursor","crosshair")
+	    .call(dragFunctions.imgDragBehavior)
+	    
+	console.log('here')
 	    
 	d3.select("#svghologram").append("g")
 	    .attr("id","hologrambuttons")
@@ -455,12 +584,18 @@ var start = function () {
 	var hrects = [
 	    {x:10,y:10,action:"zoomIn"},
 	    {x:35,y:10,action:"zoomOut"},
+	    {x:60,y:10,action:"lockBg"},
 	    {x:270,y:10,action:"propagate"}];
 	
 	var paths = [
 	    {points:[{x:14,y:20},{x:26,y:20}],action:"zoomIn"},
 	    {points:[{x:20,y:14},{x:20,y:26}],action:"zoomIn"},
+	    
 	    {points:[{x:39,y:20},{x:51,y:20}],action:"zoomOut"},
+	    
+	    {points:[{x:64,y:27},{x:76,y:27},{x:76,y:19},{x:64,y:19},{x:64,y:27}],action:"lockBg"},
+	    {points:[{x:68,y:19},{x:68,y:13},{x:72,y:13},{x:72,y:19},{x:68,y:19}],action:"lockBg"},
+	    
 	    {points:[{x:274,y:20},{x:286,y:20}],action:"propagate"},
 	    {points:[{x:282,y:16},{x:286,y:20},{x:282,y:24}],action:"propagate"}];
 	
@@ -468,18 +603,21 @@ var start = function () {
 		.interpolate("linear")
 		.x(function(d) { return d.x; })
 		.y(function(d) { return d.y; });
+		
+	console.log('here')
 	
 	d3.select("#hologrambuttons").selectAll("rect")
 	    .data(hrects)
 	    .enter()
 	    .append("rect")
+	    .attr("id",function (d) {return d.action})
 	    .attr("x",function(d)  {return d.x})
 	    .attr("y",function(d)  {return d.y})
 	    .attr("action",function(d) {return d.action})
-	    .attr("height",20)
-	    .attr("width",20)
-	    .attr("rx",3)
-	    .attr("ry",3)
+	    .attr("height",20*front.sizes.scaler)
+	    .attr("width",20*front.sizes.scaler)
+	    .attr("rx",3*front.sizes.scaler)
+	    .attr("ry",3*front.sizes.scaler)
 	    .style("fill","white")
 	    .attr("class","hologrambuttons")
 	    .on("click",function () {if (Object.keys(backendTasks).length === 0) {userFunctions.holoclick(d3.select(this).attr("action"))}});
@@ -494,73 +632,25 @@ var start = function () {
 	};
 	
     var startAperture = function () {
+	
+	front.aperture = {}
+	
 	// add svgs to aperture panel
 	d3.select("#aperture").append("svg")
 	    .attr("id","svgaperture")
-	    .attr("width",300)
-	    .attr("height",300)
+	    .attr("width",front.sizes.window)
+	    .attr("height",front.sizes.window)
 	    
 	// add the width attribute when the image is loaded
 	d3.select("#svgaperture").append("image")
 	    .attr("id","apertureimage")
-	    .attr("height",300);
+	    .attr("height",front.sizes.window);
     }
-    
-    var drawClock = function (where) {
-
-	// size and center
-	var rInner = 42, rOuter = 50;
-
-	var clockColor 
-	if (front.havegpu) {clockColor = "green"}
-	else {clockColor = "#FF7F50"}
-	console.log(clockColor)
-	
-	var circles = [
-	    {cx:0,cy:0,r:rOuter,f:clockColor,s:"black",sw:0},
-	    {cx:0,cy:0,r:rInner,f:"white",s:"black",sw:0},
-	    {cx:0,cy:0,r:5,f:clockColor,s:"black",sw:0}]
-	
-	for (var n=0;n<12;n++) {
-	    var nc = {f:clockColor,s:"black",sw:0,r:2}
-	    nc.cx = rInner*0.8*Math.cos(Math.PI*2/12*n);
-	    nc.cy = rInner*0.8*Math.sin(Math.PI*2/12*n);
-	    circles.push(nc)}
-	    
-	d3.select('#'+where).append("g")
-	    .attr("id",where+"Clock")
-	    .attr("transform","translate(150,150)");
-	    
-	cf = d3.select("#"+where+"Clock");
-	
-	cf.selectAll("circle").data(circles).enter()
-	    .append("circle")
-	    .attr("class","clockface")
-	    .attr("cx",function(d){return d.cx})
-	    .attr("cy",function(d){return d.cy})
-	    .attr("r",function(d) {return d.r})
-	    .style("fill",function(d) {return d.f})
-	    .style("stroke",function(d){return d.s})
-	    .style("stroke-width",function(d){return d.sw});
-	    
-	var hands = [[{x:0,y:0},{x:0,y:30}],[{x:0,y:0},{x:30,y:0}]];
-
-	var handLine = d3.svg.line()
-	    .interpolate("linear")
-	    .x(function(d) { return d.x; })
-	    .y(function(d) { return d.y; });
-
-	cf.selectAll("path").data(hands).enter().append("path")
-	    .attr("class","clockface")
-	    .attr("d", function(d) {return handLine(d)})
-	    .style("stroke",clockColor)
-	    .style("stroke-width",2);
-    };
     
     var startSlider = function (z) {
 
 	// add object to front
-	front.slider = {}
+	
 	front.slider.margins = {top: 20, right: 30, bottom: 30, left: 50};
 	front.slider.width   = 604 - front.slider.margins.left - front.slider.margins.right;
 	front.slider.height  = 50 - front.slider.margins.bottom - front.slider.margins.top;
@@ -575,7 +665,7 @@ var start = function () {
 
 	front.acutance = {}
 	front.acutance.margins = {top: 20, right: 30, bottom: 30, left: 50};
-	front.acutance.width   = 604 - front.acutance.margins.left - front.acutance.margins.right;
+	front.acutance.width   = 2*front.sizes.window + 4 - front.acutance.margins.left - front.acutance.margins.right;
 	front.acutance.height  = 230 - front.acutance.margins.bottom - front.acutance.margins.top;
 	
 	var sg = d3.select("#acutance").append("svg")
@@ -590,13 +680,13 @@ var start = function () {
     };
     
     var drawRegion = function () {
+	
 	// draw a draggable region. coordinates are relative to the svg box, and
-	// must be transformed by the backend to bring them into accordance with
-	// the current zoom level.
-	front.region = {}
-	var rs = front.regionSize, ds = front.dragSize, ss = front.selectSize, tlds=front.tlds;
-	front.region.coords = {'rmin':tlds/2-rs/2,'rmax':tlds/2+rs/2,'cmin':tlds/2-rs/2,'cmax':tlds/2+rs/2};
-	var tc = front.region.coords
+	// must be transformed by the backend
+	front.hologram.region = {}
+	var rs = front.sizes.region, ds = front.sizes.dragger, tlds=front.sizes.window;
+	front.hologram.region.coords = {'rmin':tlds/2-rs/2,'rmax':tlds/2+rs/2,'cmin':tlds/2-rs/2,'cmax':tlds/2+rs/2};
+	var tc = front.hologram.region.coords
 
 	// define the relevant common attributes of the boxes
 	d3.select("#svghologram").append("g").attr("id","hologramRegion")
@@ -634,31 +724,20 @@ var start = function () {
 	    if (thisBox.c !="mainRegion") {
 		newBox.classed("dragger",true)
 		.style("fill-opacity",1);}
-		
-	    var drag = d3.behavior.drag()
-		.origin(function() { 
-		    var t  = d3.select(this);
-		    return {x: t.attr("x"),y: t.attr("y")};})
-		.on("drag", function() {
-		    if (Object.keys(backendTasks).length === 0) {
-			var t = d3.select(this);
-			dragFunctions.updateBoxes(t.attr("location"))}
-		    })
-		.on("dragend",function () {
-		    // when dragging has finished, update the region information both here
-		    // and in the python backend. then recalculate and replot.
-		    if (Object.keys(backendTasks).length === 0) {
-			dragFunctions.updateRegion()
-			}
-		});
 	    
 	    // attach the dragging behavior
-	    newBox.call(drag);
+	    newBox.call(dragFunctions.boxDragBehavior);
 	}
     };
     
     var backend = function (callback) {
 	
+	// we query the backend. optionally, we can pass a "resize" argument in
+	// the json to force the backend to resize the hologram to a
+	// particular size. if this argument is not supplied, the image
+	// we get back is the one generated by the backend on loading, and is
+	// the same size as the data.
+
 	// query the backend and get the dataid and the number of zoom levels
 	$.getJSON("fth/query", {},
 	    function (data) {
@@ -666,18 +745,19 @@ var start = function () {
 		console.log(data);
 		
 		// pull data out of the returned json
-		front.sessionId = data.sessionId
-		front.dataId = data.dataId;
-		front.zoom = 0;
-		front.zooms = data.zooms;
-		front.hasdata = true;
-		front.havegpu = data.hasgpu;
+		front.data.exists    = true;
+		front.data.dataId    = data.dataId;
+		front.data.sessionId = data.sessionId;
+		front.data.haveGPU   = data.hasGPU;
+		
+		// load the image off the server. given its size and the size
+		// of the display window, set the zoom factor and translation
+		// coordinates correctly
+		var path = 'static/imaging/images/ifth_session'+front.data.sessionId+'_id'+front.data.dataId+'_'+'0.8_logd.jpg';
+		front.hologram.image        = new Image()
+		front.hologram.image.onload = function () {callback(null)}
+		front.hologram.image.src    = path;
 
-		// load the zoom strip. set the background correctly.
-		front.zoom_strip = new Image()
-		front.zoom_strip.onload = function () {callback(null)}
-		var path = 'static/imaging/images/zooms_session'+front.sessionId+'_id'+front.dataId+'_'+'0.8_logd.jpg';
-		front.zoom_strip.src = path;
 	    }
 	)};
 	
@@ -687,8 +767,6 @@ var start = function () {
 	startAperture();
 	startAcutance();
 	startSlider();
-	drawClock("svghologram");
-	drawClock("svgaperture");
 	drawRegion();
 	
 	// remove the clock

@@ -25,19 +25,27 @@
 		<div>
 		    <span id="scales">
 			Scales: 
-			<input type="radio" id="scale_linear" name="scale" value="0"/><label for="scale_linear">Linear</label>
-			<input type="radio" id="scale_sqrt"   name="scale" value="1" checked="checked"/><label for="scale_sqrt">Sqrt</label>
-			<input type="radio" id="scale_log"    name="scale" value="2"/><label for="scale_log">Log</label>
+			<input type="radio" id="Linear" name="scale" value="0"/><label for="Linear">Linear</label>
+			<input type="radio" id="Sqrt"   name="scale" value="1" checked="checked"/><label for="Sqrt">Sqrt</label>
+			<input type="radio" id="Log"    name="scale" value="2"/><label for="Log">Log</label>
 		    </span>
 		</div>
 		
 		<div>
 		    <span id="colormaps">
 			Colormaps: 
-			<input type="radio" id="cm_l" name="cm" value="0" checked="checked"/><label for="cm_l">LL</label>
-			<input type="radio" id="cm_a" name="cm" value="1"/><label for="cm_a">AA</label>
-			<input type="radio" id="cm_b" name="cm" value="2"/><label for="cm_b">BB</label>
+			<input type="radio" id="cmL" name="cm" value="0" checked="checked"/><label for="cmL">LL</label>
+			<input type="radio" id="cmA" name="cm" value="1"/><label for="cmA">AA</label>
+			<input type="radio" id="cmB" name="cm" value="2"/><label for="cmB">BB</label>
 		    </span>
+		</div>
+		<p></p>
+		
+		<div>
+		    <button id="zoom_in">Zoom In</button>
+		    <button id="zoom_out">Zoom Out</button>
+		    <input type = "checkbox", id='lockBg'>
+			Lock background
 		</div>
 		<p></p>
 	    
@@ -59,6 +67,7 @@
 	    <div id="graphs"></div>
 	    <div id="rightcontrols">
 		
+		<p></p>
 		<div>
 		    <a href="static/xpcs/csv/analysis.csv" download="analysis.csv" target="_blank" id="analysislink">
 		    Show analysis file
@@ -79,7 +88,7 @@
     </div>
     
 <!-- run the webpage application -->
-<script type="text/javascript" src="static/scripts/xpcs.js"></script>
+<script type="text/javascript" src="static/scripts/xpcs_dev.js"></script>
 
 </body>
 </html>

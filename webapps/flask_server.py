@@ -2,7 +2,10 @@ from flask import Flask, jsonify, request, redirect, send_from_directory, json, 
 from werkzeug import secure_filename
 import os
 import uuid
+import shutil
 from os.path import getctime
+
+import re
 
 import time
 from datetime import timedelta
@@ -27,7 +30,7 @@ from speckle.interfaces import xpcs_backend
 from speckle.interfaces import imaging_backend
 
 # concurrent user sessions are managed through a dictionary which holds
-# the backends and the time last seen
+# the backends and the time of last activity
 sessions = {}
 def manage_session():
     # see if there is currently a session attached to the incoming request.
@@ -35,11 +38,6 @@ def manage_session():
     # key; an error indicates no session
     
     def _delete_old_files(ct):
-        
-        def _get_session(f):
-            try: session_id = int(f.split('_')[1].split('session')[1])
-            except ValueError: session_id = int(f.split('_')[1].split('session')[1].split('.')[0])
-            return session_id
 
         # define the expiration time constant
         life_hours = 8
@@ -49,14 +47,18 @@ def manage_session():
         import glob
         files, kept_sessions, del_sessions, kept, deleted = [], [], [], 0, 0
         for path in ('static/*/images/*session*.*','static/*/csv/*session*.*','data/*session*.*'): files += glob.glob(path)
-        
+        fmt_str = r'(cdi|fth|xpcs)data_session([0-9]*)_id([0-9]*)(.*).fits'
+
         for f in files:
             
             # get the session id for the file
-            session_id = _get_session(f)
+            try:
+                project, session_id, data_id, extra = re.match(fmt_str,f).groups()
+            except AttributeError:
+                project, session_id, data_id, extra = None, None, None, None
             
             # see how old the file is. if too old, delete it.
-            if getctime(f) < expired_at:
+            if getctime(f) < expired_at and extra != '_crashed':
                 os.remove(f)
                 deleted += 1
                 del_sessions.append(session_id)
@@ -173,10 +175,24 @@ def upload_file():
                 backend.load_data(project,app.config['UPLOAD_FOLDER'])
                 return redirect('/'+project)
             
-        # if an error was generated during allowed_file or during
-        # check_data, generate an error page so the user understands there
-        # was a problem with the data.
+        # if we're here, there was an error with the data. do three things
+        # 1. save the data for further inspection
+        # 2. log the error message to a file
+        # 3. generate the error page so that the user knows there is a problem
         if error != None:
+            
+            # 1. save the data
+            new_name = save_to.replace('.fits','_crashed.fits')
+            os.rename(save_to,new_name)
+            
+            # 2. write the error message to a file
+            import datetime
+            with open("data/crash_log.txt","a") as f:
+                message = "time: %s\nfile: %s\naddress: %s\nbackend: %s\nmessage: %s\n\n"%(datetime.datetime.today(), new_name, request.remote_addr, backend_id, error)
+                f.write(message)
+                f.close()
+
+            # 3. send the user to the error page
             return render_template('load_error.html',error_msg=error,backend=backend_id)
 
 # the rest of the decorators are switchboard functions which take a request
@@ -237,7 +253,7 @@ def xpcs_cmd(cmd):
         return jsonify(result="removed")
     
     if cmd == 'query':
-        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,nframes=backend.frames)
+        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,nframes=backend.frames,size=backend.data_size)
     
     if cmd == 'new':
         r = request.json
@@ -310,13 +326,19 @@ def fth_cmd(cmd):
         return redirect('/expired')
     
     if cmd == 'query':
+        
+        # front end wants:
+        # 1. dataId
+        # 2. sessionId
+        # 3. hasGPU
+
         # return the information the frontend needs to pull images etc
-        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,zooms=backend.zooms,hasgpu=use_gpu)
+        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,hasGPU=use_gpu)
 
     if cmd == 'propagate':
 
         # get the coordinates
-        int_keys = ('zoom','apodize')
+        int_keys = ('zoom','apodize','window')
         flt_keys = ('rmin','rmax','cmin','cmax','zmin','zmax','energy','pitch')
         
         params = {}
@@ -325,7 +347,7 @@ def fth_cmd(cmd):
 
         # run the propagation
         backend.propagate(params,'fth')
-        return jsonify(result="propagation finished",propagationId=backend.bp_id)
+        return jsonify(result="propagation finished",propagationId=backend.bp_id,frameSize=backend.imgx)
 
 @app.route('/cdi/<cmd>',methods=['GET','POST'])
 def cdi_cmd(cmd):

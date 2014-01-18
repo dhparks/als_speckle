@@ -21,7 +21,7 @@ except ImportError:
     use_gpu = False
     
 # code for backends; gets re-instantiated for each session
-from speckle.interfaces import xpcs_backend
+from speckle.interfaces import xpcs_backend_dev
 from speckle.interfaces import imaging_backend
 
 # concurrent user sessions are managed through a dictionary which holds
@@ -79,7 +79,7 @@ def manage_session():
         if use_gpu: gpu_info = speckle.gpu.init()
         else: gpu_info = None
         
-        backendx = xpcs_backend.backend(session_id=s_id,gpu_info=gpu_info)
+        backendx = xpcs_backend_dev.backend(session_id=s_id,gpu_info=gpu_info)
         backendi = imaging_backend.backend(session_id=s_id,gpu_info=gpu_info)
     
         # store these here in python; can't be serialized into the cookie!
@@ -126,6 +126,8 @@ def upload_file():
     new_name = '%s/%sdata_session%s.fits'%(app.config['UPLOAD_FOLDER'],project,s_id)
     shutil.copy(old_name,new_name)
     
+    print "data copied"
+    
     # load the data into the correct backend
     if project in ('cdi','fth'):
         backend = sessions[s_id]['backendi']
@@ -134,6 +136,9 @@ def upload_file():
         backend.regions = {}
                 
     backend.load_data(project,app.config['UPLOAD_FOLDER'])
+    
+    print "about to redirect to %s"%project
+    
     return redirect('/'+project)
 
 # the rest of the decorators are switchboard functions which take a request
@@ -145,10 +150,11 @@ def serve_landing():
 
 @app.route('/xpcs')
 def serve_xpcs():
+    print "in /xpcs"
     # serve the static page for xpcs
     s_id = session['s_id']
     sessions[s_id]['backendx'].regions = {}
-    return send_from_directory('.', 'static/html/xpcs.html')
+    return send_from_directory('.', 'static/html/xpcs_dev.html')
 
 @app.route('/fth')
 def serve_fth():
@@ -190,7 +196,7 @@ def xpcs_cmd(cmd):
         return jsonify(result="removed")
     
     if cmd == 'query':
-        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,nframes=backend.frames)
+        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,nframes=backend.frames,size=backend.data_size)
     
     if cmd == 'new':
         r = request.json
@@ -263,13 +269,19 @@ def fth_cmd(cmd):
         return redirect('/expired')
     
     if cmd == 'query':
+        
+        # front end wants:
+        # 1. dataId
+        # 2. sessionId
+        # 3. hasGPU
+
         # return the information the frontend needs to pull images etc
-        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,zooms=backend.zooms,hasgpu=use_gpu)
+        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,hasGPU=use_gpu)
 
     if cmd == 'propagate':
 
         # get the coordinates
-        int_keys = ('zoom','apodize')
+        int_keys = ('zoom','apodize','window')
         flt_keys = ('rmin','rmax','cmin','cmax','zmin','zmax','energy','pitch')
         
         params = {}
@@ -278,7 +290,7 @@ def fth_cmd(cmd):
 
         # run the propagation
         backend.propagate(params,'fth')
-        return jsonify(result="propagation finished",propagationId=backend.bp_id)
+        return jsonify(result="propagation finished",propagationId=backend.bp_id,frameSize=backend.imgx)
 
 @app.route('/cdi/<cmd>',methods=['GET','POST'])
 def cdi_cmd(cmd):

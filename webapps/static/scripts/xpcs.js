@@ -10,9 +10,14 @@ front.sizes.s = 4;
 front.sizes.d = 5;
 
 front.intensity = {}
-front.intensity.image   = null;
+front.intensity.images  = {};
 front.intensity.dataId  = null;
 front.intensity.regions = {};
+front.intensity.translateX = 0;
+front.intensity.translateY = 0;
+front.intensity.staticTranslateX = 0;
+front.intensity.staticTranslateY = 0;
+front.intensity.zoomFactor = 1.25;
 
 front.plots = {}
 front.plots.xScale   = null;
@@ -24,38 +29,69 @@ front.plots.nframes = null;
 
 var dragFunctions = {
     
-    // methods for dragging the regions in the left svg
-    
-    drag: d3.behavior.drag()
-            .origin(function() { 
-                var t  = d3.select(this);
-                return {x: t.attr("x"),y: t.attr("y")};})
-            .on("drag",   function()  {
-                if (Object.keys(front.backendTasks).length === 0) {
-                    var t = d3.select(this);
-                    dragFunctions.updateBoxes(t.attr("regionId"),t.attr("location"))
-		    }
-                })
-            .on("dragend",function () {
-                // when dragging has finished, update the region information both here
-                // and in the python backend. then recalculate and replot.
-                if (Object.keys(front.backendTasks).length === 0) {
+    // methods for dragging the regions and background in the left svg
+    regionBehavior: d3.behavior.drag()
+            .origin(function() { var t  = d3.select(this); return {x: t.attr("x"),y: t.attr("y")};})
+            .on("drag",   function()  { dragFunctions.regionDrag(this) })
+            .on("dragend",function () { dragFunctions.regionDragEnd(this) }),
 
-		    // update the region information in the tracker
-		    var id   = d3.select(this).attr("regionId");
-		    var group = d3.select("#regionGroup"+id)
-		    
-		    r = front.intensity.regions[id];
-		    r.coords.rmin = parseInt(group.select('[location="mainRegion"]').attr("y"));
-		    r.coords.cmin = parseInt(group.select('[location="mainRegion"]').attr("x"));
-		    r.coords.rmax = parseInt(group.select('[location="lowerRight"]').attr("y"));
-		    r.coords.cmax = parseInt(group.select('[location="lowerRight"]').attr("x"));   
+    regionDrag: function (x) {
+	if (Object.keys(front.backendTasks).length === 0) {
+	    var t = d3.select(x);
+            dragFunctions.updateBoxes(t.attr("regionId"),t.attr("location"))
+	    }
+         },
+	 
+    regionDragEnd: function (x) {
+	
+	if (Object.keys(front.backendTasks).length === 0) {
+
+	    // update the region information in the tracker
+	    var id   = d3.select(x).attr("regionId");
+	    var group = d3.select("#regionGroup"+id)
+	    
+	    r = front.intensity.regions[id];
+	    r.coords.rmin = parseInt(group.select('[location="mainRegion"]').attr("y"));
+	    r.coords.cmin = parseInt(group.select('[location="mainRegion"]').attr("x"));
+	    r.coords.rmax = parseInt(group.select('[location="lowerRight"]').attr("y"));
+	    r.coords.cmax = parseInt(group.select('[location="lowerRight"]').attr("x"));   
+
+	    // run the recalculation if that option is selected
+	    if ($('#autocalc').is(":checked")) { userFunctions.recalculateG2() };
+	}
+    },
     
-		    // run the recalculation if that option is selected
-                    if ($('#autocalc').is(":checked")) { userFunctions.recalculateG2() };
-		}
-	    }),
-            
+    // this is the drag behavior for the background image
+    backgroundBehavior: d3.behavior.drag()
+			.origin(function() { console.log('origin!');var t  = d3.select(this); return {x: t.attr("x"),y: t.attr("y")};})
+			.on("drag", function() {
+			    if (Object.keys(front.backendTasks).length === 0 && !$('#lockBg').is(":checked")) {
+				console.log("dragging 2")
+				dragFunctions.updateBackground()}
+			    })
+			.on("dragend",function () {
+			    // when dragging has finished, update the javascript information about the position
+			    if (Object.keys(front.backendTasks).length === 0 && !$('#lockBg').is(":checked")) {
+				front.intensity.staticTranslateX = front.intensity.translateX;
+				front.intensity.staticTranslateY = front.intensity.translateY;
+				}
+			    }),
+    
+    updateBackground: function () {
+
+	// update the front.translateX and front.translateY parameters
+	// with the information coming from the drag event; then
+	// update the image transform properties
+	
+	var dx = d3.event.x, dy = d3.event.y;
+	front.intensity.translateX = front.intensity.staticTranslateX+dx/front.intensity.zoom;
+	front.intensity.translateY = front.intensity.staticTranslateY+dy/front.intensity.zoom;
+	var str = "scale("+front.intensity.zoom+") translate("+front.intensity.translateX+","+front.intensity.translateY+")"
+	console.log(str)
+	d3.select('#dataimage').attr("transform",str)
+	
+    },
+    
     updateBoxes: function (regionId, what) {
     
         // this function updates the coordinates of the 6 svg elements which
@@ -179,7 +215,7 @@ var userFunctions = {
 		    .style("fill",reg.color)
 		    .style("fill-opacity",0)
 		    .style('cursor',thisBox.curs)
-		    .call(dragFunctions.drag) // attaches the dragging behavior
+		    .call(dragFunctions.regionBehavior) // attaches the dragging behavior
 		    ;
     
 		if (thisBox.c==="mainRegion") {
@@ -297,26 +333,21 @@ var userFunctions = {
 	queue().defer(backend).await(frontend);
 	
     },
-    
-    selectRegion: function (t) {
-        // given the regionId "t", select the region in the tracker
-	front.intensity.regions[t].selected = !front.intensity.regions[t].selected;
-	
-	// select the region in the svg; switch the opacity
-	var c = d3.select("#regionGroup"+t).select("circle");
-        var o = 1-c.style("fill-opacity");
-        c.transition().duration(150).style("fill-opacity",o)
+
+    changeBackground: function () {
+        // change the background to the permutation of selected colormap and selected scale
+        var scale = $("input[name=scale]:checked").attr("id");
+        var color = $("input[name=cm]:checked").attr("id");
+	var path  = '/static/xpcs/images/data_session'+front.sessionId+'_id'+front.intensity.dataId+'_'+color+'_'+scale+'.jpg';
+	var tfrm  = "scale("+front.intensity.zoom+") translate("+front.intensity.staticTranslateX+","+front.intensity.staticTranslateY+")"
+	d3.select('#dataimage').attr("xlink:href", path)
+	d3.select("#dataimage").attr("transform",tfrm);
+	console.log(tfrm);
     },
     
-    changeBackground: function () {
-        // the firstframe image is 9 images in 1:
-	// row 1 is linear, row 2 is sqrt, row 3 is log
-	// col 1 is L, col 2 is A, col 3 is B.
-	// on the basis of the selected value, move the image to give the
-	// appearance that the image was reloaded
-        var scale = parseInt($("input[name=scale]:checked").val());
-        var color = parseInt($("input[name=cm]:checked").val());
-        d3.select('#dataimage').attr("x",-front.sizes.x*scale).attr("y",-front.sizes.x*color)
+    convertCoord: function (val) {
+	return {'x':(val-front.intensity.staticTranslateX*front.intensity.zoom)/front.intensity.zoom,
+		'y':(val-front.intensity.staticTranslateY*front.intensity.zoom)/front.intensity.zoom}
     },
     
     deleteRegions: function () {
@@ -389,6 +420,105 @@ var userFunctions = {
         queue().defer(backend).await(frontend);
 
     },
+    
+    initGraph: function () {
+        
+        // define log scales for the new data
+        front.plots.xScale = d3.scale.log().range([0, front.plots.width]).domain([1,front.plots.nframes]);
+        front.plots.yScale = d3.scale.log().range([front.plots.height, 0]).domain([1e-6,1]).clamp(true);
+	
+	// define the interpolation function for plotting
+	front.plots.linefunc = d3.svg.line()
+                .interpolate("linear")
+                .x(function(d) { return front.plots.xScale(d.x); })
+                .y(function(d) { return front.plots.yScale(d.y); });
+        
+        var resetSVG = function () {
+	    
+            d3.select("plotGroup").remove();
+            d3.select("#svggraphs")
+                .append("g")
+                .attr("transform", "translate(" + front.plots.margins.left + "," + front.plots.margins.top + ")")
+                .attr("id","plotGroup");
+        };
+	
+        var drawGrids = function () {
+            //draw grid lines
+            svgg.append("g").attr("id","verticalGrid")
+            d3.select("#verticalGrid").selectAll(".gridlines")
+                .data(front.plots.xScale.ticks()).enter()
+                .append("line")
+                .attr("class","gridlines")
+                .attr("x1",function (d) {return front.plots.xScale(d)})
+                .attr("x2",function (d) {return front.plots.xScale(d)})
+                .attr("y1",function ()  {return front.plots.yScale(1e-6)})
+                .attr("y2",function ()  {return front.plots.yScale(1e0)})
+    
+            svgg.append("g").attr("id","horizontalGrid")
+            d3.select("#horizontalGrid").selectAll(".gridlines")
+                .data(front.plots.yScale.ticks()).enter()
+                .append("line")
+                .attr("class","gridlines")
+                .attr("x1",function ()  {return front.plots.xScale(1)})
+                .attr("x2",function ()  {return front.plots.xScale(front.plots.nframes)})
+                .attr("y1",function (d) {return front.plots.yScale(d)})
+                .attr("y2",function (d) {return front.plots.yScale(d)})
+        };
+                
+        var drawAxes = function () {
+            // draw axes
+            
+            // define xAxis and yAxis
+            var nticks = Math.floor(Math.log(front.plots.nframes)/Math.LN10);
+            var xAxis  = d3.svg.axis().scale(front.plots.xScale).orient("bottom").ticks(nticks);
+            var yAxis  = d3.svg.axis().scale(front.plots.yScale).orient("left");//.ticks(5);//.tickFormat(d3.format(".1f"));
+            
+            svgg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", "translate(0," + front.plots.height + ")")
+                .call(xAxis);
+          
+            svgg.append("g")
+                .attr("class", "y axis")
+                .attr("transform","translate(0,0)")
+                .call(yAxis)
+                .append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 6)
+                .attr("dy", ".71em")
+                .style("text-anchor", "end")
+                .text("G2");
+        };
+        
+        var drawReadout = function () {
+            // set up the fit parameters readout
+            d3.select("#plotGroup").append("g").attr("id","fitParamsGroup")
+        
+            d3.select("#fitParamsGroup")
+                .append("rect")
+                .attr("x",-5).attr("y",5)
+                .attr("opacity",0)
+                .attr("id","txtrect")
+                .attr("fill","white")
+                .style("stroke-width",1)
+                .style("stroke","black")
+                
+            d3.select("#fitParamsGroup")
+                .append("text")
+                .attr("id","fitParamsText")
+                .attr("selectedGroup","none");
+            };
+                   
+        //
+        resetSVG();
+            
+        var svgg = d3.select("#plotGroup")
+        
+        drawGrids()
+        drawAxes()
+        drawReadout()
+
+        },
     
     recalculateG2: function () {
 
@@ -526,21 +656,31 @@ var userFunctions = {
 	
 	var backend = function (callback) {
 	    
+	    var _convertRegion = function (r) {
+		out = {}
+		out.rmin = userFunctions.convertCoord(r.rmin).y;
+		out.rmax = userFunctions.convertCoord(r.rmax).y;
+		out.cmin = userFunctions.convertCoord(r.cmin).x;
+		out.cmax = userFunctions.convertCoord(r.cmax).x;
+		return out
+	    }
+	    
 	    // lock
 	    var ts = new Date().getTime();
             front.backendTasks[ts] = 'recalculatePlot'
 	    
-	    // draw clock
-	    d3.selectAll(".clockface").transition().duration(150).style("opacity",1)
-	    
+	    // change the cursor to "progress"
+	    $("body").css("cursor","progress")
+
 	    // loop over regions, building a coordinates array
 	    data = {}
 	    data.coords = {}
 	    data.form   = $("input[name=fitform]:checked").val()
-	    for (region in front.intensity.regions) {data.coords[region] = front.intensity.regions[region].coords}
+	    for (region in front.intensity.regions) {
+		data.coords[region] = _convertRegion(front.intensity.regions[region].coords)}
 	    
 	    // send this array to the backend. when it comes back, parse it,
-	    // undraw the clock, then draw the plots
+	    // then draw the plots
 	    $.ajax({
 		    url: "xpcs/calculate",
 		    type: 'POST',
@@ -550,8 +690,8 @@ var userFunctions = {
 		    async: true,
 		    success: function(data) {
 			parse(data);
+			$("body").css("cursor","default")
 			delete front.backendTasks[ts]
-			d3.selectAll(".clockface").transition().duration(150).style("opacity",0)
 			callback(null);
 			}
 		});
@@ -626,164 +766,17 @@ var userFunctions = {
 
     },
     
-    initGraph: function () {
-        
-        // define log scales for the new data
-        front.plots.xScale = d3.scale.log().range([0, front.plots.width]).domain([1,front.plots.nframes]);
-        front.plots.yScale = d3.scale.log().range([front.plots.height, 0]).domain([1e-6,1]).clamp(true);
+    selectRegion: function (t) {
 	
-	// define the interpolation function for plotting
-	front.plots.linefunc = d3.svg.line()
-                .interpolate("linear")
-                .x(function(d) { return front.plots.xScale(d.x); })
-                .y(function(d) { return front.plots.yScale(d.y); });
-        
-        var resetSVG = function () {
-	    
-            d3.select("plotGroup").remove();
-            d3.select("#svggraphs")
-                .append("g")
-                .attr("transform", "translate(" + front.plots.margins.left + "," + front.plots.margins.top + ")")
-                .attr("id","plotGroup");
-        };
+        // given the regionId "t", select the region in the tracker
+	front.intensity.regions[t].selected = !front.intensity.regions[t].selected;
 	
-        var drawGrids = function () {
-            //draw grid lines
-            svgg.append("g").attr("id","verticalGrid")
-            d3.select("#verticalGrid").selectAll(".gridlines")
-                .data(front.plots.xScale.ticks()).enter()
-                .append("line")
-                .attr("class","gridlines")
-                .attr("x1",function (d) {return front.plots.xScale(d)})
-                .attr("x2",function (d) {return front.plots.xScale(d)})
-                .attr("y1",function ()  {return front.plots.yScale(1e-6)})
-                .attr("y2",function ()  {return front.plots.yScale(1e0)})
-    
-            svgg.append("g").attr("id","horizontalGrid")
-            d3.select("#horizontalGrid").selectAll(".gridlines")
-                .data(front.plots.yScale.ticks()).enter()
-                .append("line")
-                .attr("class","gridlines")
-                .attr("x1",function ()  {return front.plots.xScale(1)})
-                .attr("x2",function ()  {return front.plots.xScale(front.plots.nframes)})
-                .attr("y1",function (d) {return front.plots.yScale(d)})
-                .attr("y2",function (d) {return front.plots.yScale(d)})
-        };
-                
-        var drawAxes = function () {
-            // draw axes
-            
-            // define xAxis and yAxis
-            var nticks = Math.floor(Math.log(front.plots.nframes)/Math.LN10);
-            var xAxis  = d3.svg.axis().scale(front.plots.xScale).orient("bottom").ticks(nticks);
-            var yAxis  = d3.svg.axis().scale(front.plots.yScale).orient("left");//.ticks(5);//.tickFormat(d3.format(".1f"));
-            
-            svgg.append("g")
-                .attr("class", "x axis")
-                .attr("transform", "translate(0," + front.plots.height + ")")
-                .call(xAxis);
-          
-            svgg.append("g")
-                .attr("class", "y axis")
-                .attr("transform","translate(0,0)")
-                .call(yAxis)
-                .append("text")
-                .attr("transform", "rotate(-90)")
-                .attr("y", 6)
-                .attr("dy", ".71em")
-                .style("text-anchor", "end")
-                .text("G2");
-        };
-        
-        var drawReadout = function () {
-            // set up the fit parameters readout
-            d3.select("#plotGroup").append("g").attr("id","fitParamsGroup")
-        
-            d3.select("#fitParamsGroup")
-                .append("rect")
-                .attr("x",-5).attr("y",5)
-                .attr("opacity",0)
-                .attr("id","txtrect")
-                .attr("fill","white")
-                .style("stroke-width",1)
-                .style("stroke","black")
-                
-            d3.select("#fitParamsGroup")
-                .append("text")
-                .attr("id","fitParamsText")
-                .attr("selectedGroup","none");
-            };
-            
-        var drawClock = function () {
+	// select the region in the svg; switch the opacity
+	var c = d3.select("#regionGroup"+t).select("circle");
+        var o = 1-c.style("fill-opacity");
+        c.transition().duration(150).style("fill-opacity",o)
+    },
 
-            // size and center
-            var bw = 100, bh = 100;
-            var tx = front.plots.xScale(Math.pow(10,(Math.log(front.plots.nframes)+Math.log(1))/(2*Math.LN10)));
-            var ty = front.plots.yScale(Math.pow(10,(Math.log(1e-6)+Math.log(1))/(2*Math.LN10)));
-
-            d3.select("#plotGroup")
-                .append("g")
-                .attr("id","clockface")
-                .attr("transform","translate("+tx+","+ty+")")
-                ;
-                
-            cf = d3.select("#clockface")
-        
-            cf.append("rect")
-                .attr("class","clockface")
-                .attr("x",-bw/2).attr("y",-bh/2)
-                .attr("height",bw).attr("width",bh)
-                .attr("rx",10).attr("ry",10)
-                .style("stroke-width",2).style("stroke","black")
-                .style("fill","red")
-                ;
-                
-            var hands = [[{x:0,y:0},{x:0,y:30}],[{x:0,y:0},{x:30,y:0}]];
-        
-            var circles = [
-                {cx:0,cy:0,r:bw*.4,f:"white",s:"black",sw:2},
-                {cx:0,cy:0,r:5,f:"black",s:"black",sw:0}]
-            
-            for (var n=0;n<12;n++) {
-                var nc = {f:"black",s:"black",sw:0,r:2}
-                nc.cx = bw*0.35*Math.cos(Math.PI*2/12*n);
-                nc.cy = bw*0.35*Math.sin(Math.PI*2/12*n);
-                circles.push(nc)
-            }
-            
-            cf.selectAll("circle").data(circles).enter()
-                .append("circle")
-                .attr("class","clockface")
-                .attr("cx",function(d){return d.cx})
-                .attr("cy",function(d){return d.cy})
-                .attr("r",function(d) {return d.r})
-                .style("fill",function(d) {return d.f})
-                .style("stroke",function(d){return d.s})
-                .style("stroke-width",function(d){return d.sw})
-                
-            var handLine = d3.svg.line()
-                .interpolate("linear")
-                .x(function(d) { return d.x; })
-                .y(function(d) { return d.y; });
-        
-            cf.selectAll("path").data(hands).enter().append("path")
-                .attr("class","clockface")
-                .attr("d", function(d) {return handLine(d)})
-                .style("stroke","black")
-                .style("stroke-width",2);
-        };
-            
-        //
-        resetSVG();
-            
-        var svgg = d3.select("#plotGroup")
-        
-        drawGrids()
-        drawAxes()
-        drawReadout()
-        drawClock()
-
-        },
     textBoxTransition: function (newOpacity,regionId) {
         if (regionId === null)
             {regionId = front.plots.selected}
@@ -805,6 +798,28 @@ var userFunctions = {
             d3.select("#txtrect").transition().duration(150).style("opacity",1);}
     },
 
+    zoomIn: function () { if (!$('#lockBg').is(":checked")) {userFunctions.zoom(front.intensity.zoomFactor)}},
+    
+    zoomOut: function () { if (!$('#lockBg').is(":checked")) {userFunctions.zoom(1./front.intensity.zoomFactor)}},
+
+    zoom: function(factor) {
+	
+	// the current center coordinates  given by:
+	var cc = userFunctions.convertCoord(front.sizes.x/2);
+
+	// update the zoom factor
+	front.intensity.zoom *= factor;
+	    
+	// calculate the new translation values to keep the current center
+	front.intensity.staticTranslateX = front.sizes.x/(2*front.intensity.zoom)-cc.x;
+	front.intensity.staticTranslateY = front.sizes.x/(2*front.intensity.zoom)-cc.y;
+	    
+	// apply the updated transformation
+	var str = "scale("+front.intensity.zoom+") translate("+front.intensity.staticTranslateX+","+front.intensity.staticTranslateY+")"
+	d3.select('#dataimage').attr("transform",str);
+
+    }
+    
     };
 
 var start = function () {
@@ -820,6 +835,8 @@ var start = function () {
     $("#recalculate").click(function() {if (Object.keys(front.backendTasks).length === 0) {userFunctions.recalculateG2()};});
     $("#colormaps").children().click(function () {userFunctions.changeBackground();});
     $("#scales").children().click(function () {userFunctions.changeBackground();});
+    $("#zoom_in").click(function () {userFunctions.zoomIn()});
+    $("#zoom_out").click(function () {userFunctions.zoomOut()});
     $("#functionals").children().click(function () {if (Object.keys(front.backendTasks).length === 0) {userFunctions.recalculatePlot()};});
 
     // using d3, append the right things to the divs
@@ -832,8 +849,7 @@ var start = function () {
     d3.select('#svgintensity')
         .append("image")
         .attr("id","dataimage")
-        .attr("width",3*front.sizes.x)
-        .attr("height",3*front.sizes.x);
+        .call(dragFunctions.backgroundBehavior);
         
     // skeletonize the right svg plots
     // if a graph already exists, remove it
@@ -852,43 +868,60 @@ var start = function () {
         .attr("height", height + front.plots.margins.top + front.plots.margins.bottom)
 	
     // query the backend to get the dataid and the number of frames
-    
     var backend = function (callback) {
     
-	var got = 0;
+	var gotBack = 0;
     
 	$.getJSON(
             'xpcs/purge', {},
-            function(returned) {
-		got += 1;
-		if (got === 2) {callback(null)};
-                }
+            function(returned) {gotBack += 1; if (gotBack === 2) {callback(null)};}
             );
     
 	$.getJSON(
             'xpcs/query', {},
             function(returned) {
-                front.sessionId = returned.sessionId;
-		front.intensity.dataId  = returned.dataId;
-		front.plots.nframes = returned.nframes;
-		got += 1;
-		if (got === 2) { callback(null) };
+                front.sessionId        = returned.sessionId;
+		front.intensity.dataId = returned.dataId;
+		front.intensity.size   = returned.size;
+		front.plots.nframes    = returned.nframes;
+		front.intensity.zoom   = front.sizes.x/front.intensity.size;
+		gotBack += 1; if (gotBack === 2) { callback(null) };
                 }
             );
         };
 	
+    // download the data jpgs
     var frontend = function (error) {
         
-	var img = new Image()
-	img.onload = function () {
-	    d3.select('#dataimage').attr("xlink:href", path);
+	var _downloadImages = function (callback) {
+	
+	    // calculate the number of color map permutations.
+	    var colors   = $("[name='cm']").map(function () {return this.id}).get();
+	    var scales   = $("[name='scale']").map(function () {return this.id}).get();
+	    var permutes = colors.length*scales.length;
+	    
+	    // for each permutation, issue a GET to the server. the browswer will cache
+	    // the image. when the image is downloaded, increment the downloaded counter
+	    var downloaded = 0;
+	    for (var cm = 0; cm < colors.length; cm++) {
+		for (var s = 0; s < scales.length; s++) {
+		    color      = colors[cm];
+		    scale      = scales[s]
+		    var img    = new Image();
+		    img.onload = function () {downloaded += 1; if (downloaded === permutes) { callback(null); }}
+		    img.src    = '/static/xpcs/images/data_session'+front.sessionId+'_id'+front.intensity.dataId+'_'+color+'_'+scale+'.jpg';
+		}
+	    }
+	};
+
+	var _setImage = function (error) {
+	    d3.select("#dataimage").attr("width",front.intensity.size).attr("height",front.intensity.size)
 	    userFunctions.changeBackground();
 	    userFunctions.initGraph();
 	}
 	
-	$("#analysislink").attr("href","static/xpcs/csv/analysis_session"+front.sessionId+".csv")
-	var path = '/static/xpcs/images/datasprites_session'+front.sessionId+'_id'+front.intensity.dataId+'.jpg';
-        img.src  = path
+	queue().defer(_downloadImages).await(_setImage)
+
     }
     
     queue().defer(backend).await(frontend);

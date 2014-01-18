@@ -44,6 +44,7 @@ class backend():
         """
         
         def _save_scales():
+            
             # rescale the first frame into sqrt and log
             scales = {}
             
@@ -51,38 +52,42 @@ class backend():
             tmp *= 10000/tmp.max()
             tmp += 1
             
-            scales['linear'] = tmp
-            scales['sqrt']   = np.sqrt(tmp)
-            scales['log']    = np.log(tmp)
+            scales['Linear'] = tmp
+            scales['Sqrt']   = np.sqrt(tmp)
+            scales['Log']    = np.log(tmp)
             
-            # for each scale option, create 3 color options. save as datasprites,
-            # which is what the webbrowser will load.
-            big_image = Image.new('RGB',(3*512,3*512))
-            for n, key in enumerate(['linear','sqrt','log']):
-                imgl = scipy.misc.toimage(scales[key])
-                for m, colormap in enumerate(['L','A','B']):
-                    imgc = imgl
-                    if colormap != 'L':
-                        imgc.putpalette(io.color_maps(colormap))
-                        imgc = imgc.convert("RGB")
-                    big_image.paste(imgc,(n*512,m*512))
-            big_image.save("static/xpcs/images/datasprites_session%s_id%s.jpg"%(self.session_id,self.data_id))
+            colormaps = ["L","A","B"]
             
-        def _resize():
-            # support non-square data for calculating a rescale factor and offsets
-            # needed to transform gui coordinates into data coordinates
-            self.rescale = 512./max(self.data_shape[1:])
-            if self.rescale > 1: self.rescale = 1 # for now, only shrink arrays
-            self.roffset = int((512-self.data_shape[1]*self.rescale)/2)
-            self.coffset = int((512-self.data_shape[2]*self.rescale)/2)
-                
-            # now open the first frame. resize the maximum dimension of the first
-            # frame to 512 pixels before saving.
-            ff  = io.open(self.data_path)[0].astype(np.float32)
-            ff -= ff.min()
-            ff  = wrapping.resize(ff,(int(self.data_shape[1]*self.rescale),int(self.data_shape[2]*self.rescale)))
-            self.first_frame = np.zeros((512,512),np.float32)
-            self.first_frame[self.roffset:self.roffset+ff.shape[0],self.coffset:self.coffset+ff.shape[1]] = ff
+            # save color images to xpcs/images
+            for scale in scales.keys():
+                imgL = scipy.misc.toimage(scales[scale])
+                for colormap in colormaps:
+                    imgC = imgL
+                    if colormap != "L":
+                        imgC.putpalette(io.color_maps(colormap))
+                        imgC = imgC.convert("RGB")
+                    imgC.save('static/xpcs/images/data_session%s_id%s_cm%s_%s.jpg'%(self.session_id,self.data_id,colormap,scale))
+            
+        def _embed():
+            # if the isn't square, embed it in an
+            # array of zeros so that it becomes square.
+            ff = io.open(self.data_path)[0].astype(np.float32)
+            rows, cols = self.data_shape[1], self.data_shape[2]
+            if rows != cols:
+                x    = max([rows,cols])
+                ff_e = np.zeros((x,x),np.float32)
+                if rows > cols: ff_e[:,:cols] = ff
+                if cols > rows: ff_e[:rows,:] = ff
+                ff = ff_e
+            self.first_frame = ff
+            self.data_size = self.first_frame.shape[0]
+            
+            # the offset and rescale parameters existed in the past when the frontend
+            # did not support panning and zooming. might remove them in the backend
+            # in the future
+            self.roffset = 0
+            self.coffset = 0
+            self.rescale = 1
 
         self.data_id = self._new_id()
         old_name     = '%s/%sdata_session%s.fits'%(folder,project,self.session_id)
@@ -90,18 +95,17 @@ class backend():
         os.rename(old_name,new_name)
 
         self.data_path = new_name
+        self.data_name = new_name
         
         # first, check the shape and get the number of frames
         self.data_shape = io.get_fits_dimensions(new_name)
-        self.frames = self.data_shape[0]
+        self.frames     = self.data_shape[0]
         
         if len(self.data_shape) !=  3 or (len(self.data_shape) == 3 and self.data_shape[0] == 1):
             raise TypeError("Data is 2 dimensional")
             
-        # resize the data to fit within a 512x512 image. this also calculates
-        # scale factors and offsets necessary for coordinate transformations between
-        # the coordinates as seen in the browswer and defined here in the backend
-        _resize()
+        # make the data square by padding with zeros
+        _embed()
 
         # make the intensity image(s)
         _save_scales()

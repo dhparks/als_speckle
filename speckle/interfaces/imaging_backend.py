@@ -60,53 +60,34 @@ class backend():
             
             self.blocker = 1-shape.circle(self.data_shape,power)
         
-    def load_data(self,project,folder,blocker=0.8,resize=300):
+    def load_data(self,project,folder,blocker=0.8,resize=None):
         # open and prepare data for display. depending on project,
         # the data gets prepared in different ways. for example, when the
         # project is fth, the central maximum gets blockered more extensively
         # than when the project is cdi.
         
-        def _zoom_images():
+        def _data_images():
             # make images with linear scaling, sqrt scaling, log scaling. this might
             # take a little bit of time.
-            mag, phase = abs(self.rs_data), numpy.angle(self.rs_data)
-            mag *= self.blocker
+            mag, phase = numpy.abs(self.rs_data), numpy.angle(self.rs_data)
+            mag  *= self.blocker
             
             # resize, then save the color and scale permutations of first_frame.
             linr = mag
             sqrt = numpy.sqrt(mag)
             logd = numpy.log((mag-mag.min())/mag.max()*1000+1)
       
-            #self.rs_image_linear = io.complex_hsv_image(linr)
-            #self.rs_image_sqrt   = io.complex_hsv_image(sqrt*numpy.exp(complex(0,1)*phase))
-            self.rs_image_log    = io.complex_hsv_image(logd*numpy.exp(complex(0,1)*phase))
+            self.rs_image_linr = io.complex_hsv_image(linr)
+            self.rs_image_sqrt = io.complex_hsv_image(sqrt*numpy.exp(complex(0,1)*phase))
+            self.rs_image_log  = io.complex_hsv_image(logd*numpy.exp(complex(0,1)*phase))
             
-            imgs = {'logd':smp.toimage(self.rs_image_log)}
-            n    = 0
-            ds   = self.rs_data.shape
-            w, h = self.rs_data.shape
-            self.zoom_widths = []
+            imgs = {'logd':smp.toimage(self.rs_image_log),'sqrt':smp.toimage(self.rs_image_sqrt),'linr':smp.toimage(self.rs_image_linr)}
             
-            l_min, step, l_max  = 128., 0.8, max(ds)
-            step   = 0.8
-            nzooms = int(math.floor(math.log(l_min/l_max)/math.log(step))+1)
-    
-            big_image = Image.new('RGB',(self.resize*nzooms,self.resize))
-            
-            for n in range(nzooms):
-                w1, h1 = int(w*(step**n)), int(h*(step**n))
-                box    = (ds[1]/2-w1/2,ds[0]/2-h1/2,ds[1]/2+w1/2,ds[0]/2+h1/2)
-                for key in imgs.keys():
-                    y = imgs[key].crop(box).resize((self.resize,self.resize),Image.ANTIALIAS)
-                    #y.save("./static/imaging/images/zoom_session%s_%s_%s_%s.png"%(self.session_id,n,self.blocker_power,key))
-                    self.zoom_widths.append(w1)
-                    big_image.paste(y,(self.resize*n,0))
-            
-            big_image.save('./static/imaging/images/zooms_session%s_id%s_%s_%s.png'%(self.session_id,self.data_id,self.blocker_power,key))
-            big_image.save('./static/imaging/images/zooms_session%s_id%s_%s_%s.jpg'%(self.session_id,self.data_id,self.blocker_power,key))
-    
-            self.zooms = nzooms
-        
+            for key, val in imgs.iteritems():
+                if resize != None: val.resize((resize,resize),Image.ANTIALIAS)
+                val.save('./static/imaging/images/ifth_session%s_id%s_%s_%s.png'%(self.session_id,self.data_id,self.blocker_power,key))
+                val.save('./static/imaging/images/ifth_session%s_id%s_%s_%s.jpg'%(self.session_id,self.data_id,self.blocker_power,key))
+
         def _invert():
             # center the speckle pattern. roll to corner. invert
             data = conditioning.find_center(self.fourier_data,return_type='data')
@@ -118,6 +99,7 @@ class backend():
         old_name     = '%s/%sdata_session%s.fits'%(folder,project,self.session_id)
         new_name     = '%s/%sdata_session%s_id%s.fits'%(folder,project,self.session_id,self.data_id)
         os.rename(old_name,new_name)
+        self.file_name = new_name
         
         # this is the size of the saved images
         self.resize = resize
@@ -142,7 +124,7 @@ class backend():
         # now process the data into loadable images
         self.rs_data, self.fourier_data = _invert()
         self.make_blocker(blocker)
-        _zoom_images()
+        _data_images()
         
         # mark data as not loaded in case it will be reconstructed
         self.loaded = False
@@ -180,13 +162,10 @@ class backend():
         def _slice():
             # from the parameters, calculate and slice the selected data pixels
             if project == 'fth':
-                w  = self.zoom_widths[params['zoom']]
-                rd = self.rs_data.shape[0]/2-w/2
-                cd = self.rs_data.shape[1]/2-w/2
-                r0 = int(params['rmin']*w+rd)
-                r1 = int(params['rmax']*w+rd)
-                c0 = int(params['cmin']*w+cd)
-                c1 = int(params['cmax']*w+cd)
+                r0 = int(params['rmin'])
+                r1 = int(params['rmax'])
+                c0 = int(params['cmin'])
+                c1 = int(params['cmax'])
                 if (r1-r0)%2 == 1: r1 += 1
                 if (c1-c0)%2 == 1: c1 += 1
                 d  = self.rs_data[r0:r1,c0:c1]
@@ -218,10 +197,10 @@ class backend():
             # request to the webserver. g is the dimensions of the grid in terms of
             # number of images.
             imgx, imgy = self.p_images[0].size
+            self.imgx = imgx
             g = int(math.floor(math.sqrt(len(z)))+1)
             big_image = Image.new('RGB',(g*imgx,g*imgy))
             for n, img in enumerate(self.p_images): big_image.paste(img,(imgx*(n%g),imgy*(n/g)))
-            big_image = big_image.resize((g*self.resize,g*self.resize),Image.BILINEAR)
             big_image.save('./static/imaging/images/bp_session%s_id%s.jpg'%(self.session_id,self.bp_id))
         
         # assign a unique id to the back-propagation results. this prevents
@@ -242,7 +221,7 @@ class backend():
         # propagations exceeds the maximum allowed clip the range of values.
         if z1 > z2: z1, z2 = z2, z1
         
-        r = math.floor(2**16/int(self.resize))
+        r = math.floor(2**16/int(params['window']))
         if z2-z1+1 > r**2:
             diff = r**2-(z2-z1)
             if diff%2 == 1: diff += 1
