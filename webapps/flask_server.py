@@ -368,7 +368,7 @@ def cdi_cmd(cmd):
         print "querying"
         print "session %s"%backend.session_id
         print "data    %s"%backend.data_id
-        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,zooms=backend.zooms,hasgpu=use_gpu)
+        return jsonify(sessionId=backend.session_id,dataId=backend.data_id,hasgpu=use_gpu,size=backend.data_size)
     
     if cmd == 'makesupport':
         backend.make_support(request.json)

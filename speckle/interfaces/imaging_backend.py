@@ -120,6 +120,7 @@ class backend():
             new[:self.fourier_data.shape[0],:self.fourier_data.shape[1]] = self.fourier_data
             self.fourier_data = new
         self.data_shape = self.fourier_data.shape
+        self.data_size  = self.data_shape[0]
         
         # now process the data into loadable images
         self.rs_data, self.fourier_data = _invert()
@@ -136,18 +137,13 @@ class backend():
         # request to the flask_server, build an initial support for cdi
         
         self.support = numpy.zeros(self.rs_data.shape,numpy.float32)
-        
-        z  = int(regions['zoom'])
-        w  = self.zoom_widths[z]
-        x  = self.data_shape[0]/2
 
-        del regions['zoom']
         for key in regions.keys():
             r  = regions[key]
-            r0 = int(r['rmin']/300.*w+x-w/2)
-            r1 = int(r['rmax']/300.*w+x-w/2)
-            c0 = int(r['cmin']/300.*w+x-w/2)
-            c1 = int(r['cmax']/300.*w+x-w/2)
+            r0 = int(r['rmin'])
+            r1 = int(r['rmax'])
+            c0 = int(r['cmin'])
+            c1 = int(r['cmax'])
             self.support[r0:r1,c0:c1] = 1
 
         self.loaded = False
@@ -158,6 +154,8 @@ class backend():
         internally propagated at a large power of 2 to allow propagation limit
         to be fairly large, the data returned to the user is only that specified
         in the selected region. """
+        
+        print params
         
         def _slice():
             # from the parameters, calculate and slice the selected data pixels
@@ -180,6 +178,10 @@ class backend():
                 if (c1-c0)%2 == 1: c1 += 1
                 if r1 > r: r1 += -1
                 if c1 > c: c1 += -1
+                
+                print r0, r1, c0, c1
+                print self.reconstructions[params['round']].shape
+                
                 d = self.reconstructions[params['round']][r0:r1,c0:c1]
                 
             return r0,r1,c0,c1,d
@@ -198,9 +200,24 @@ class backend():
             # number of images.
             imgx, imgy = self.p_images[0].size
             self.imgx = imgx
-            g = int(math.floor(math.sqrt(len(z)))+1)
-            big_image = Image.new('RGB',(g*imgx,g*imgy))
-            for n, img in enumerate(self.p_images): big_image.paste(img,(imgx*(n%g),imgy*(n/g)))
+            
+            def _gy_diff(z,gx):
+                gy = z/gx
+                if z%gx != 0: gy += 1
+                diff = gx*gy-z
+                return (gx, gy, diff)
+
+            # calculate the best row/column division to minimize wasted space. be efficient
+            # with the transmitted bits!
+            g      = int(math.floor(math.sqrt(len(z)))+1)
+            g_list = [_gy_diff(len(self.p_images),gx+1) for gx in [g+x for x in range(5)]]
+            g_list.sort(key=lambda x: x[2])
+            gx = g_list[0][0]
+            gy = g_list[0][1]
+
+            big_image = Image.new('RGB',(gx*imgx,gy*imgy))
+            for n, img in enumerate(self.p_images):
+                big_image.paste(img,(imgx*(n%gx),imgy*(n/gx)))
             big_image.save('./static/imaging/images/bp_session%s_id%s.jpg'%(self.session_id,self.bp_id))
         
         # assign a unique id to the back-propagation results. this prevents
@@ -221,7 +238,7 @@ class backend():
         # propagations exceeds the maximum allowed clip the range of values.
         if z1 > z2: z1, z2 = z2, z1
         
-        r = math.floor(2**16/int(params['window']))
+        r = math.floor(2**16)
         if z2-z1+1 > r**2:
             diff = r**2-(z2-z1)
             if diff%2 == 1: diff += 1
@@ -247,6 +264,7 @@ class backend():
         t0 = time.time()
         pd = propagate.propagate_distances
         self.propagated, self.p_images = pd(data,z*1e-6,e,p,subregion=sr,im_convert=True,silent=False,gpu_info=self.gpu)
+        print self.propagated.shape
         t1 = time.time()
         
         # convert the propagated data to a large image which the front end

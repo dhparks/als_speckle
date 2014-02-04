@@ -167,15 +167,7 @@ class backend():
         
         # iterate through the regions. when one is encountered with
         # .changed == True, recalculate the intensity, g2, and fit to g2.
-        
-        recalculate, refit = [], []
-        for region_key in self.regions.keys():
-            if self.regions[region_key].changed:
-                recalculate.append(region_key)
-                refit.append(region_key)
-            if self.refitg2:
-                refit.append(region_key)
-        refit = list(set(refit))    
+        recalculate = [r for r in self.regions.keys() if self.regions[r].changed]
 
         print "recalculating regions: %s"%recalculate
         
