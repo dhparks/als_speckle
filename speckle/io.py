@@ -99,13 +99,15 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
             operates only on the magnitude component of the data.
             available scales are 'sqrt','log', or a float which is interpreted
             as a power (ie, 0.5 reproduces sqrt).
-        zip - if 'each' or 'all', will run the system gz command on the saved output,
+        do_zip - if 'each' or 'all', will run the system gz command on the saved output,
             which replaces it with a zip file. useful for fits files with
             large spaces of zeros, for example. This will remove the original
             file following the protocol of the standard gzip utility.
+            Default is False.
             
-            'each': zip each file individually
-            'all': combine all the outputs into a single zip file
+            'each' (or True): zip each file individually
+            'all': combine all the outputs into a single zip file, eg, combine
+                the _mag and _phase components together in the file.
             
         append_component - if True, will append the component name to the
             end of the file. For example, a filename of "data.fits" with
@@ -135,9 +137,7 @@ def save(filename,data,header={},components=['mag'],color_map='L',delimiter='\t'
                 except: raise ValueError("couldnt cast scaling to float in speckle.save")
 
         return scaling
-        
-        
-    
+
     assert isinstance(data,numpy.ndarray), "data must be a numpy array"
     
     # define extension types to control switching
@@ -1358,7 +1358,7 @@ def _zip(filename,do_zip):
         try:
             import gzip
             for match in matches:
-                if match.split('.')[-1] != 'gz':
+                if match.split('.')[-1] not in ('zip', 'gz'):
                     f_out = gzip.open(match+'.gz','wb')
                     f_in  = _open(match,'rb')
                     f_out.writelines(f_in)
@@ -1368,20 +1368,20 @@ def _zip(filename,do_zip):
         except ImportError: pass
         
     if do_zip == 'all':
-        
+
         try:
             import zipfile as z
 
-            zf = base+"_zipped.gz"
+            zf = base+"_zipped.zip"
             if os.path.isfile(zf): os.remove(zf)
-            f_out = z.ZipFile(zf,'w',z.ZIP_DEFLATED)
             
-            for match in matches:
-                if match.split('.')[-1] != 'gz':
-                    print "zipping "+match
-                    f_out.write(match,os.path.split(match)[1])
-                    os.remove(match)
-            
-            f_out.close()
-            
-        except ImportError: pass
+            print matches
+
+            with z.ZipFile(zf, 'w') as archive:
+                for match in matches:
+                    if match.split('.')[-1] not in ('gz','zip'):
+                        archive.write(match,match.split('/')[-1],z.ZIP_DEFLATED)
+                        os.remove(match)
+
+        except ImportError:
+            pass

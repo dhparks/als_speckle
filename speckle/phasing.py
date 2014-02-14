@@ -18,7 +18,6 @@ try:
     use_gpu = True
 except ImportError:
     use_gpu = False
-print "use_gpu in import: %s"%use_gpu
     
 try:
     import numexpr
@@ -68,8 +67,6 @@ class phasing(common):
             the coherence function is gaussian in form.
         seed() - make a complex random number to use as the initial guess
         status() - reports the current status of the reconstruction
-        
-    Probably the richardson_lucy() method should be removed.
     """
     
     def __init__(self,force_cpu=False,force_np_fft=False,gpu_info=None):
@@ -119,7 +116,7 @@ class phasing(common):
         self.float2s   = (complex,np.complex64,np.complex128)
         self.iterables = (list,tuple,np.ndarray)
 
-    def iterate(self,iterations,order=None,silent=True,beta=0.8):
+    def iterate(self,iterations,order=None,silent=True,beta=0.8,debug_on=None):
     
         """ Run iterations. This is the primary method for the class. When the
         iterations terminate, the result is copied to self.save_buffer.
@@ -155,12 +152,18 @@ class phasing(common):
                 number. Can also be set to an integer value, in which case
                 the iteration number is printed out every int(silent) iterations.
                 This is useful to monitor progress.
-        
+                
+            debug_on -- if a tuple of integers is supplied here, the machine will
+                save debugging output from the _iteration method during the listed
+                iterations.
+            
         The keyword argument silent (default True) can be set to False, in which
         case every iteration spits out an update, or a number, in which case
         those iterations where iteration%silent == 0 will report.
 
         """
+        
+        if debug_on == None: debug_on = ()
              
         if not self.can_iterate:
             print "cant iterate before loading support and modulus."
@@ -189,7 +192,8 @@ class phasing(common):
         # run the iterations
         for iteration in range(iterations):
 
-            self._iteration(order_list[iteration%k],iteration=iteration,beta=beta)
+            if iteration in debug_on: self._iteration(order_list[iteration%k],iteration=iteration,beta=beta,debug=True)
+            else: self._iteration(order_list[iteration%k],iteration=iteration,beta=beta)
 
             # print an update to the terminal to show the program is still running
             if silent != True:
@@ -745,7 +749,26 @@ class phasing(common):
         
         assert self.N != None, "cannot seed without N being set. load data first."
         
-        if supplied == None: supplied = np.random.rand(self.N,self.N)+complex(0,1)*np.random.rand(self.N,self.N)
+        if supplied == None:
+            supplied = np.random.rand(self.N,self.N)+complex(0,1)*np.random.rand(self.N,self.N)
+            
+        if supplied != None:
+            # if a guess is supplied, first make it the correct size
+            # through embedding (if necessary), then by rolling to
+            # align with the support
+            s = supplied
+            assert s.ndim == 2
+            assert s.shape[0] <= self.N
+            assert s.shape[1] <= self.N
+
+            if s.shape != (self.N,self.N):
+                s2 = np.zeros(self.support.shape,np.complex64)
+                s2[:s.shape[0],:s.shape[1]] = s.astype(np.complex64)
+                s = s2
+                
+            from conditioning import align_frames
+            supplied = align_frames(s, align_to=self.get(self.support), use_mag_only=True)
+
         self.psi_in = self._set(supplied.astype(np.complex64),self.psi_in)
         
         if use_gpu: self._cl_mult(self.psi_in,self.support,self.psi_in)
@@ -791,7 +814,7 @@ class phasing(common):
             else:       data_out = self.fft2(data_in)
         return data_out
 
-    def _iteration(self,algorithm,beta=0.8,iteration=None):
+    def _iteration(self,algorithm,beta=0.8,iteration=None,debug=False):
         """ Do a single iteration of a phase retrieval algorithm.
         
         Arguments:
@@ -803,7 +826,12 @@ class phasing(common):
                 dm   - difference map (uses elser's feedback recommendations)
 
             beta: For the algorithms with a feedback parameter (hio, raar, dm) this is that
-                parameter. The default value is 0.8"""
+                parameter. The default value is 0.8
+                
+            --- parameters for developer use ---
+            iteration - iteration number
+            debug     - True or False; if True, will save some output to help with bugs
+                """
 
         import io
 
@@ -878,15 +906,19 @@ class phasing(common):
 
         def _fourier_constraint(data,out):
             
+            s = np.fft.fftshift
+            
             # 1. fourier transform the data. store in psi_fourier
             self.psi_fourier = self._fft2(data,self.psi_fourier)
-            
+            if debug: io.save('i%s psi_fourier_1.fits'%iteration,s(self.get(self.psi_fourier)),components='polar')
+
             # 2. from the data in psi_fourier, build the divisor. partial coherence
             # correction is enabled by 1. supplying an estimate of ipsf (transverse
             # coherence) 2. supplying an estimate of the spectrum (longitudinal
             # coherence). currently the longitudinal correction runs only on the
             # gpu codepath.
             self.fourier_div = _build_divisor()
+            if debug: io.save('i%s fourier_div.fits'%iteration,s(self.get(self.fourier_div)),components='polar')
             
             # 3. execute the magnitude replacement
             if use_gpu: self._kexec('fourier',self.psi_fourier,self.fourier_div,self.modulus,self.psi_fourier)
@@ -894,9 +926,11 @@ class phasing(common):
                 m, pf, fd = self.modulus, self.psi_fourier,self.fourier_div
                 if have_numexpr: self.psi_fourier = numexpr.evaluate("m*pf/abs(fd)")
                 else:            self.psi_fourier = m*pf/np.abs(fd)
+            if debug: io.save('i%s psi_fourier_2.fits'%iteration,s(self.get(self.psi_fourier)),components='polar')
                 
             # 4. inverse fourier transform the new fourier estimate
             out = self._fft2(self.psi_fourier,out,inverse=True)
+            if debug: io.save('i%s out.fits'%iteration,s(self.get(self.psi_fourier)),components='polar')
             
             return out
                 
