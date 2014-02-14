@@ -332,8 +332,7 @@ class backend():
         
         # success! data seems ok to basic checks
         return True, None
-    
-        
+          
 class region():
     """ empty class for holding various attributes of a selected region.
     Just basically easier than using a dictionary.

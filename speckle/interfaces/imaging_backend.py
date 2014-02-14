@@ -9,6 +9,7 @@ import math
 import uuid
 
 from .. import wrapping, shape, io, conditioning, propagate, phasing, masking
+
 io.set_overwrite(True)
 
 class backend():
@@ -167,24 +168,31 @@ class backend():
                 if (r1-r0)%2 == 1: r1 += 1
                 if (c1-c0)%2 == 1: c1 += 1
                 d  = self.rs_data[r0:r1,c0:c1]
-        
+
             if project == 'cdi':
                 r, c = self.reconstructions[params['round']].shape
-                r0 = int(params['rmin']*r)
-                r1 = int(params['rmax']*r)
-                c0 = int(params['cmin']*c)
-                c1 = int(params['cmax']*c)
+                r0 = int(params['rmin'])
+                r1 = int(params['rmax'])
+                c0 = int(params['cmin'])
+                c1 = int(params['cmax'])
                 if (r1-r0)%2 == 1: r1 += 1
                 if (c1-c0)%2 == 1: c1 += 1
                 if r1 > r: r1 += -1
                 if c1 > c: c1 += -1
-                
-                print r0, r1, c0, c1
-                print self.reconstructions[params['round']].shape
-                
+
                 d = self.reconstructions[params['round']][r0:r1,c0:c1]
+
+                # for odd sized arrays, embed the slice in a larger
+                # array. we do this instead of incrementing the
+                # slice coordinates to avoid an IndexError
+                d2r = d.shape[0] + d.shape[0]%2
+                d2c = d.shape[1] + d.shape[1]%2
+                if (d2r, d2c) != d.shape:
+                    d2 = numpy.zeros((d2r,d2c),d.dtype)
+                    d2[:d.shape[0],:d.shape[1]] = d
+                    d = d2
                 
-            return r0,r1,c0,c1,d
+            return d
         
         def _save_acutance(z):
             acutancef = open('static/imaging/csv/acutance_session%s_id%s.csv'%(self.session_id,self.bp_id),'w')
@@ -224,10 +232,11 @@ class backend():
         # the browser from caching the results
         self.bp_id = self._new_id()
         
-        r0,r1,c0,c1,d = _slice()
+        d = _slice()
+        rows, cols = d.shape
 
         # set parameters correctly
-        sr = max([r1-r0,c1-c0])
+        sr = max([rows,cols])
         p  = params['pitch']*1e-9
         e  = params['energy']
         z1 = params['zmin']
@@ -416,4 +425,6 @@ class backend():
         return True, None
 
     def _new_id(self):
-        return str(uuid.uuid4().time_low)
+        # using time instead of uuid because the gui
+        # needs ids that are sequential
+        return str(time.time()).replace('.','')[:12]

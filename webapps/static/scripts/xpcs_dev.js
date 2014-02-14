@@ -152,7 +152,7 @@ var guiFunctions = {
 		    g2s.push({y:thisData.g2[k], x:k+1})
 		    fit.push({y:thisData.fit[k],x:k+1}) 
 		}
-		thisRegion.g2Values  = g2s;
+		thisRegion.dataValues = g2s;
 		thisRegion.fitValues = fit;
 		
 		// copy functional and parameters
@@ -161,6 +161,7 @@ var guiFunctions = {
 		thisRegion.fitParamsVals = thisData.params;
 		
 		// copy identifiers
+		thisRegion.objectId = region;
 		thisRegion.regionId = region;
 		thisRegion.color    = gui.components.intensity.regions[region].color;
 
@@ -198,7 +199,7 @@ var guiFunctions = {
 	    guiFunctions.toggleSelectedPlot({'id':oldSelection});
 
 	    // replot the data
-	    gcp.graph.replot()
+	    gcp.graph.replot('regions')
 	    
 	    // reselect the previously-selected data
 	    guiFunctions.toggleSelectedPlot({'id':oldSelection});
@@ -216,15 +217,15 @@ var guiFunctions = {
 	var gcp  = gui.components.plots
 
 	if (args['id'] === null) {regionId = null}
-	else {regionId = args['id'].replace('plots-g2group-','')}
+	else {regionId = args['id'].replace('plots-plotGroup-','')}
 
 	if (gcp.selectedPlot != null) {
 	    var oldRegionId = '#intensity-region-'+gcp.selectedPlot;
-	    var oldGroupId  = '#plots-g2group-'+gcp.selectedPlot;}
+	    var oldGroupId  = '#plots-plotGroup-'+gcp.selectedPlot;}
 	    
 	if (regionId != null) {
 	    var newRegionId = "#intensity-region-"+regionId;
-	    var newGroupId  = "#plots-g2group-"+regionId;}
+	    var newGroupId  = "#plots-plotGroup-"+regionId;}
 	
 	var _deselectOld = function () {
 	    if (gcp.selectedPlot != null ) {
@@ -320,7 +321,7 @@ var start = function () {
 	gcp.regions   = {};
 	
 	// draw the plot
-	gcp.graph = new clickerGraph("plots",gui.sizes.window,gui.sizes.window)
+	gcp.graph = new clickerGraph("plots",gui.sizes.window,gui.sizes.window,true)
 	gcp.graph.draw()
 	
 	// draw the readout
@@ -344,6 +345,7 @@ var start = function () {
 		// copy the data from returned into gui.data
 		Object.keys(returned).forEach(function(key) {gui.data[key] = returned[key]});
 		gui.data.exists = true;
+		$("#analysislink").attr("href","static/xpcs/csv/analysis_session"+gui.data.sessionId+".csv");
 		_check();
                 }
             );

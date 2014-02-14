@@ -1,7 +1,8 @@
 
 var _checkLock = function(tw) {
     var t1 = !gui.isLocked;
-    var t2 = !gui.components[tw].isLocked;
+    try { var t2 = !gui.components[tw].isLocked; }
+    catch (err) {var t2 = true;}
     return (t1 && t2)
 }
 
@@ -55,6 +56,7 @@ function draggableBackground(where,sizeX,sizeY) {
 	d3.select('#'+this.name+'-svg')
 	    .append("image")
 	    .attr("id",this.name+'-img')
+	    .style("cursor","crosshair")
 	d3.select('#'+this.name+'-img').call(db)
 
     };
@@ -72,7 +74,6 @@ function draggableBackground(where,sizeX,sizeY) {
 		.attr("height",t.image.height)
 		.attr("xlink:href",t.image.src)
 		.attr('transform','scale ('+t.zoom+')')
-		.style("cursor","crosshair")
 	    }
 
 	// load a background off the server and set the image attribute
@@ -122,8 +123,7 @@ function draggableBackground(where,sizeX,sizeY) {
     }
     
     this.lock = function () {
-	console.log("here")
-	// 3 changes: cursor; background of button; logical state gui.hologram.unlocked
+	// 3 changes: cursor; background of button; boolean locked state
 	if  (this.unlocked) {var curs = "default"; fill = "grey"};
 	if (!this.unlocked) {var curs = "crosshair"; fill = "white"};
 	$("#"+this.name+'-img').css("cursor",curs);
@@ -171,13 +171,17 @@ function actionButton(where,action,coords,icon) {
 		    [{x:8,y:9},{x:8,y:3},{x:12,y:3},{x:12,y:9},{x:8,y:9}]],
 	    'rArrow':[[{x:4,y:10},{x:16,y:10}],
 		    [{x:12,y:6},{x:16,y:10},{x:12,y:14}]],
+	    'dArrow':[[{x:10,y:4},{x:10,y:16}],
+		    [{x:6,y:12},{x:10,y:16},{x:14,y:12}]],
 	    'square':[[{x:4,y:4},
 		   {x:16,y:4},
 		   {x:16,y:16},
 		   {x:4,y:16},
 		   {x:4,y:4-1}],],
 	    'x':[[{x:4,y:4}, {x:16,y:16}],
-		   [{x:16,y:4},{x:4, y:16}]]}
+		   [{x:16,y:4},{x:4, y:16}]],
+	    '2Arrow':[[{x:4,y:6},{x:16,y:6}],[{x:12,y:3},{x:16,y:6},{x:12,y:9}],
+		     [ {x:4,y:14},{x:16,y:14}],[{x:8,y:11},{x:4,y:14},{x:8,y:17}]]}
     
     this.lineFunc = d3.svg.line().interpolate("linear")
 	.x(function(d) { return (d.x+this.coords.x)*gui.sizes.scaler; })
@@ -349,6 +353,7 @@ function draggableRegion() {
     this.makeId = function () {
 	var date       = (new Date().getTime()).toString()
 	this.regionId  = "r"+date.slice(date.length-7,date.length-2);
+	this.objectId  = this.regionId
     }
     
     var db = d3.behavior.drag()
@@ -482,6 +487,7 @@ draggableRegionColor.prototype = new draggableRegion();
 function draggableRegionWhite(where,sizes,selectable) {
     this.where  = where
     this.color  = "white"
+    this.makeId()
     this.coords = {
 	'rmin':sizes.window/2-sizes.region/2,
 	'rmax':sizes.window/2+sizes.region/2,
@@ -623,6 +629,9 @@ function rasterBackground(where,sizeX,sizeY) {
 // graph objects. DEFINITELY requires subclassing.
 function graph() {
 
+    this.defaultColor = "black";
+    this.defaultStrokeWidth  = 2;
+
     this.init = function (where, sizeX, sizeY) {
 
 	// populate the div with the correct svg
@@ -652,12 +661,13 @@ function graph() {
     this.drawGrids = function (where) {
 	
 	var w = gui.components[where]
-	svga = d3.select("#"+where+"-group")
-	
+	var svga = d3.select("#"+where+"-group")
+
 	//draw grid lines
-	svga.append("g").attr("id","verticalGrid")
-	d3.select("#verticalGrid").selectAll(".gridlines")
-	    .data(w.xScale.ticks()).enter()
+	svga.append("g").attr("id",where+"-verticalGrid")
+	d3.select("#"+where+"-verticalGrid").selectAll(".gridlines")
+	    .data(w.xScale.ticks())
+	    .enter()
 	    .append("line")
 	    .attr("class","gridlines")
 	    .attr("x1",function (d) {return w.xScale(d)})
@@ -665,8 +675,8 @@ function graph() {
 	    .attr("y1",function ()  {return w.yScale(w.rangeMin)})
 	    .attr("y2",function ()  {return w.yScale(w.rangeMax)})
 
-	svga.append("g").attr("id","horizontalGrid")
-	d3.select("#horizontalGrid").selectAll(".gridlines")
+	svga.append("g").attr("id",where+"-horizontalGrid")
+	d3.select("#"+where+"-horizontalGrid").selectAll(".gridlines")
 	    .data(w.yScale.ticks(5)).enter()
 	    .append("line")
 	    .attr("class","gridlines")
@@ -683,6 +693,7 @@ function graph() {
 	// difficult within the prototype inheritance scheme
 	
 	var w = gui.components[where]
+	var svga = d3.select("#"+where+"-group")
 	
 	// nticksX
 	try {var xAxis = d3.svg.axis().scale(w.xScale).orient("bottom").ticks(extras.nticksX)}
@@ -690,7 +701,7 @@ function graph() {
 	
 	// nticksY
 	try {var yAxis = d3.svg.axis().scale(w.yScale).orient("left").ticks(extras.nticksY)}
-	catch(err) {var yAxis = d3.svg.axis().scale(w.yScale).orient("left").ticks(1)}
+	catch(err) {var yAxis = d3.svg.axis().scale(w.yScale).orient("left").ticks(5)}
 	    
 	// yText
 	try {var yText = extras.yText;}
@@ -721,8 +732,22 @@ function graph() {
 	this.drawAxes(where,extras);
     }
 
-    this.replot = function (where) {
+    this.replot = function (where, args) {
 
+	var _getColor = function () {
+	    try {color = args.color}
+	    catch (err) {color = t.defaultColor}
+	    return color;
+	}
+	
+	var _getWidth = function () {
+	    try {width = args.width}
+	    catch (err) {width = t.defaultStrokeWidth}
+	    return width;
+	}
+	
+	var t = this
+    
 	var gcw = gui.components[where]
 
 	svga = d3.select('#'+where+'-group');
@@ -738,15 +763,29 @@ function graph() {
 	    .append("path")
 	    .attr("d",function (d) {return gcw.lineFunc(d)})
 	    .attr("fill","none")
-	    .attr("stroke","black")
-	    .attr("stroke-width",2);
+	    .attr("stroke",_getColor())
+	    .attr("stroke-width",_getWidth());
     };
 
 }
 
+// basicGraph is used for non-interactive plots such
+// as the rftf plot in cdi. basically the prototype, unaltered.
+basicGraph.prototype = new graph();
+function basicGraph(where,sizeX,sizeY) {
+    this.where = where;
+    this.sizeX = sizeX;
+    this.sizeY = sizeY;
+    this.plotColor = "black";
+    this.strokeWidth = 2;
+    this.draw  = function () {this.redraw(this.where,this.sizeX,this.sizeY)}
+    this.plot  = function () {this.replot(this.where, {'color':this.plotColor,'width':this.strokeWidth});}
+    this.init(this.where,this.sizeX,this.sizeY)
+}
+
 // sliderGraph is used for acutance plots; the graph includes
 // a slider which (typically) interacts with a rasterBackground
-sliderGraph.prototype = new graph("linear");
+sliderGraph.prototype = new graph();
 function sliderGraph(where,sizeX,sizeY) {
 
     this.where  = where;
@@ -779,10 +818,10 @@ function sliderGraph(where,sizeX,sizeY) {
 
 	// draw the cross hairs first so that they aren't blocking the ball
 	var connect = [
-	    [{x:g.zmin,y:g.data[0].y},{x:g.zmax,y:g.data[0].y}],
-	    [{x:g.zmin,y:0},{x:g.zmin,y:1}]
+	    [{x:g.domainMin,y:g.data[0].y},{x:g.domainMax,y:g.data[0].y}],
+	    [{x:g.domainMin,y:0},{x:g.domainMin,y:1}]
 	    ];
-	
+
 	var x = d3.select("#"+this.where+"-plot").selectAll("#connect").data(connect);
 	
 	x.enter().append("path")
@@ -794,7 +833,7 @@ function sliderGraph(where,sizeX,sizeY) {
 	x.attr("d",function (d) {return g.lineFunc(d)})
 		
 	// now draw the ball with attached dragging behavior
-	var x0 = g.xScale(g.zmin);
+	var x0 = g.xScale(g.domainMin);
 	var y0 = g.yScale(g.data[0].y);
 	d3.select("#"+this.where+"-plot").append("circle")
 	    .attr("cx", x0)
@@ -819,14 +858,14 @@ sliderGraph.prototype.dragBall = function (where) {
     
     var gcw  = gui.components[where]
     var z    = gcw.xScale.invert(newx)
-    var idx  = Math.floor(z-gcw.zmin)
+    var idx  = Math.floor(z-gcw.domainMin)
     var newy = gcw.yScale(gcw.data[idx].y)
     
     // draw at new location
     b.attr("cx",newx).attr("cy",newy)
     
     // update the axis connecting lines
-    var connect = [[{x:gcw.zmin,y:gcw.data[idx].y},{x:gcw.zmax,y:gcw.data[idx].y}],[{x:z,y:0},{x:z,y:1}]];
+    var connect = [[{x:gcw.domainMin,y:gcw.data[idx].y},{x:gcw.domainMax,y:gcw.data[idx].y}],[{x:z,y:0},{x:z,y:1}]];
     var x = d3.select("#"+where+"-plot").selectAll("#connect").data(connect)
     x.attr("d",function (d) {return gcw.lineFunc(d)})
     
@@ -837,25 +876,36 @@ sliderGraph.prototype.dragBall = function (where) {
 // clickerGraph is used for the XPCS plots. data series
 // can be clicked to display additional information.
 clickerGraph.prototype = new graph();
-function clickerGraph(where,sizeX,sizeY) {
+function clickerGraph(where,sizeX,sizeY,hasFitData) {
     
     this.where = where
     this.sizeX = sizeX
     this.sizeY = sizeY
+    this.hasFitData = hasFitData
     this.draw  = function () {this.redraw(this.where,this.sizeX,this.sizeY)}
-    
-    this.replot = function () {
 
-	var gcw  = gui.components[this.where]
-	var gcwr = gui.components[this.where].regions
+    // these are default values which could be overridden in
+    // the gui if the user wanted to
+    this.defaultColor = "black"
+    this.defaultStrokeWidth = 2
+    
+    this.replot = function (dataLocation) {
+
+	var _getColor = function (x) {
+	    try {color = x.color;}
+	    catch (err) {color = this.defaultColor};
+	    return color;
+	}
+    
+	var t    = this.where
+	var gcw  = gui.components[t];
+	var gcwd = gui.components[t][dataLocation];
 	
 	// the way the data is structured poses a problem for the d3 enter/exit
 	// methodology (ie, doesnt work!). instead it seems easier to simply
 	// remove all the children groups of #plotGroup and replot all data
-	svgg = d3.select('#'+this.where+'-group');
-	
-	var t = this.where
-	
+	svgg = d3.select('#'+t+'-group');
+
 	// clear all the old plots
 	svgg.selectAll(".dataSeries").remove()
 
@@ -864,66 +914,60 @@ function clickerGraph(where,sizeX,sizeY) {
 	// of objects with only the necessary data
 
 	var plottables = []
-	for (var region in gcwr) {
-	    var nr = {};
-	    var tr = gcwr[region];
-	    nr.regionId  = tr.regionId;
-	    nr.color     = tr.color;
-	    nr.g2Values  = tr.g2Values;
-	    nr.fitValues = tr.fitValues;
-	    plottables.push(nr)
-	}
+	for (var d in gcwd) {plottables.push(gcwd[d])}
 
 	// each plot group is structured as
 	// (parent) group
-	//    (child)  path g2 data
-	//    (childs) circles g2 data
-	//    (child)  path fit data
+	//    (child)  path: dataValues
+	//    (childs) circles dataValues
+	//    (child)  path: fitValues
 
 	var newLines = svgg.selectAll(".dataSeries")
 	    .data(plottables)
 	    .enter()
 	    .append("g")
 	    .attr("class","dataSeries")
-	    .attr("id", function (d) {return t+"-g2group-"+d.regionId;})
+	    .attr("id", function (d) {return t+"-plotGroup-"+d.objectId;})
 	    .style("cursor","pointer")
 	    .on("click",function () {
 		guiFunctions.actionDispatch({'action':'togglePlot','id':d3.select(this).attr("id")})});
 
 	newLines.append("path")
 	    .style("fill","none")
-	    .style("stroke-width",2)
-	    .style("stroke",function (d) {return d.color})
+	    .style("stroke-width",this.defaultStrokeWidth)
+	    .style("stroke",function (d) {return _getColor(d)})
 	    .attr("class","dataPath")
-	    .attr("id",function(d) {return t+'-g2data-'+d.regionId})
-	    .attr("d", function(d) {return gcw.lineFunc(d.g2Values); });
+	    .attr("id",function(d) {return t+'-data-'+d.objectId})
+	    .attr("d", function(d) {return gcw.lineFunc(d.dataValues); });
 
 	// define a scale for the size of the circles so that they decrease in
 	// size as time increases
 	
 	// add data circles.
 	for (var k=0;k<plottables.length;k++) {
-	    d3.select('#'+t+"-g2group-"+plottables[k].regionId).selectAll(".g2circle")
-		.data(plottables[k].g2Values)
+	    d3.select('#'+t+"-plotGroup-"+plottables[k].objectId).selectAll(".dataCircle")
+		.data(plottables[k].dataValues)
 		.enter().append("circle")
-		.attr("class","g2circle")
+		.attr("class","dataCircle")
 		.attr("cx",function (d) {return gcw.xScale(d.x)})
 		.attr("cy",function (d) {return gcw.yScale(d.y)})
 		.attr("r", function (d) {return gcw.rScale(d.x)})
-		.style("fill", plottables[k].color)
+		.style("fill", _getColor(plottables[k]))
 	}
 
 	// add the fit lines. these are added last to ensure they are above the circles.
 	// in the future, it might be better to draw the fit lines after the click,
 	// so that they are on top of everything.
-	newLines.append("path")
-	    .style("fill","none")
-	    .style("stroke","black")
-	    .style("stroke-width",2)
-	    .style("opacity",0)
-	    .attr("class","fitPath")
-	    .attr("d", function(d) {return gcw.lineFunc(d.fitValues); })
-	    ;   
+	if (this.hasFitData) {
+	    newLines.append("path")
+		.style("fill","none")
+		.style("stroke","black")
+		.style("stroke-width",this.defaultStrokeWidth)
+		.style("opacity",0)
+		.attr("class","fitPath")
+		.attr("d", function(d) {return gcw.lineFunc(d.fitValues); })
+		;
+	}
     }
 	
     this.init(this.where,this.sizeX,this.sizeY)
@@ -1025,4 +1069,57 @@ function clickerReadout (where,args) {
     
     };
 
+// *** breadcrumb
+var breadcrumb = function (where, id) {
 
+    this.defaultPositioner = function () {
+	var n = Object.keys(gui.components[this.where].crumbs).length
+	return {cy:15, cx:(1+this.rmax)+(n-1)*(2+this.rmax+this.rmin)}
+    }
+    
+    this.positioner = function () {
+	try { pos = gui.components[this.where].breadcrumbPosition() }
+	catch (err) {pos = this.defaultPositioner()}
+	return pos
+    }
+
+    this.draw = function () {
+	
+	pos = this.positioner();
+	
+	// add a new breadcrumb to this.where
+	d3.select("#"+this.where+"-svg").append("circle")
+	    .attr("r",this.rmin)
+	    .attr("cy",pos.cy)
+	    .attr("cx",pos.cx)
+	    .attr("class","breadcrumb")
+	    .attr("id",this.svg.replace('#',''))
+	    .attr("where",this.where)
+	    .attr("rId",this.rId)
+	    .on("click",function () {
+		var t = d3.select(this)
+		guiFunctions.actionDispatch({'action':'breadcrumb','id':t.attr("rId"),'where':t.attr("where")});})
+    };
+    
+    this.enlarge = function (color) {
+	if (typeof(color)==="undefined") {color = this.defaultColor}
+	d3.select(this.svg).attr("r",this.rmax).style("fill",color)
+	};
+	
+    this.shrink  = function (color) {
+	if (typeof(color)==="undefined") {color = this.defaultColor}
+	d3.select(this.svg).attr("r",this.rmin).style("fill",color)
+	};
+	
+    this.remove = function () {
+	d3.select(this.svg).remove();
+	delete gui.components[this.where].crumbs[this.rId];
+    }
+
+    this.where = where
+    this.rId   = id
+    this.svg   = "#"+this.where+'-breadcrumb-'+this.rId
+    this.rmin  = 4
+    this.rmax  = 6
+    this.defaultColor = "white"
+}
