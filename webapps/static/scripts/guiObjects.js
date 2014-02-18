@@ -15,7 +15,7 @@ function draggableBackground(where,sizeX,sizeY) {
     this.sizeX = sizeX;
     this.sizeY = sizeY;
     
-    this.zoom       = null;
+    this.zoom       = 0;
     this.zoomFactor = 1.25
     this.translateX = 0;
     this.translateY = 0;
@@ -66,14 +66,14 @@ function draggableBackground(where,sizeX,sizeY) {
 	var setAttr = function (t) {
     
 	    // calculate the correct scaling factor. assumes square data?
-	    t.zoom = gui.sizes.window/t.image.width;
+	    if (t.zoom === 0) {t.zoom = gui.sizes.window/t.image.width;}
 	
 	    // set all the image attributes
 	    d3.select('#'+t.name+'-img')
 		.attr("width",t.image.width)
 		.attr("height",t.image.height)
 		.attr("xlink:href",t.image.src)
-		.attr('transform','scale ('+t.zoom+')')
+		.attr('transform',"scale("+t.zoom+") translate("+t.staticTranslateX+","+t.staticTranslateY+")")
 	    }
 
 	// load a background off the server and set the image attribute
@@ -167,8 +167,8 @@ function actionButton(where,action,coords,icon) {
 	    'plus':[[{x:4,y:10},{x:16,y:10}],
 		    [{x:10,y:4},{x:10,y:16}]],
 	    'minus':[[{x:4,y:10},{x:16,y:10}],],
-	    'lock': [[{x:4,y:17},{x:16,y:17},{x:16,y:9},{x:4,y:9},{x:4,y:17}],
-		    [{x:8,y:9},{x:8,y:3},{x:12,y:3},{x:12,y:9},{x:8,y:9}]],
+	    'lock': [[{x:4,y:17},{x:16,y:17},{x:16,y:10},{x:4,y:10},{x:4,y:18}],
+		    [{x:8,y:10},{x:8,y:3},{x:12,y:3},{x:12,y:7.5}]],
 	    'rArrow':[[{x:4,y:10},{x:16,y:10}],
 		    [{x:12,y:6},{x:16,y:10},{x:12,y:14}]],
 	    'dArrow':[[{x:10,y:4},{x:10,y:16}],
@@ -181,7 +181,10 @@ function actionButton(where,action,coords,icon) {
 	    'x':[[{x:4,y:4}, {x:16,y:16}],
 		   [{x:16,y:4},{x:4, y:16}]],
 	    '2Arrow':[[{x:4,y:6},{x:16,y:6}],[{x:12,y:3},{x:16,y:6},{x:12,y:9}],
-		     [ {x:4,y:14},{x:16,y:14}],[{x:8,y:11},{x:4,y:14},{x:8,y:17}]]}
+		     [ {x:4,y:14},{x:16,y:14}],[{x:8,y:11},{x:4,y:14},{x:8,y:17}]],
+	    'tophat':[[{x:3,y:14},{x:7,y:14},{x:7,y:6},{x:13,y:6},{x:13,y:14},{x:17,y:14}],],
+	    'derivative':[[{x:3,y:10},{x:7,y:10},{x:7,y:4},{x:7,y:10},{x:13,y:10},{x:13,y:16},{x:13,y:10},{x:17,y:10}],]}
+	    
     
     this.lineFunc = d3.svg.line().interpolate("linear")
 	.x(function(d) { return (d.x+this.coords.x)*gui.sizes.scaler; })
@@ -372,6 +375,12 @@ function draggableRegion() {
 		    draggableRegion.prototype.dragEnd(t.attr("regionId"), t.attr("where"))}
 		})
 
+    this.remove = function () {
+	// remove from the dom and from gui.components
+	d3.select("#"+this.where+"-region-"+this.regionId).remove();
+	delete gui.components[this.where].regions[this.regionId];
+    }
+    
     this.selected  = false;
     
 }
@@ -570,6 +579,7 @@ function rasterBackground(where,sizeX,sizeY) {
     this.name  = where
     this.sizeX = sizeX
     this.sizeY = sizeY
+    this.rasterValue = 0;
     
     // size of each frame in pixels; needs to be
     // filled in by gui when the data is downloaded.
@@ -590,7 +600,7 @@ function rasterBackground(where,sizeX,sizeY) {
 	    .attr("id",this.name+'-img')
     }
     
-    this.loadImage = function (path) {
+    this.loadImage = function (path, rasterValue) {
 
 	var setAttr = function (t) {
     
@@ -611,17 +621,24 @@ function rasterBackground(where,sizeX,sizeY) {
 	// load a background off the server and set it to the
 	// correct image attribute
 	var t = this;
+	if (typeof(rasterValue) === 'undefined') {rasterValue=this.rasterValue}
 	this.image        = new Image()
-	this.image.onload = function () {setAttr(t);}
+	this.image.onload = function () {setAttr(t); t.raster(rasterValue)}
 	this.image.src    = path
     }
     
     this.raster = function (n) {
 	// n is the frame number found in some other action, probably
 	// a scrubber or sliderGraph
+	
+	console.log("raster "+n)
+	
 	var ix  = n%this.gridSize, iy = Math.floor(n/this.gridSize)
 	var str = 'scale('+this.scale+') translate(-'+this.frameSize*ix+',-'+this.frameSize*iy+')'
 	$("#"+this.name+'-img').attr('transform',str);
+	
+	this.rasterValue = n;
+	
     }
 
 }
@@ -695,33 +712,55 @@ function graph() {
 	var w = gui.components[where]
 	var svga = d3.select("#"+where+"-group")
 	
+	if (typeof(extras) === 'undefined') {extras = {}}
+	
 	// nticksX
-	try {var xAxis = d3.svg.axis().scale(w.xScale).orient("bottom").ticks(extras.nticksX)}
-	catch(err) {var xAxis = d3.svg.axis().scale(w.xScale).orient("bottom").ticks(5)}
+	if ('nticksX' in extras) {
+	    var xAxis = d3.svg.axis().scale(w.xScale).orient("bottom").ticks(extras.nticksX);}
+	else {
+	    console.log("here")
+	    var xAxis = d3.svg.axis().scale(w.xScale).orient("bottom").ticks(5);}
 	
 	// nticksY
-	try {var yAxis = d3.svg.axis().scale(w.yScale).orient("left").ticks(extras.nticksY)}
-	catch(err) {var yAxis = d3.svg.axis().scale(w.yScale).orient("left").ticks(5)}
+	if ('nticksY' in extras) {
+	    var yAxis = d3.svg.axis().scale(w.yScale).orient("left").ticks(extras.nticksY);}
+	else {
+	    var yAxis = d3.svg.axis().scale(w.yScale).orient("left").ticks(5);}
 	    
 	// yText
-	try {var yText = extras.yText;}
-	catch(err) {var yText = 'test';}
+	if ('yText' in extras) {var yText = extras.yText;}
+	else {var yText = '';}
 	
+	// xText
+	if ('xText' in extras) {var xText = extras.xText;}
+	else {var xText = '';}
+
 	svga.append("g")
 	    .attr("class", "x plotaxis")
 	    .attr("transform", "translate(0," + w.height + ")")
-	    .call(xAxis);
-      
+	    .call(xAxis)
+
 	svga.append("g")
 	    .attr("class", "y plotaxis")
 	    .attr("transform","translate(0,0)")
 	    .call(yAxis)
-	    .append("text")
+	 
+	   
+	svga.append("text")
+	    .attr("y", w.height-15)
+	    .attr("x", w.width-4)
+	    .attr("dy", ".71em")
+	    .style("text-anchor", "end")
+	    .text(xText);
+	    
+	svga.append("text")
 	    .attr("transform", "rotate(-90)")
 	    .attr("y", 6)
+	    .attr("x",-5)
 	    .attr("dy", ".71em")
 	    .style("text-anchor", "end")
 	    .text(yText);
+	    
     }
 
     this.redraw = function (where, sizeX, sizeY, extras) {
@@ -778,7 +817,7 @@ function basicGraph(where,sizeX,sizeY) {
     this.sizeY = sizeY;
     this.plotColor = "black";
     this.strokeWidth = 2;
-    this.draw  = function () {this.redraw(this.where,this.sizeX,this.sizeY)}
+    this.draw  = function (extras) {this.redraw(this.where,this.sizeX,this.sizeY,extras)}
     this.plot  = function () {this.replot(this.where, {'color':this.plotColor,'width':this.strokeWidth});}
     this.init(this.where,this.sizeX,this.sizeY)
 }
@@ -792,8 +831,8 @@ function sliderGraph(where,sizeX,sizeY) {
     this.sizeX  = sizeX;
     this.sizeY  = sizeY;
 
-    this.draw = function () {
-	this.redraw(this.where,this.sizeX,this.sizeY)
+    this.draw = function (extras) {
+	this.redraw(this.where,this.sizeX,this.sizeY,extras)
 	};
 	
     this.plot = function () {
@@ -882,7 +921,7 @@ function clickerGraph(where,sizeX,sizeY,hasFitData) {
     this.sizeX = sizeX
     this.sizeY = sizeY
     this.hasFitData = hasFitData
-    this.draw  = function () {this.redraw(this.where,this.sizeX,this.sizeY)}
+    this.draw  = function (extras) {this.redraw(this.where,this.sizeX,this.sizeY,extras)}
 
     // these are default values which could be overridden in
     // the gui if the user wanted to

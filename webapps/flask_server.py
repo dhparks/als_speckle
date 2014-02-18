@@ -84,9 +84,8 @@ def manage_session():
     def _make_new_session():
         
         # make a new uuid for the session
-        u    = uuid.uuid4()
-        s_id = str(u.time_low)
-        t2   = int(s_id)
+        s_id = str(time.time()).replace('.','')[:12]
+        t    = int(s_id)
         
         # spin up a new gpu context and new analysis backends
         if use_gpu: gpu_info = speckle.gpu.init()
@@ -106,7 +105,7 @@ def manage_session():
         session['s_id']   = s_id
         print "session %s"%s_id
         
-        return t2
+        return t
         
     try:
         s_id = session['s_id']
@@ -138,10 +137,6 @@ def upload_file():
     manage_session()
     s_id = session['s_id']
 
-    # make an id for the data
-    t    = int(time.time()*10)
-    d_id = str(t)[-8:]
-    
     # for error checking
     allowed, ext, error, backend_id = None, None, None, None
     

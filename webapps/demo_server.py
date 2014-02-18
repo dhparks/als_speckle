@@ -70,11 +70,10 @@ def manage_session():
                 
     def _make_new_session():
         
-        # make a new session
-        t    = int(time.time()*10)
-        s_id = str(t)[-8:]
-        t2   = int(s_id)
-        
+        # make a new uuid for the session
+        s_id = str(time.time()).replace('.','')[:12]
+        t    = int(s_id)
+
         # spin up a new gpu context and new analysis backends
         if use_gpu: gpu_info = speckle.gpu.init()
         else: gpu_info = None
@@ -93,7 +92,7 @@ def manage_session():
         session['s_id']   = s_id
         print "session %s"%s_id
         
-        return t2
+        return t
         
     try:
         s_id = session['s_id']
@@ -113,9 +112,6 @@ def upload_file():
     manage_session()
     s_id = session['s_id']
 
-    # make an id for the data
-    t    = int(time.time()*10)
-    d_id = str(t)[-8:]
     
     # get the project id from the request
     project = request.args['project']
@@ -154,12 +150,12 @@ def serve_xpcs():
     # serve the static page for xpcs
     s_id = session['s_id']
     sessions[s_id]['backendx'].regions = {}
-    return send_from_directory('.', 'static/html/xpcs_dev.html')
+    return send_from_directory('.', 'static/html/xpcs.html')
 
 @app.route('/fth')
 def serve_fth():
     # serve the static page for fth
-    return send_from_directory('.','static/html/fth_dev.html')
+    return send_from_directory('.','static/html/fth.html')
 
 @app.route('/cdi')
 def serve_cdi():
@@ -331,6 +327,21 @@ def cdi_cmd(cmd):
     
     if cmd == 'propagate':
 
+        
+        """
+        # get the coordinates
+        int_keys = ('zoom','apodize','window')
+        flt_keys = ('rmin','rmax','cmin','cmax','zmin','zmax','energy','pitch')
+        
+        params = {}
+        for key in int_keys: params[key] = request.args.get(key,0,type=int)
+        for key in flt_keys: params[key] = request.args.get(key,0,type=float)
+
+        # run the propagation
+        backend.propagate(params,'fth')
+        return jsonify(result="propagation finished",propagationId=backend.bp_id,frameSize=backend.imgx)
+        """
+
         # get the coordinates
         int_keys = ('apodize',)
         str_keys = ('round',)
@@ -343,7 +354,7 @@ def cdi_cmd(cmd):
 
         # run the propagation
         backend.propagate(params,'cdi')
-        return jsonify(result="propagation finished",propagationId=backend.bp_id)
+        return jsonify(result="propagation finished",propagationId=backend.bp_id,frameSize=backend.imgx)
         
 upload_folder = './data'
 allowed_exts  = set(['fits',])

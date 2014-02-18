@@ -18,19 +18,18 @@
     
     <div id="container">
 	<div id="controls">
-	    <input type="text" id="zmin" name="zmin" size=9 placeholder="Zmin (um)" onkeyup="userFunctions.validateForm(this.id)">
-	    <input type="text" id="zmax" name="zmax" size=9 placeholder="Zmax (um)" onkeyup="userFunctions.validateForm(this.id)">
-	    <input type="text" id="energy" name="energy" size=9 placeholder="Energy (eV)" onkeyup="userFunctions.validateForm(this.id)">
-	    <input type="text" id="pitch" name="pitch" size=7 placeholder="Pitch (nm)" onkeyup="userFunctions.validateForm(this.id)">
+	    <input type="text" id="zmin" name="zmin" size=9 placeholder="Zmin (um)" onkeyup="guiFunctions.validateForm(this.id)">
+	    <input type="text" id="zmax" name="zmax" size=9 placeholder="Zmax (um)" onkeyup="guiFunctions.validateForm(this.id)">
+	    <input type="text" id="energy" name="energy" size=9 placeholder="Energy (eV)" onkeyup="guiFunctions.validateForm(this.id)">
+	    <input type="text" id="pitch" name="pitch" size=9 placeholder="Pitch (nm)" onkeyup="guiFunctions.validateForm(this.id)">
 	    Apodize? <input type = "checkbox", id='apodize', checked="checked">
 	</div>
         <div id="hologram" class="topdiv"></div>
-        <div id="aperture" class="topdiv"></div>
+        <div id="propagation" class="topdiv"></div>
 	<div id="acutance"></div>
-	<div id="slider"></div>
     </div>
         
 </div>
 
-
+<script type="text/javascript" src="static/scripts/guiObjects.js"></script>
 <script type="text/javascript" src="static/scripts/fth.js"></script>

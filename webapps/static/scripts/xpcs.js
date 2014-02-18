@@ -1,353 +1,58 @@
 
 // declare all the variables
-var front = {};
-front.backendTasks = {};
+var gui = {};
+gui.isLocked = false;
 
-front.sizes = {};
-front.sizes.x = 512;
-front.sizes.r = 30;
-front.sizes.s = 4;
-front.sizes.d = 5;
 
-front.intensity = {}
-front.intensity.images  = {};
-front.intensity.dataId  = null;
-front.intensity.regions = {};
-front.intensity.translateX = 0;
-front.intensity.translateY = 0;
-front.intensity.staticTranslateX = 0;
-front.intensity.staticTranslateY = 0;
-front.intensity.zoomFactor = 1.25;
+gui.data = {}
+gui.data.exists = false;
 
-front.plots = {}
-front.plots.xScale   = null;
-front.plots.yScale   = null;
-front.plots.linefunc = null;
-front.plots.margins  = {top: 20, right: 20, bottom: 30, left: 50};
-front.plots.selectedPlot = null;
-front.plots.nframes = null;
+// configurable element sizes
+gui.sizes = {};
+gui.sizes.dragger = 5;
+gui.sizes.region  = 30;
+gui.sizes.window  = 512;
+gui.sizes.selector = 4;
+gui.sizes.scaler  = 1//gui.sizes.window/300; // don't change this!!!!
 
-var dragFunctions = {
+gui.components = {}
+gui.components.intensity = {}
+gui.components.intensity.images  = {};
+gui.components.intensity.regions = {};
+
+gui.components.plots = {}
+gui.components.plots.selectedPlot = null;
+
+var guiFunctions = {
     
-    // methods for dragging the regions and background in the left svg
-    regionBehavior: d3.behavior.drag()
-            .origin(function() { var t  = d3.select(this); return {x: t.attr("x"),y: t.attr("y")};})
-            .on("drag",   function()  { dragFunctions.regionDrag(this) })
-            .on("dragend",function () { dragFunctions.regionDragEnd(this) }),
-
-    regionDrag: function (x) {
-	if (Object.keys(front.backendTasks).length === 0) {
-	    var t = d3.select(x);
-            dragFunctions.updateBoxes(t.attr("regionId"),t.attr("location"))
-	    }
-         },
-	 
-    regionDragEnd: function (x) {
-	
-	if (Object.keys(front.backendTasks).length === 0) {
-
-	    // update the region information in the tracker
-	    var id   = d3.select(x).attr("regionId");
-	    var group = d3.select("#regionGroup"+id)
-	    
-	    r = front.intensity.regions[id];
-	    r.coords.rmin = parseInt(group.select('[location="mainRegion"]').attr("y"));
-	    r.coords.cmin = parseInt(group.select('[location="mainRegion"]').attr("x"));
-	    r.coords.rmax = parseInt(group.select('[location="lowerRight"]').attr("y"));
-	    r.coords.cmax = parseInt(group.select('[location="lowerRight"]').attr("x"));   
-
-	    // run the recalculation if that option is selected
-	    if ($('#autocalc').is(":checked")) { userFunctions.recalculateG2() };
-	}
+    actionDispatch: function (args) {
+	if (args['action'] == 'regionDragEnd') {
+	    if ($('#autocalc').is(":checked")) {
+		guiFunctions.recalculateG2(args)
+		};
+	    };
+	if (args['action'] == 'zoomIn')       {gui.components[args['where']].background.zoomIn()};
+	if (args['action'] == 'zoomOut')      {gui.components[args['where']].background.zoomOut()};
+	if (args['action'] == 'lockBg')       {gui.components[args['where']].background.lock()};
+	if (args['action'] == 'addRegion')    {guiFunctions.addRegion()};
+	if (args['action'] == 'delRegions')   {guiFunctions.deleteRegions();};
+	if (args['action'] == 'recalculate')  {guiFunctions.recalculateG2();};
+	if (args['action'] == 'togglePlot')   {guiFunctions.toggleSelectedPlot(args)}
     },
-    
-    // this is the drag behavior for the background image
-    backgroundBehavior: d3.behavior.drag()
-			.origin(function() { console.log('origin!');var t  = d3.select(this); return {x: t.attr("x"),y: t.attr("y")};})
-			.on("drag", function() {
-			    if (Object.keys(front.backendTasks).length === 0 && !$('#lockBg').is(":checked")) {
-				console.log("dragging 2")
-				dragFunctions.updateBackground()}
-			    })
-			.on("dragend",function () {
-			    // when dragging has finished, update the javascript information about the position
-			    if (Object.keys(front.backendTasks).length === 0 && !$('#lockBg').is(":checked")) {
-				front.intensity.staticTranslateX = front.intensity.translateX;
-				front.intensity.staticTranslateY = front.intensity.translateY;
-				}
-			    }),
-    
-    updateBackground: function () {
-
-	// update the front.translateX and front.translateY parameters
-	// with the information coming from the drag event; then
-	// update the image transform properties
-	
-	var dx = d3.event.x, dy = d3.event.y;
-	front.intensity.translateX = front.intensity.staticTranslateX+dx/front.intensity.zoom;
-	front.intensity.translateY = front.intensity.staticTranslateY+dy/front.intensity.zoom;
-	var str = "scale("+front.intensity.zoom+") translate("+front.intensity.translateX+","+front.intensity.translateY+")"
-	console.log(str)
-	d3.select('#dataimage').attr("transform",str)
-	
-    },
-    
-    updateBoxes: function (regionId, what) {
-    
-        // this function updates the coordinates of the 6 svg elements which
-        // show a region. most of the mathematical complexity arises from the
-        // decision to enforce boundary conditions at the edge of the data, so
-        // no aspect of the region becomes undraggable.
-
-        var group = d3.select('#regionGroup'+regionId);
-        
-        var mr = group.select('[location="mainRegion"]');
-        var ul = group.select('[location="upperLeft"]');
-        var ur = group.select('[location="upperRight"]');
-        var lr = group.select('[location="lowerRight"]');
-        var ll = group.select('[location="lowerLeft"]');
-        var cs = group.select('.selecter');
-        var cw = parseInt(mr.attr("width"));
-        var ch = parseInt(mr.attr("height"));
-        
-        // define shorthands so that lines don't get out of control
-        var mx, my, ulx, uly, urx, ury, llx, lly, lrx, lry, csx, csy;
-        var ds = front.sizes.d, ss = front.sizes.s, wh = front.sizes.x, ww = front.sizes.x;
-        var dx = d3.event.x, dy = d3.event.y
-	    
-        // one behavior for dragging .main...
-        if (what === 'mainRegion') {
-    
-            mrx = dx;      mry = dy;
-            ulx = dx-ds;   uly = dy-ds;
-            llx = dx-ds;   lly = dy+ch;
-            urx = dx+cw;   ury = dy-ds;
-            lrx = dx+cw;   lry = dy+ch;
-            csx = dx+cw/2; csy = dy-ss;
-    
-            // now check their bounds
-            if (ulx < 0) {mrx = ds; ulx = 0; llx = 0; urx = cw+ds; lrx = cw+ds;};
-            if (uly < 0) {mry = ds; uly = 0; ury = 0; lly = ch+ds; lry = ch+ds;};
-            if (urx > ww-ds) {mrx = ww-cw-ds; urx = ww-ds; lrx = ww-ds; ulx = ww-cw-2*ds; llx = ww-cw-2*ds;};
-            if (lly > wh-ds) {mry = wh-ch-ds; uly = wh-ch-2*ds; ury = wh-ch-2*ds; lly = wh-ds; lry = wh-ds;};
-            csx = mrx+cw/2; csy = mry-ss;
-        }
-        
-        // ... another for dragging a corner
-        else {
-             // pull the old values
-            x1 = parseInt(ul.attr("x"));
-            x2 = parseInt(ur.attr("x"));
-            y1 = parseInt(ur.attr("y"));
-            y2 = parseInt(lr.attr("y"));
-            
-            // calculate bounding functions
-            x1b = Math.min(x2-ds,Math.max(0,dx));
-            x2b = Math.max(x1+ds,Math.min(ww-ds,dx));
-            y1b = Math.min(y2-ds,Math.max(0,dy));
-            y2b = Math.max(y1+ds,Math.min(wh-ds,dy));
-            
-            // calculate the new values
-            if (what === 'upperLeft')  {new_x1 = x1b; new_x2 = x2; new_y1 = y1b; new_y2 = y2;}
-            if (what === 'upperRight') {new_x1 = x1; new_x2 = x2b; new_y1 = y1b; new_y2 = y2;}
-            if (what === 'lowerLeft')  {new_x1 = x1b; new_x2 = x2; new_y1 = y1; new_y2 = y2b;}
-            if (what === 'lowerRight') {new_x1 = x1; new_x2 = x2b; new_y1 = y1; new_y2 = y2b;}
-            var new_width  = new_x2-new_x1;
-            var new_height = new_y2-new_y1;
-            
-            // assign the coordinates
-            mrx = new_x1+ds; mry = new_y1+ds;
-            ulx = new_x1;    uly = new_y1;
-            urx = new_x2;    ury = new_y1;
-            llx = new_x1;    lly = new_y2;
-            lrx = new_x2;    lry = new_y2;
-            csx = new_x1+(new_width+ds)/2; csy = new_y1
-            
-            mr.attr("width",new_width-ds).attr("height",new_height-ds)    
-        }
-        
-        // update the positions
-        mr.attr("x",mrx).attr("y",mry)
-        ul.attr("x",ulx).attr("y",uly);
-        ur.attr("x",urx).attr("y",ury);
-        ll.attr("x",llx).attr("y",lly);
-        lr.attr("x",lrx).attr("y",lry);
-        cs.attr("cx",csx).attr("cy",csy);
-    }
-}
-    
-var userFunctions = {
     
     addRegion: function () {
-	
-	var createSVG = function (reg) {
-        
-	    // this method draws the region on the left SVG. only gets called once
-	    // per region
-	    
-	    var tc = reg.coords;
-	    
-	    // make a group on the SVG for the 6 elements
-	    var g = d3.select("#svgintensity").append("g").attr("id","regionGroup"+reg.regionId);
-    
-	    // define the relevant common attributes of the boxes
-	    var rs = front.sizes.r, ds = front.sizes.d, ss = front.sizes.s;
-	    var allBoxes = [
-		{h:rs, w: rs, x:tc.cmin,    y:tc.rmin,    c:"mainRegion", curs: "move"},
-		{h:ds, w: ds, x:tc.cmin+rs, y:tc.rmin+rs, c:"lowerRight", curs: "se-resize"},
-		{h:ds, w: ds, x:tc.cmin+rs, y:tc.rmin-ds, c:"upperRight", curs: "ne-resize"},
-		{h:ds, w: ds, x:tc.cmin-ds, y:tc.rmin+rs, c:"lowerLeft",  curs: "sw-resize"},
-		{h:ds, w: ds, x:tc.cmin-ds, y:tc.rmin-ds, c:"upperLeft",  curs: "nw-resize"}];
-		
-	    // make the rectangular elements using d3
-	    for (var k=0;k<allBoxes.length;k++) {
-		
-		var thisBox = allBoxes[k];
-		var newBox  = g.append("rect")
-		
-		newBox
-		    .attr("x",thisBox.x)
-		    .attr("y",thisBox.y)
-		    .attr("height",thisBox.h)
-		    .attr("width",thisBox.w)
-		    .attr("regionId",reg.regionId)
-		    .attr("location",thisBox.c)
-		    .style("fill",reg.color)
-		    .style("fill-opacity",0)
-		    .style('cursor',thisBox.curs)
-		    .call(dragFunctions.regionBehavior) // attaches the dragging behavior
-		    ;
-    
-		if (thisBox.c==="mainRegion") {
-		    newBox.style("stroke",reg.color)
-		    .style("stroke-width",2)
-		    .style("stroke-opacity",1);}
-		    
-		if (thisBox.c !="mainRegion") {
-		    newBox.style("fill-opacity",1);}
-	    }
-		
-	    // make the circular element
-	    g.append("circle")
-		.attr("cx",tc.cmin+rs/2)
-		.attr("cy",tc.rmin-ss)
-		.attr("r",ss)
-		.style("fill",reg.color)
-		.style("fill-opacity",0) // need a fill to toggle on clickSelect
-		.style("stroke-width",2)
-		.style("stroke",reg.color)
-		.classed("selecter",true)
-		.classed("region",true)
-		.classed('interactive',true)
-		.attr("regionId",reg.regionId)
-		.on("click",function () {
-		    var t = d3.select(this);
-		    console.log("click")
-		    console.log(t.attr("regionId"));
-		    userFunctions.selectRegion(t.attr("regionId"));
-		})
-	};
-	
-	var newHue = function () {
-        
-	    var hues = [];
-	    for (region in front.intensity.regions) {hues.push(front.intensity.regions[region].hue);}
-	    hues.sort(function(a,b) {return a-b});
-    
-	    if (hues.length === 0) {return Math.random();}
-	    if (hues.length === 1) {return (hues[0]+0.5)%1;}
-	    if (hues.length === 2) {return hues[0]+Math.max((hues[0]-hues[1]+1)%1,(hues[1]-hues[0]+1)%1)/2;}
-	    else {
-		
-		// find the biggest gap in the list of hues and put the new hue
-		// in the middle of that gap. 
-		
-		var distances = [], gap, idx, hue;
-		
-		for (var n=0;n<hues.length-1;n++) {distances.push(hues[n+1]-hues[n])};
-		distances.push(1+hues[0]-hues[hues.length-1]);
-		
-		gap = Math.max.apply(Math, distances)
-		idx = distances.indexOf(gap);
-		
-		return (hues[idx]+gap/2+1)%1
-	    }
-	};
-
-	var r = {};
-	
-	// initial coordinates
-	r.coords = {
-	    rmin:(front.sizes.x-front.sizes.r)/2,
-	    rmax:(front.sizes.x+front.sizes.r)/2,
-	    cmin:(front.sizes.x-front.sizes.r)/2,
-	    cmax:(front.sizes.x+front.sizes.r)/2}
-	
-	// identifiers
-	var x = new Date().getTime()
-	x = x.toString()
-	t = "r"+x.slice(x.length-7,x.length-2);
-	console.log(t)
-	console.log(typeof t)
-	r.regionId = t;
-	r.hue      = newHue()
-	r.color    = d3.hsl(r.hue*360,1,0.5).toString();
-	r.selected = false;
-	
-	// data and fit
-	r.functional = null;
-	r.g2Values   = [];
-	r.fitValues  = [];
-	r.fit        = {};
-	
-	// add to tracker
-	front.intensity.regions[t] = r;
-	
-	// draw the svg with drag actions attached
-	createSVG(r);
-	
-	// send the information to the backend
-	var backend = function (callback) {
-	    
-	    // send this array to the backend
-	    var send = {uid:r.regionId,coords:[r.coords.rmin,r.coords.rmax,r.coords.cmin,r.coords.cmax]}
-	    $.ajax({
-		url: "xpcs/new",
-		type: 'POST',
-		data: JSON.stringify(send),
-		contentType: 'application/json; charset=utf-8',
-		dataType: 'json',
-		async: true,
-		success: function(data) {
-		    console.log(data);
-		    callback(null);
-		}
-	    });
-	}
-
-	var frontend = function (error) {
-	    if (error != null) {console.log(error)}
-            if ($('#autocalc').is(":checked")) { userFunctions.recalculateG2() };
-	    };
-	
-	queue().defer(backend).await(frontend);
-	
+	// draw a new draggable region on the intensity dbg
+	reg = new draggableRegionColor("intensity",gui.sizes,true)
+	gui.components.intensity.regions[reg.regionId] = reg;
+	reg.draw()
     },
-
+    
     changeBackground: function () {
-        // change the background to the permutation of selected colormap and selected scale
+	// change the background to the permutation of selected colormap and selected scale
         var scale = $("input[name=scale]:checked").attr("id");
         var color = $("input[name=cm]:checked").attr("id");
-	var path  = '/static/xpcs/images/data_session'+front.sessionId+'_id'+front.intensity.dataId+'_'+color+'_'+scale+'.jpg';
-	var tfrm  = "scale("+front.intensity.zoom+") translate("+front.intensity.staticTranslateX+","+front.intensity.staticTranslateY+")"
-	d3.select('#dataimage').attr("xlink:href", path)
-	d3.select("#dataimage").attr("transform",tfrm);
-	console.log(tfrm);
-    },
-    
-    convertCoord: function (val) {
-	return {'x':(val-front.intensity.staticTranslateX*front.intensity.zoom)/front.intensity.zoom,
-		'y':(val-front.intensity.staticTranslateY*front.intensity.zoom)/front.intensity.zoom}
+	var path  = '/static/xpcs/images/data_session'+gui.data.sessionId+'_id'+gui.data.dataId+'_'+color+'_'+scale+'.jpg';
+	gui.components.intensity.background.loadImage(path)
     },
     
     deleteRegions: function () {
@@ -355,10 +60,7 @@ var userFunctions = {
 	// delete from the backend and the frontend all the selected regions.
 	// if they don't exist on the backend, it doesnt matter
         var backend = function (callback) {
-            
-            var ts = new Date().getTime()
-            front.backendTasks[ts] = 'deleteRegions';
-	    
+            //gui.lock()
 	    $.ajax({
 		url: "xpcs/remove",
 		type: 'POST',
@@ -366,275 +68,82 @@ var userFunctions = {
 		contentType: 'application/json; charset=utf-8',
 		dataType: 'json',
 		async: true,
-		success: function(data) {
-		    console.log(data);
-		    delete front.backendTasks[ts]
-		    callback(null);
-		    }
+		success: function(data) {callback(null);}
 	    });
 	};
 
         var frontend = function (error) {
             // tell the front end which regions to remove
             
-            if (error != null) {
-                console.log("error removing frontend");
-                console.log(error);}
+            if (error != null) { console.log("error removing frontend"); console.log(error);}
 
+	    var gcp = gui.components.plots
+	    var gci = gui.components.intensity
+	    
             // check if the group selection for the text display of the fit parameters
             // matches an element in selected. if so, delete the display
             if (selectedRegions.length > 0) {
-                var fitGroup = d3.select("#fitParamsText").attr("selectedGroup");
-                if (fitGroup != "none") {
+                var fitGroup = gcp.selectedPlot;
+                if (fitGroup != null) {
                     var idx = selectedRegions.indexOf(fitGroup);
-                    if (idx > -1) {userFunctions.textBoxTransition(0)}
-                    front.plots.selectedPlot = null;
+                    if (idx > -1) {gcp.textBox.hide()}
+                    gcp.selectedPlot = null;
                 };
             };
-                
+            
+	    // delete in multiple places
 	    for (var k = 0; k < selectedRegions.length; k++) {
 		thisRegion = selectedRegions[k]
-		if (front.intensity.regions[thisRegion].selected) {
-		    
-		    // remove from dictionary
-		    delete front.intensity.regions[thisRegion]
-		    
-		    // remove group from intensity plot
-		    d3.select("#regionGroup"+thisRegion).remove()
-		    
-		    // remove group from g2 plot
-		    d3.select("#g2Group"+thisRegion).remove()
+		if (gci.regions[thisRegion].selected) {
+		    delete gci.regions[thisRegion]
+		    delete gcp.regions[thisRegion]
+		    d3.select("#intensity-region-"+thisRegion).remove()
+		    d3.select("#plots-g2group-"+thisRegion).remove()
 		}
 	    }
         };
 	
 	// find all the selected regions
 	var selectedRegions = [];
-	for (region in front.intensity.regions) {
-	    if (front.intensity.regions[region].selected) {
+	var gcir = gui.components.intensity.regions
+	for (region in gcir) {
+	    if (gcir[region].selected) {
 		selectedRegions.push(region)
 	    }
 	}
-	
+
 	// remove the selected regions from the backend, then from the frontend
         queue().defer(backend).await(frontend);
-
     },
-    
-    initGraph: function () {
-        
-        // define log scales for the new data
-        front.plots.xScale = d3.scale.log().range([0, front.plots.width]).domain([1,front.plots.nframes]);
-        front.plots.yScale = d3.scale.log().range([front.plots.height, 0]).domain([1e-6,1]).clamp(true);
-	
-	// define the interpolation function for plotting
-	front.plots.linefunc = d3.svg.line()
-                .interpolate("linear")
-                .x(function(d) { return front.plots.xScale(d.x); })
-                .y(function(d) { return front.plots.yScale(d.y); });
-        
-        var resetSVG = function () {
-	    
-            d3.select("plotGroup").remove();
-            d3.select("#svggraphs")
-                .append("g")
-                .attr("transform", "translate(" + front.plots.margins.left + "," + front.plots.margins.top + ")")
-                .attr("id","plotGroup");
-        };
-	
-        var drawGrids = function () {
-            //draw grid lines
-            svgg.append("g").attr("id","verticalGrid")
-            d3.select("#verticalGrid").selectAll(".gridlines")
-                .data(front.plots.xScale.ticks()).enter()
-                .append("line")
-                .attr("class","gridlines")
-                .attr("x1",function (d) {return front.plots.xScale(d)})
-                .attr("x2",function (d) {return front.plots.xScale(d)})
-                .attr("y1",function ()  {return front.plots.yScale(1e-6)})
-                .attr("y2",function ()  {return front.plots.yScale(1e0)})
-    
-            svgg.append("g").attr("id","horizontalGrid")
-            d3.select("#horizontalGrid").selectAll(".gridlines")
-                .data(front.plots.yScale.ticks()).enter()
-                .append("line")
-                .attr("class","gridlines")
-                .attr("x1",function ()  {return front.plots.xScale(1)})
-                .attr("x2",function ()  {return front.plots.xScale(front.plots.nframes)})
-                .attr("y1",function (d) {return front.plots.yScale(d)})
-                .attr("y2",function (d) {return front.plots.yScale(d)})
-        };
-                
-        var drawAxes = function () {
-            // draw axes
-            
-            // define xAxis and yAxis
-            var nticks = Math.floor(Math.log(front.plots.nframes)/Math.LN10);
-            var xAxis  = d3.svg.axis().scale(front.plots.xScale).orient("bottom").ticks(nticks);
-            var yAxis  = d3.svg.axis().scale(front.plots.yScale).orient("left");//.ticks(5);//.tickFormat(d3.format(".1f"));
-            
-            svgg.append("g")
-                .attr("class", "x axis")
-                .attr("transform", "translate(0," + front.plots.height + ")")
-                .call(xAxis);
-          
-            svgg.append("g")
-                .attr("class", "y axis")
-                .attr("transform","translate(0,0)")
-                .call(yAxis)
-                .append("text")
-                .attr("transform", "rotate(-90)")
-                .attr("y", 6)
-                .attr("dy", ".71em")
-                .style("text-anchor", "end")
-                .text("G2");
-        };
-        
-        var drawReadout = function () {
-            // set up the fit parameters readout
-            d3.select("#plotGroup").append("g").attr("id","fitParamsGroup")
-        
-            d3.select("#fitParamsGroup")
-                .append("rect")
-                .attr("x",-5).attr("y",5)
-                .attr("opacity",0)
-                .attr("id","txtrect")
-                .attr("fill","white")
-                .style("stroke-width",1)
-                .style("stroke","black")
-                
-            d3.select("#fitParamsGroup")
-                .append("text")
-                .attr("id","fitParamsText")
-                .attr("selectedGroup","none");
-            };
-                   
-        //
-        resetSVG();
-            
-        var svgg = d3.select("#plotGroup")
-        
-        drawGrids()
-        drawAxes()
-        drawReadout()
-
-        },
     
     recalculateG2: function () {
 
-        var funcString, fileId
-
-	// 1. send regions coordinates to the backend.
-	// 2. backend calculates g2 in all regions which have changed.
-	// 3. backend fits data in all regions which have changed
-	// 4. backend returns as a json object the g2 and fit values
-	// 5. g2 and fit get attached to front.regions
-	// 6. plots get redrawn
-	
-	var redraw = function (error) {
+	var _getInfo = function () {
+	    var data    = {};
+	    data.form   = $("input[name=fitform]:checked").val()
 	    
-	    if (error != null) { console.log(error) }
-	    
-	    // record which line is currently selected, if applicable
-	    var oldSelection = front.plots.selected;
-
-	    // when redrawing, there is no such thing as a selected plot.
-	    userFunctions.selectPlot(front.plots.selected);
-	    front.plots.selected = null;
-
-	    // the way the data is structured poses a problem for the d3 enter/exit
-	    // methodology (ie, doesnt work!). instead it seems easier to simply
-	    // remove all the children groups of #plotGroup and replot all data
-	    svgg = d3.select('#plotGroup');
+	    var gcir = gui.components.intensity.regions;
+	    var k    = Object.keys(gcir);
+	    data.coords = {};
+	    for (j in k) {data.coords[k[j]] = gcir[k[j]].convertCoords()};
+	    return data;
+	};
 	
-	    // clear all the old plots
-	    svgg.selectAll(".dataSeries").remove()
-
-	    // d3 doesn't play well with being passed an object instead of an
-	    // array. therefore, recast front.intensity.regions into an array
-	    // of objects with only the necessary data
-	    var plottables = []
-	    for (var region in front.intensity.regions) {
-		var nr = {}, tr = front.intensity.regions[region]
-		nr.regionId  = tr.regionId;
-		nr.color     = tr.color;
-		nr.g2Values  = tr.g2Values;
-		nr.fitValues = tr.fitValues;
-		plottables.push(nr)
-	    }
-	    
-	    // each plot group is structured as
-	    // (parent) group
-	    //    (child)  path g2 data
-	    //    (childs) circles g2 data
-	    //    (child)  path fit data
-
-	    var newLines = svgg.selectAll(".dataSeries")
-		.data(plottables)
-		.enter()
-		.append("g")
-		.attr("class","dataSeries")
-		.attr("id", function (d) {return "g2Group"+d.regionId;})
-		.style("cursor","pointer")
-		.on("click",function () {userFunctions.selectPlot(d3.select(this).attr("id"))});
-	
-	    newLines.append("path")
-		.style("fill","none")
-		.style("stroke-width",2)
-		.style("stroke",function (d) {return d.color})
-		.attr("class","dataPath")
-		.attr("id",function(d) {return "g2Data"+d.regionId})
-		.attr("d", function(d) {return front.plots.linefunc(d.g2Values); });
-
-	    // define a scale for the size of the circles so that they decrease in
-	    // size as they approach 1
-	    front.plots.rScale = d3.scale.log().domain([1,front.plots.nframes]).range([7,0]).clamp(false);
-	
-	    // add data circles.
-	    for (var k=0;k<plottables.length;k++) {
-		d3.select('#g2Group'+plottables[k].regionId).selectAll(".g2circle")
-		    .data(plottables[k].g2Values)
-		    .enter().append("circle")
-		    .attr("class","g2circle")
-		    .attr("cx",function (d) {return front.plots.xScale(d.x)})
-		    .attr("cy",function (d) {return front.plots.yScale(d.y)})
-		    .attr("r", function (d) {return front.plots.rScale(d.x)})
-		    .style("fill", plottables[k].color)
-	    }
-
-	    // add the fit lines. these are added last to ensure they are above the circles.
-	    // in the future, it might be better to draw the fit lines after the click,
-	    // so that they are on top of everything.
-	    newLines.append("path")
-		.style("fill","none")
-		.style("stroke","black")
-		.style("stroke-width",2)
-		.style("opacity",0)
-		.attr("class","fitPath")
-		.attr("id",function(d) {return "g2Fit"+d.regionId})
-		.attr("d", function(d) {return front.plots.linefunc(d.fitValues); })
-		;   
-		
-	    userFunctions.selectPlot(oldSelection);
-	    
-	    //move the parameters box to the top
-	    var g = d3.select("#fitParamsGroup")[0][0]
-	    g.parentNode.appendChild(g)
-	    }
-	
-	var parse = function (data) {
-	    
-	    console.log(data)
+	var _parse = function (data) {
 	    
 	    // take the data returned from the backend fitting and attach
-	    // it to the correct locations in front.intensity etc
+	    // it to the correct locations in gui.components.plots etc
+	    // data is attached to plots, NOT intensity! intensity has
+	    // no use for huge strings of numbers!
 	    var functional = data.fitting.functional;
 	    var parameters = data.fitting.parameters;
 	    
 	    for (region in data.analysis) {
-		
+
+		// assign new region
 		thisData   = data.analysis[region];
-		thisRegion = front.intensity.regions[region];
+		gui.components.plots.regions[region] = {}
+		thisRegion = gui.components.plots.regions[region];
 		
 		// copy g2 data and fit data. for plotting, g2 and fit
 		// must be a list of objects {x:datax, y:datay}
@@ -643,249 +152,201 @@ var userFunctions = {
 		    g2s.push({y:thisData.g2[k], x:k+1})
 		    fit.push({y:thisData.fit[k],x:k+1}) 
 		}
-		thisRegion.g2Values  = g2s;
+		thisRegion.dataValues = g2s;
 		thisRegion.fitValues = fit;
 		
 		// copy functional and parameters
 		thisRegion.functional    = functional;
 		thisRegion.fitParamsMap  = parameters;
 		thisRegion.fitParamsVals = thisData.params;
+		
+		// copy identifiers
+		thisRegion.objectId = region;
+		thisRegion.regionId = region;
+		thisRegion.color    = gui.components.intensity.regions[region].color;
+
 	    }
 	    
 	}
 	
-	var backend = function (callback) {
-	    
-	    var _convertRegion = function (r) {
-		out = {}
-		out.rmin = userFunctions.convertCoord(r.rmin).y;
-		out.rmax = userFunctions.convertCoord(r.rmax).y;
-		out.cmin = userFunctions.convertCoord(r.cmin).x;
-		out.cmax = userFunctions.convertCoord(r.cmax).x;
-		return out
-	    }
-	    
-	    // lock
-	    var ts = new Date().getTime();
-            front.backendTasks[ts] = 'recalculatePlot'
-	    
-	    // change the cursor to "progress"
-	    $("body").css("cursor","progress")
-
-	    // loop over regions, building a coordinates array
-	    data = {}
-	    data.coords = {}
-	    data.form   = $("input[name=fitform]:checked").val()
-	    for (region in front.intensity.regions) {
-		data.coords[region] = _convertRegion(front.intensity.regions[region].coords)}
-	    
-	    // send this array to the backend. when it comes back, parse it,
-	    // then draw the plots
+	var _backend = function (callback) {
+	    // lock the gui
+	    //gui.lock()
+    
+	    // get the region coord information
+	    var info = _getInfo()
+    
+	    // send info the backend; parse and replot
 	    $.ajax({
 		    url: "xpcs/calculate",
 		    type: 'POST',
-		    data: JSON.stringify(data),
+		    data: JSON.stringify(info),
 		    contentType: 'application/json; charset=utf-8',
 		    dataType: 'json',
 		    async: true,
 		    success: function(data) {
-			parse(data);
-			$("body").css("cursor","default")
-			delete front.backendTasks[ts]
+			_parse(data);
 			callback(null);
 			}
 		});
+	};
+	
+	var _frontend = function(error) {
+
+	    // if there is a plot selected, deselect it (but keep track for later)
+	    var gcp = gui.components.plots;
+	    var oldSelection = gui.components.plots.selectedPlot;
+	    guiFunctions.toggleSelectedPlot({'id':oldSelection});
+
+	    // replot the data
+	    gcp.graph.replot('regions')
+	    
+	    // reselect the previously-selected data
+	    guiFunctions.toggleSelectedPlot({'id':oldSelection});
+	    
+	    //gui.unlock()
 	}
 	
-	queue().defer(backend).await(redraw);
-    },
-
-    selectPlot:function (groupId) {
-    
-        //console.log("clicked on: "+groupId)
-	//console.log("current:    "+front.plots.selected)
-    
-        // selectors
-        if (front.plots.selected != null) {
-	    var oldRegionGroup = "#regionGroup"+front.plots.selected;
-            var oldGroupId     = "#g2Group"+front.plots.selected;
-            var oldFitId       = "#g2Fit"+front.plots.selected;}
-	    
-        if (groupId != null) {
-            var regionId   = groupId.replace("g2Group","");
-            var newGraphId = groupId;
-            var newFitId   = "#g2Fit"+regionId;}
-	    var newRegionGroup = '#regionGroup'+regionId
-	    
-        if (groupId === null) {regionId = null}
-
-        // first, deselect the selected plot if the selected plot is not null
-        if (front.plots.selected != null ) {
-            //console.log("turning off fit "+oldFitId)
-            d3.select(oldFitId).transition().duration(150).style("opacity",0);
-            d3.select(oldRegionGroup).select("[location=mainRegion]").transition().duration(150).style("fill-opacity",0);
-            userFunctions.textBoxTransition(0,regionId);
-            };
-        
-        // now select the desired plot, if: 1. the desired plot is different than
-        // the currently selected plot and 2. the desired plot is not null.
-        if (oldFitId != newFitId && regionId != null) {
-            d3.select(newRegionGroup).select("[location=mainRegion]").transition().duration(150).style("fill-opacity",0.5)
-            d3.select(newFitId).transition().duration(150).style("opacity",1);};
-        
-        var osp = front.plots.selected;
-        if (osp === regionId) {front.plots.selected = null};
-        if (osp  != regionId) {front.plots.selected = regionId};
-        
-        // update the display of the fit parameters
-        if (front.plots.selected != null) {
-            
-	    var thisRegion = front.intensity.regions[front.plots.selected]
-	    
-	    // get the fit parameters
-	    var fitmap = thisRegion.fitParamsMap;
-	    var fitval = thisRegion.fitParamsVals;
-	    var lines = ["id: "+thisRegion.regionId,thisRegion.functional]
-	    for (var key in fitmap) {lines.push(fitmap[key]+": "+fitval[parseInt(key)].toPrecision(4))}
-	    
-            // remove the old box, then build the new box
-            d3.selectAll(".fitText").remove();
-            var txt = d3.select("#fitParamsText");
-            txt.selectAll("tspan").data(lines).enter()
-                .append("tspan")
-                .text(function (d) {return d})
-                .attr("class","fitText")
-                .attr("x",0)
-                .attr("dy","1.2em")
-                .style("opacity",0);
-            txt.attr("selectedGroup",regionId)
-        
-        //d3.select('#g2_'+regionId+"_fit").transition().duration(150).style("opacity",1);
-        userFunctions.textBoxTransition(1,regionId);
-        }
+	queue().defer(_backend).await(_frontend)
 
     },
-    
-    selectRegion: function (t) {
+
+    toggleSelectedPlot:function (args) {
+
+	var gci  = gui.components.intensity
+	var gcp  = gui.components.plots
+
+	if (args['id'] === null) {regionId = null}
+	else {regionId = args['id'].replace('plots-plotGroup-','')}
+
+	if (gcp.selectedPlot != null) {
+	    var oldRegionId = '#intensity-region-'+gcp.selectedPlot;
+	    var oldGroupId  = '#plots-plotGroup-'+gcp.selectedPlot;}
+	    
+	if (regionId != null) {
+	    var newRegionId = "#intensity-region-"+regionId;
+	    var newGroupId  = "#plots-plotGroup-"+regionId;}
 	
-        // given the regionId "t", select the region in the tracker
-	front.intensity.regions[t].selected = !front.intensity.regions[t].selected;
+	var _deselectOld = function () {
+	    if (gcp.selectedPlot != null ) {
+		d3.select(oldGroupId+" .fitPath").style("opacity",0);
+		gci.regions[gcp.selectedPlot].toggleFill();
+		};
+	    if (gcp.selectedPlot === regionId) {gcp.selectedPlot = null;}
+	};
 	
-	// select the region in the svg; switch the opacity
-	var c = d3.select("#regionGroup"+t).select("circle");
-        var o = 1-c.style("fill-opacity");
-        c.transition().duration(150).style("fill-opacity",o)
-    },
-
-    textBoxTransition: function (newOpacity,regionId) {
-        if (regionId === null)
-            {regionId = front.plots.selected}
-        if (newOpacity === 0) {
-            d3.selectAll("#txtrect").transition().duration(150).style("opacity",0);
-            d3.selectAll(".fitText").transition().duration(150).style("opacity",0).remove();
-            d3.select("#fitParamsText").attr("selectedGroup","none");
-            }
-        if (newOpacity === 1) {
-            var txt = d3.select("#fitParamsText");
-            var bbox = txt.node().getBBox();
+	var _selectNew = function () {
+	    if (oldGroupId != newGroupId) {
+		gci.regions[regionId].toggleFill()
+		d3.select(newGroupId+" .fitPath").style("opacity",1);
+		gcp.selectedPlot = regionId;
+	    };
+	};
+	
+	var _updateReadout = function () {
+	     // update the display of the fit parameters
+	    if (gcp.selectedPlot != null) {
+		// make the lines for the update
+		var thisRegion = gcp.regions[gcp.selectedPlot]
+		var fitmap = thisRegion.fitParamsMap;
+		var fitval = thisRegion.fitParamsVals;
+		var lines  = ["id: "+thisRegion.regionId,thisRegion.functional+"  "]
+		for (var key in fitmap) {lines.push(fitmap[key]+": "+fitval[parseInt(key)].toPrecision(4)+"  ")}
+		gcp.textBox.update(lines)
+	    }
 	    
-	    var tbx = front.plots.xScale(1)+10;
-	    var tby = front.plots.yScale(1e-6)-10-bbox.height;
+	    if (gcp.selectedPlot == null) {
+		gcp.textBox.hide();}
+	}
 	    
-            d3.select("#fitParamsGroup").attr("transform","translate("+tbx+","+tby+")");
-            d3.select("#txtrect").attr("width",bbox.width+10).attr("height",bbox.height);
-            d3.selectAll(".fitText").transition().duration(150).style("opacity",1);
-            d3.select("#txtrect").transition().duration(150).style("opacity",1);}
-    },
+	_deselectOld();
+	_selectNew();
+	_updateReadout();
+    }
+};
 
-    zoomIn: function () { if (!$('#lockBg').is(":checked")) {userFunctions.zoom(front.intensity.zoomFactor)}},
+var start = function () {
+
+    var attachActions = function () {
+	// using jquery, attach actions to the interface buttons. some buttons can only
+	// be pressed while the gui is unlocked, meaning there are no pending backend tasks
+	// which still need to come in.
+	$("#colormaps").children().click(function () {guiFunctions.changeBackground();});
+	$("#scales").children().click(function () {guiFunctions.changeBackground();});
+	$("#functionals").children().click(function () {if (!gui.isLocked) {userFunctions.recalculatePlot()};});
+    }
     
-    zoomOut: function () { if (!$('#lockBg').is(":checked")) {userFunctions.zoom(1./front.intensity.zoomFactor)}},
-
-    zoom: function(factor) {
+    var startIntensity = function () {
 	
-	// the current center coordinates  given by:
-	var cc = userFunctions.convertCoord(front.sizes.x/2);
-
-	// update the zoom factor
-	front.intensity.zoom *= factor;
-	    
-	// calculate the new translation values to keep the current center
-	front.intensity.staticTranslateX = front.sizes.x/(2*front.intensity.zoom)-cc.x;
-	front.intensity.staticTranslateY = front.sizes.x/(2*front.intensity.zoom)-cc.y;
-	    
-	// apply the updated transformation
-	var str = "scale("+front.intensity.zoom+") translate("+front.intensity.staticTranslateX+","+front.intensity.staticTranslateY+")"
-	d3.select('#dataimage').attr("transform",str);
+	var i = "intensity"
+	
+	// instantiate the draggable background
+	var dbg  = new draggableBackground(i,gui.sizes.window,gui.sizes.window);
+	gui.components[i].background = dbg;
+	gui.components[i].isLocked = false;
+	dbg.draw()
+	
+	// create the clickable svg buttons. arguments: action, coords {x, y}
+	// these do not need to be stored in the gui object
+	var b1 = new actionButton(i, 'zoomIn',     {x:10, y:10},                  'plus')
+	var b2 = new actionButton(i, 'zoomOut',    {x:35, y:10},                  'minus')
+	var b3 = new actionButton(i, 'lockBg',     {x:60, y:10},                  'lock')
+	var b4 = new actionButton(i, 'addRegion',  {x:10, y:gui.sizes.window-25}, 'square')
+	var b5 = new actionButton(i, 'delRegions', {x:35, y:gui.sizes.window-25}, 'x')
+	var b6 = new actionButton(i, 'recalculate',{x:gui.sizes.window-25, y:10}, 'rArrow')
+	b1.draw(); b2.draw(); b3.draw(); b4.draw(), b5.draw(), b6.draw()
 
     }
     
-    };
-
-var start = function () {
-    
-    // this is code that should run when the script is done loading.
-
-    // using jquery, attach actions to the interface buttons. the length check
-    // makes sure actions cannot be executed while a backend task (such as
-    // calculating g2) is currently running.
-    $("#load_data").click(function() {if (Object.keys(front.backendTasks).length === 0) {userFunctions.loadData()};});
-    $("#new_region").click(function() {if (Object.keys(front.backendTasks).length === 0) {userFunctions.addRegion()}});
-    $("#delete").click(function() {if (Object.keys(front.backendTasks).length === 0) {userFunctions.deleteRegions()};});
-    $("#recalculate").click(function() {if (Object.keys(front.backendTasks).length === 0) {userFunctions.recalculateG2()};});
-    $("#colormaps").children().click(function () {userFunctions.changeBackground();});
-    $("#scales").children().click(function () {userFunctions.changeBackground();});
-    $("#zoom_in").click(function () {userFunctions.zoomIn()});
-    $("#zoom_out").click(function () {userFunctions.zoomOut()});
-    $("#functionals").children().click(function () {if (Object.keys(front.backendTasks).length === 0) {userFunctions.recalculatePlot()};});
-
-    // using d3, append the right things to the divs
-    d3.select("#intensity")
-        .append("svg")
-        .attr("id","svgintensity")
-        .attr("width",front.sizes.x)
-        .attr("height",front.sizes.x);
-        
-    d3.select('#svgintensity')
-        .append("image")
-        .attr("id","dataimage")
-        .call(dragFunctions.backgroundBehavior);
-        
-    // skeletonize the right svg plots
-    // if a graph already exists, remove it
-    d3.select('#svggraphs').remove()
-    
-    // margins for svggraphs
-    width  = front.sizes.x - front.plots.margins.left - front.plots.margins.right,
-    height = front.sizes.x - front.plots.margins.top - front.plots.margins.bottom;
-         
-    front.plots.width  = width
-    front.plots.height = height
-    
-    // create the chart group.
-    d3.select("#graphs").append("svg").attr("id","svggraphs")
-        .attr("width",  width + front.plots.margins.left + front.plots.margins.right)
-        .attr("height", height + front.plots.margins.top + front.plots.margins.bottom)
+    var startPlots = function () {
+	// this stuff is populated here instead of in guiObjects because its size
+	// is interface specific. guiObjects will look for this when it draws
+	// the objects
 	
+	var gcp = gui.components.plots
+	
+	gcp.margins = {top: 20, right: 20, bottom: 30, left: 50};
+	gcp.width   = gui.sizes.window-gcp.margins.left-gcp.margins.right;
+	gcp.height  = gui.sizes.window-gcp.margins.top-gcp.margins.bottom;
+
+	// define new scales for the plots
+	gcp.domainMin = 1;
+	gcp.domainMax = gui.data.nframes;
+	gcp.rangeMin  = 1e-6;
+	gcp.rangeMax  = 1;
+	gcp.xScale    = d3.scale.log().range([0, gcp.width]).domain([gcp.domainMin,gcp.domainMax]);
+	gcp.yScale    = d3.scale.log().range([gcp.height,0]).domain([gcp.rangeMin,gcp.rangeMax]).clamp(true);
+	gcp.lineFunc  = d3.svg.line().interpolate("linear").x(function(d) { return gcp.xScale(d.x); }).y(function(d) { return gcp.yScale(d.y); });
+	gcp.rScale    = d3.scale.log().domain([1,gui.data.nframes]).range([7,0]).clamp(false);
+	gcp.regions   = {};
+	
+	// draw the plot
+	gcp.graph = new clickerGraph("plots",gui.sizes.window,gui.sizes.window,true)
+	gcp.graph.draw()
+	
+	// draw the readout
+	gcp.textBox = new clickerReadout("plots")
+    }
+
     // query the backend to get the dataid and the number of frames
     var backend = function (callback) {
     
 	var gotBack = 0;
+	var _check = function () {gotBack += 1; if (gotBack === 2) {callback(null)}}
     
 	$.getJSON(
             'xpcs/purge', {},
-            function(returned) {gotBack += 1; if (gotBack === 2) {callback(null)};}
+            function(returned) {_check()}
             );
     
 	$.getJSON(
             'xpcs/query', {},
             function(returned) {
-                front.sessionId        = returned.sessionId;
-		front.intensity.dataId = returned.dataId;
-		front.intensity.size   = returned.size;
-		front.plots.nframes    = returned.nframes;
-		front.intensity.zoom   = front.sizes.x/front.intensity.size;
-		gotBack += 1; if (gotBack === 2) { callback(null) };
+		// copy the data from returned into gui.data
+		Object.keys(returned).forEach(function(key) {gui.data[key] = returned[key]});
+		gui.data.exists = true;
+		$("#analysislink").attr("href","static/xpcs/csv/analysis_session"+gui.data.sessionId+".csv");
+		_check();
                 }
             );
         };
@@ -909,23 +370,21 @@ var start = function () {
 		    scale      = scales[s]
 		    var img    = new Image();
 		    img.onload = function () {downloaded += 1; if (downloaded === permutes) { callback(null); }}
-		    img.src    = '/static/xpcs/images/data_session'+front.sessionId+'_id'+front.intensity.dataId+'_'+color+'_'+scale+'.jpg';
+		    img.src    = '/static/xpcs/images/data_session'+gui.data.sessionId+'_id'+gui.data.dataId+'_'+color+'_'+scale+'.jpg';
 		}
 	    }
 	};
 
 	var _setImage = function (error) {
-	    d3.select("#dataimage").attr("width",front.intensity.size).attr("height",front.intensity.size)
-	    userFunctions.changeBackground();
-	    userFunctions.initGraph();
+	    guiFunctions.changeBackground();
 	}
 	
+	attachActions();
+	startIntensity()
+	startPlots()
 	queue().defer(_downloadImages).await(_setImage)
-
     }
-    
     queue().defer(backend).await(frontend);
-
 };
 
 start();

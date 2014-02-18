@@ -19,25 +19,15 @@
 .rightdiv {margin-left:1px;}
     
 .leftdiv {margin-right:1px;}
-
-rect.hologramButtons {
-    stroke: black;
+    
+.controlbuttons {
+    width: 20px;
+    height: 20px;
+    stroke: red;
     stroke-width: 2px;
-    fill:white;
     cursor:pointer;
-    opacity:1;}
-    
-rect.reconstructionButtons {
-    stroke: black;
-    stroke-width: 2px;
-    fill:white;
-    cursor:pointer;
-    opacity:1;}
-    
-path.hologramButtons {cursor:pointer;}
-path.reconstructionButtons {cursor:pointer;}
-    
-.clockface {opacity:0;}
+    opacity:1;
+}
     
 .controls {
     height:25px;
