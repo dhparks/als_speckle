@@ -1,83 +1,102 @@
 __kernel void execute(
     __global float* image, // input image
-    __global float* out    // filtered output
+    __global float* out,    // filtered output
+    __local  float* localmem // local memory
 )
 // take a sub array from the master domains image
 
 {
-    // i and j are the center coordinates
-    int i = get_global_id(0);
-    int j = get_global_id(1);
-    int rows = get_global_size(0);
-    int cols = get_global_size(1);
-    
-    float swap_min = 0.0f;
-    float swap_max = 0.0f;
-    float median = 0.0f;
 
-    // pull the elements
-    int x0 = j-2;
-    int x1 = j-1;
-    int x2 = j;
-    int x3 = j+1;
-    int x4 = j+2;
+    // median filter 5 -- pads by 2 to each side
+    int pad = 2;
+
+    // this defines the change in coordinates between
+    // a local worker index and the location in localmem
+    #define lidx(lrow,lcol,lcols) (lrow+pad)*(lcols+2*pad)+lcol+pad 
     
-    int y0 = i-2;
-    int y1 = i-1;
-    int y2 = i;
-    int y3 = i+1;
-    int y4 = i+2;
+    // get global coordinates for current worker
+    int gi  = get_global_id(0);    // global y (row)
+    int gj  = get_global_id(1);    // global x (col)
+    int gsi = get_global_size(0);  // global rows
+    int gsj = get_global_size(1);  // global cols
+    int gx  = gsj*gi+gj;
     
-    int nx0 = x0;
-    int nx1 = x1;
-    int nx2 = x2;
-    int nx3 = x3;
-    int nx4 = x4;
+    // get local coordinates for current worker
+    int li = get_local_id(0);     // localwork y (row)
+    int lj = get_local_id(1);     // localwork x (col)
+    int lsi = get_local_size(0);  // localwork rows
+    int lsj = get_local_size(1);  // localwork cols
+    int lx = lsj*li+lj;
     
-    int ny0 = y0;
-    int ny1 = y1;
-    int ny2 = y2;
-    int ny3 = y3;
-    int ny4 = y4;
+    // this is the maximum index for localmem
+    int lmimax = (lsi+2*pad)*(lsi+2*pad);
     
-    // cyclic boundary conditions
-    if (x0 < 0 || x0 >= cols) {nx0 = (x0+cols)%cols;}
-    if (x1 < 0 || x1 >= cols) {nx1 = (x1+cols)%cols;}
-    if (x2 < 0 || x2 >= cols) {nx2 = (x2+cols)%cols;}
-    if (x3 < 0 || x3 >= cols) {nx3 = (x3+cols)%cols;}
-    if (x4 < 0 || x4 >= cols) {nx4 = (x4+cols)%cols;}
-    if (y0 < 0 || y0 >= rows) {ny0 = (y0+cols)%rows;}
-    if (y1 < 0 || y1 >= rows) {ny1 = (y1+rows)%rows;}
-    if (y2 < 0 || y2 >= rows) {ny2 = (y2+rows)%rows;}
-    if (y3 < 0 || y3 >= rows) {ny3 = (y3+rows)%rows;}
-    if (y4 < 0 || y4 >= rows) {ny4 = (y4+cols)%rows;}
+    // now stuff local memory. not every worker will contribute!
+    // workers that do contribute write a (loop x loop) tile into localmem
+    int loopsi = (lsi+2*pad)/lsi;
+    if ((lsi+2*pad)%lsi > li) {loopsi++;};
     
-    float r0 = image[nx0+ny0*cols];
-    float r1 = image[nx1+ny0*cols];
-    float r2 = image[nx2+ny0*cols];
-    float r3 = image[nx3+ny0*cols];
-    float r4 = image[nx4+ny0*cols];
-    float r5 = image[nx0+ny1*cols];
-    float r6 = image[nx1+ny1*cols];
-    float r7 = image[nx2+ny1*cols];
-    float r8 = image[nx3+ny1*cols];
-    float r9 = image[nx4+ny1*cols];
-    float r10 = image[nx0+ny2*cols];
-    float r11 = image[nx1+ny2*cols];
-    float r12 = image[nx2+ny2*cols];
-    float r13 = image[nx3+ny2*cols];
-    float r14 = image[nx4+ny2*cols];
-    float r15 = image[nx0+ny3*cols];
-    float r16 = image[nx1+ny3*cols];
-    float r17 = image[nx2+ny3*cols];
-    float r18 = image[nx3+ny3*cols];
-    float r19 = image[nx4+ny3*cols];
-    float r20 = image[nx0+ny4*cols];
-    float r21 = image[nx1+ny4*cols];
-    float r22 = image[nx2+ny4*cols];
-    float r23 = image[nx3+ny4*cols];
-    float r24 = image[nx4+ny4*cols];
+    int loopsj = (lsj+2*pad)/lsj;
+    if ((lsj+2*pad)%lsj > lj) {loopsj++;};
     
+    int mi; int mj; int lmi; int gi2; int gj2;
+    for (int loopi = 0; loopi < loopsi; loopi++) {
+        for (int loopj = 0; loopj < loopsj; loopj++){
+            mi  = li*loopi;
+            mj  = lj*loopj;
+            lmi = mi*(lsj+2*pad)+mj;
+                
+            // so we can write to this location. we just need
+            // to figure out the corresponding index in image...
+            
+            gi2 = gi+mi-pad-li;
+            gj2 = gj+mj-pad-lj;
+            
+            // cyclic boundary conditions
+            if (gi2 < 0)   {gi2 = gi2+gsi;}
+            if (gj2 < 0)   {gj2 = gj2+gsj;}
+            if (gi2 > gsi) {gi2 = gi2-gsi;}
+            if (gj2 > gsj) {gj2 = gj2-gsj;}
+
+            localmem[lmi] = image[gi2*gsj+gj2];
+        }
+    };
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+    
+    // swap registers
+    float swap_min; float swap_max;
+    
+    // pull elements from localmem into private memory
+    float r0 = localmem[lidx(li-2,lj-2,lsi)];
+    float r1 = localmem[lidx(li-1,lj-2,lsi)];
+    float r2 = localmem[lidx(li+0,lj-2,lsi)];
+    float r3 = localmem[lidx(li+1,lj-2,lsi)];
+    float r4 = localmem[lidx(li+2,lj-2,lsi)];
+    
+    float r5 = localmem[lidx(li-2,lj-1,lsi)];
+    float r6 = localmem[lidx(li-1,lj-1,lsi)];
+    float r7 = localmem[lidx(li+0,lj-1,lsi)];
+    float r8 = localmem[lidx(li+1,lj-1,lsi)];
+    float r9 = localmem[lidx(li+2,lj-1,lsi)];
+    
+    float r10 = localmem[lidx(li-2,lj+0,lsi)];
+    float r11 = localmem[lidx(li-1,lj+0,lsi)];
+    float r12 = localmem[lidx(li+0,lj+0,lsi)];
+    float r13 = localmem[lidx(li+1,lj+0,lsi)];
+    float r14 = localmem[lidx(li+2,lj+0,lsi)];
+    
+    float r15 = localmem[lidx(li-2,lj+1,lsi)];
+    float r16 = localmem[lidx(li-1,lj+1,lsi)];
+    float r17 = localmem[lidx(li+0,lj+1,lsi)];
+    float r18 = localmem[lidx(li+1,lj+1,lsi)];
+    float r19 = localmem[lidx(li+2,lj+1,lsi)];
+    
+    float r20 = localmem[lidx(li-2,lj+2,lsi)];
+    float r21 = localmem[lidx(li-1,lj+2,lsi)];
+    float r22 = localmem[lidx(li+0,lj+2,lsi)];
+    float r23 = localmem[lidx(li+1,lj+2,lsi)];
+    float r24 = localmem[lidx(li+2,lj+2,lsi)];
     // run the sorting network. the median is r12
     
     swap_min = fmin(r0,r1);
@@ -863,6 +882,79 @@ __kernel void execute(
     swap_min = fmin(r12,r13);
     swap_max = fmax(r12,r13);
     r12 = swap_min;
+    r13 = swap_max;
 
-    out[j+rows*i] = r12;
-}
+    swap_min = fmin(r14,r15);
+    swap_max = fmax(r14,r15);
+    r14 = swap_min;
+    r15 = swap_max;
+
+    swap_min = fmin(r16,r24);
+    swap_max = fmax(r16,r24);
+    r16 = swap_min;
+    r24 = swap_max;
+
+    swap_min = fmin(r19,r23);
+    swap_max = fmax(r19,r23);
+    r19 = swap_min;
+    r23 = swap_max;
+
+    swap_min = fmin(r18,r22);
+    swap_max = fmax(r18,r22);
+    r18 = swap_min;
+    r22 = swap_max;
+
+    swap_min = fmin(r17,r21);
+    swap_max = fmax(r17,r21);
+    r17 = swap_min;
+    r21 = swap_max;
+
+    swap_min = fmin(r16,r20);
+    swap_max = fmax(r16,r20);
+    r16 = swap_min;
+    r20 = swap_max;
+
+    swap_min = fmin(r17,r19);
+    swap_max = fmax(r17,r19);
+    r17 = swap_min;
+    r19 = swap_max;
+
+    swap_min = fmin(r16,r18);
+    swap_max = fmax(r16,r18);
+    r16 = swap_min;
+    r18 = swap_max;
+
+    swap_min = fmin(r16,r17);
+    swap_max = fmax(r16,r17);
+    r16 = swap_min;
+    r17 = swap_max;
+
+    swap_min = fmin(r18,r19);
+    swap_max = fmax(r18,r19);
+    r18 = swap_min;
+    r19 = swap_max;
+
+    swap_min = fmin(r21,r23);
+    swap_max = fmax(r21,r23);
+    r21 = swap_min;
+    r23 = swap_max;
+
+    swap_min = fmin(r20,r22);
+    swap_max = fmax(r20,r22);
+    r20 = swap_min;
+    r22 = swap_max;
+
+    swap_min = fmin(r20,r21);
+    swap_max = fmax(r20,r21);
+    r20 = swap_min;
+    r21 = swap_max;
+
+    swap_min = fmin(r22,r23);
+    swap_max = fmax(r22,r23);
+    r22 = swap_min;
+    r23 = swap_max;
+
+    //median = r12;
+
+    out[gx] = r12;
+    }

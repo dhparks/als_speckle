@@ -904,79 +904,7 @@ __kernel void execute(
     swap_min = fmin(r12,r13);
     swap_max = fmax(r12,r13);
     r12 = swap_min;
-    r13 = swap_max;
 
-    swap_min = fmin(r14,r15);
-    swap_max = fmax(r14,r15);
-    r14 = swap_min;
-    r15 = swap_max;
-
-    swap_min = fmin(r16,r24);
-    swap_max = fmax(r16,r24);
-    r16 = swap_min;
-    r24 = swap_max;
-
-    swap_min = fmin(r19,r23);
-    swap_max = fmax(r19,r23);
-    r19 = swap_min;
-    r23 = swap_max;
-
-    swap_min = fmin(r18,r22);
-    swap_max = fmax(r18,r22);
-    r18 = swap_min;
-    r22 = swap_max;
-
-    swap_min = fmin(r17,r21);
-    swap_max = fmax(r17,r21);
-    r17 = swap_min;
-    r21 = swap_max;
-
-    swap_min = fmin(r16,r20);
-    swap_max = fmax(r16,r20);
-    r16 = swap_min;
-    r20 = swap_max;
-
-    swap_min = fmin(r17,r19);
-    swap_max = fmax(r17,r19);
-    r17 = swap_min;
-    r19 = swap_max;
-
-    swap_min = fmin(r16,r18);
-    swap_max = fmax(r16,r18);
-    r16 = swap_min;
-    r18 = swap_max;
-
-    swap_min = fmin(r16,r17);
-    swap_max = fmax(r16,r17);
-    r16 = swap_min;
-    r17 = swap_max;
-
-    swap_min = fmin(r18,r19);
-    swap_max = fmax(r18,r19);
-    r18 = swap_min;
-    r19 = swap_max;
-
-    swap_min = fmin(r21,r23);
-    swap_max = fmax(r21,r23);
-    r21 = swap_min;
-    r23 = swap_max;
-
-    swap_min = fmin(r20,r22);
-    swap_max = fmax(r20,r22);
-    r20 = swap_min;
-    r22 = swap_max;
-
-    swap_min = fmin(r20,r21);
-    swap_max = fmax(r20,r21);
-    r20 = swap_min;
-    r21 = swap_max;
-
-    swap_min = fmin(r22,r23);
-    swap_max = fmax(r22,r23);
-    r22 = swap_min;
-    r23 = swap_max;
-
-    //median = r12;
 
     out[gi+gn*gj] = r12;
 }

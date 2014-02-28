@@ -12,7 +12,7 @@ Author: Keoki Seu (kaseu@lbl.gov)
 Author: Daniel Parks (dhparks@lbl.gov)
 
 """
-__version_info__ = ('13', '10', '24')
+__version_info__ = ('14', '02', '27')
 __version__ = '.'.join(__version_info__)
 
 # if you make a new file/module name, put it here.  These are alphabetized.
@@ -22,7 +22,6 @@ __all__ = [
     "crosscorr",
     "fit",
     "gpu",
-    "interfaces",
     "io",
     "masking",
     "phasing",

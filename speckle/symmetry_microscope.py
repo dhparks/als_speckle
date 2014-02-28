@@ -334,7 +334,7 @@ class microscope(common):
         if returnables  != None: _load_returnables(returnables)
         if illumination != None: _load_illumination(illumination)
 
-        #### now calculate information with multiple dependencies
+        #### now calculate information with dependencies
         
         if self.illumination_state == 2:
             
@@ -364,7 +364,7 @@ class microscope(common):
         if self.sample_state == 2 and self.illumination_state == 2 and self.unwrap_state == 2:
             self.can_run_scan = True
      
-    def run_on_site(self,y,x):
+    def run_on_site(self,y,x,cache_spectra=False):
         
         """ Run the symmetry microscope on the site of the object described by the raster coordinates
         dy, dx. Steps are:
@@ -398,7 +398,43 @@ class microscope(common):
 
         self.counter += 1
         self.times['mastr'] += time.time()-time0
+        
+    def run_on_sites(self,coords):
+        """ Run the symmetry microscope on those coordinates given in coords.
+        
+        Coords should be iterable(iterable(y,x), iterable(y,x), iterable(y,x)...)
+        
+        This function simply does run_on_site for each element in coords and
+        caches the results. """
+        
+        assert isinstance(coords,(list,tuple,np.ndarray))
+        for x in coords:
+            assert isinstance(x,(list,tuple,np.ndarray))
+            assert len(x) == 2
 
+        # allocate memory to hold spectra
+        if 'spectrum' in self.returnables_list:
+            self.cached_spectra    = self._allocate((len(coords),self.rows,128),np.complex64,name='cached_spectra')
+        if 'spectrum_ds' in self.returnables_list:
+            self.cached_spectra_ds = self._allocate((len(coords),self.rows,128),np.complex64,name='cached_spectra_ds')
+
+        print self.returnables_list
+
+        # run the microscope on each site, then copy the spectrum
+        # to a local buffer to minimize the number of host-device transfers
+        for m,coord in enumerate(coords):
+            self.run_on_site(coord[0],coord[1],cache_spectra=True)
+            if 'spectrum'    in self.returnables_list:
+                if use_gpu: self._kexec('copy_to_buffer_f2',self.spectrum,  self.cached_spectra,   m,shape=(self.rows,128))
+                else:       self.cached_spectra[m] = self.spectrum
+            if 'spectrum_ds' in self.returnables_list:
+                if use_gpu: self._kexec('copy_to_buffer_f2',self.spectrumds,self.cached_spectra_ds,m,shape=(self.rows,128))
+                else:       self.cached_spectra_ds[m] = self.spectrum_ds
+            
+        # get the cached spectra
+        if 'spectrum'    in self.returnables_list: self.returnables['spectrum']    = self.get(self.cached_spectra)
+        if 'spectrum_ds' in self.returnables_list: self.returnables['spectrum_ds'] = self.get(self.cached_spectra_ds)
+            
     def status(self):
         """ Report on the status of the microscope vis-a-vis what required
         elements have been loaded. These attributes can all be accessed
@@ -417,7 +453,7 @@ class microscope(common):
         sys.stdout.write("  optional elements\n")
         sys.stdout.write("    ipsf:   %s\n"%ro[self.ipsf_state])
         sys.stdout.write("    blockr: %s\n"%ro[self.blocker_state])
-        sys.stdout.write("  decisisions\n")
+        sys.stdout.write("  decisions\n")
         if self.ipsf_state == 2:
             sys.stdout.write("    * Because ipsf is specified, speckle will be blurred\n")
         if self.resize_speckles:
@@ -469,7 +505,7 @@ class microscope(common):
         if 'blurred' in self.returnables_list: self.returnables['blurred'] = shift(self.get(self.blurred).real)
         if 'blurred_blocker' in self.returnables_list: self.returnables['blurred_blocker'] = shift(self.get(self.blurred)).real*blocker
 
-    def _decompose_spectrum(self):
+    def _decompose_spectrum(self,cache_spectra=False):
         """ Decompose the rotational correlation into a cosine spectrum via fft.
         Also, try to despike the correlation, then decompose the despiked data.
         
@@ -483,12 +519,12 @@ class microscope(common):
             time7 = time.time()
             
             # copy the correlation
-            if 'spectrum_ds' in self.returnables or 'correlated_ds' in self.returnables:
+            if 'spectrum_ds' in self.returnables_list or 'correlated_ds' in self.returnables_list:
                 self._cl_copy(self.unwrapped,self.despiked)
                 time0    = time.time()
                 self._kexec('despike',self.despiked,self.despiked,np.int32(4),np.float32(5),shape=(self.rows,))
                 time1    = time.time()
-                entries += (self.spectrumds,self.despiked)
+                entries += [(self.spectrumds,self.despiked),]
                 self.times['dspik'] += time1-time0
 
             # correlate and pull out the even components.
@@ -519,7 +555,7 @@ class microscope(common):
             
             entries = [(self.unwrapped,self.spectrum),]
             
-            if 'spectrum_ds' in self.returnables:
+            if 'spectrum_ds' in self.returnables_list:
                 time0         = time.time()
                 self.despiked = symmetries.despike(self.unwrapped,width=5)
                 time1         = time.time()
@@ -532,8 +568,10 @@ class microscope(common):
                 time3    = time.time()
                 self.times['dcomp'] += time3-time2
         
-        if 'spectrum' in self.returnables_list:      self.returnables['spectrum']      = self.get(self.spectrum)
-        if 'spectrum_ds' in self.returnables_list:   self.returnables['spectrum_ds']   = self.get(self.spectrumds)
+        if not cache_spectra:
+            if 'spectrum' in self.returnables_list:    self.returnables['spectrum']    = self.get(self.spectrum)
+            if 'spectrum_ds' in self.returnables_list: self.returnables['spectrum_ds'] = self.get(self.spectrumds)
+            
         if 'correlated_ds' in self.returnables_list: self.returnables['correlated_ds'] = self.get(self.despiked)    
 
     def _fft2(self,data_in,data_out,inverse=False,plan=None):
