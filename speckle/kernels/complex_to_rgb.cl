@@ -1,7 +1,7 @@
 __kernel void execute(
     __global float2* in,
     __global uchar* out, //8 bit integer
-    float max) // this scales v; needs to be precomputed
+    __global float* maxes) // this scales v; needs to be precomputed
 
 {	
         // before this runs, need to divide the array by the maximum value
@@ -24,6 +24,8 @@ __kernel void execute(
         float re = in[index_in].x;
         float im = in[index_in].y;
         
+        float max = maxes[i];
+        
         // convert re and im to hsv
         float pi = 3.14159265358979323846f;
         float s = 1.0;
@@ -34,7 +36,7 @@ __kernel void execute(
         float hf = floor(h60);
         float f = h60-hf;
         int h2 = (int)(hf);
-        
+
         // make the p, q, t components
         float p = 0;
         float q = v*(1-f);

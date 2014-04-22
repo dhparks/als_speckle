@@ -13,11 +13,10 @@ __kernel void execute(
     float2 current;
     for (int k = 0; k < angles; k++) {
 	current = in[k+row_offset];
-	temp += native_sqrt(current.x*current.x+current.y*current.y);
+	temp += native_sqrt(current.x*current.x+current.y*current.y);}
     buff[local_row] = temp/angles;
-    }
     
-    barrier(CLK_GLOBAL_MEM_FENCE);
+    barrier(CLK_LOCAL_MEM_FENCE);
     
     out[global_row] = buff[local_row];
 	

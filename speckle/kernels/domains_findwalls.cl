@@ -14,7 +14,7 @@ __kernel void execute(
 	// it turns out that using local memory for this kernel does not
 	// make things faster. presumably, this is because the
 	// memory is already aligned? in the matrix transpose example,
-	// the use of local memory prevents wasted memory transfers.
+	// the use of local memory prevents bank conflicts.
 	// in this example, the compiler might already be able to send
 	// an entire bank of results...
 	

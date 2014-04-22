@@ -21,6 +21,8 @@ except ImportError:
     DFT = np.fft.fft2
     IDFT = np.fft.ifft2
 
+from scipy.ndimage.filters import sobel
+
 def propagate_one_distance(data,energy_or_wavelength=None,z=None,pixel_pitch=None,phase=None,data_is_fourier=False,band_limit=False):
     """ Propagate a wavefield a single distance, by supplying either the energy
     (or wavelength) and the distance or by supplying a pre-calculated quadratic
@@ -278,11 +280,11 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
         if gpu_info != None:
             
             # make the phase factor; multiply the fourier rep; inverse transform
-            k_pm.execute(gpu_info[2],(int(N*N),),gpu_r.data,np.float32(t*z),gpu_f.data,gpu_phase.data)
+            k_pm.execute(gpu_info[2],(int(N*N),),None,gpu_r.data,np.float32(t*z),gpu_f.data,gpu_phase.data)
             fftplan.execute(data_in=gpu_phase.data,data_out=gpu_back.data,inverse=True,wait_for_finish=True)
 
             # slice the subregion from the back-propagation and save in store
-            k_ctb.execute(gpu_info[2],(rows,cols), gpu_store.data, gpu_back.data, np.int32(n), np.int32(N), np.int32(sr[0]), np.int32(sr[2]))
+            k_ctb.execute(gpu_info[2],(rows,cols), None, gpu_store.data, gpu_back.data, np.int32(n), np.int32(N), np.int32(sr[0]), np.int32(sr[2]))
         
     def _im_convert(norm='local'):
 
@@ -314,7 +316,7 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
                 # calculate the max for the entire array
                 abs_store = cla.empty(queue,gpu_store.shape,np.float32)
                 mv_gpu    = cla.empty(queue,(gpu_store.shape[0],),np.float32)
-                cl_abs.execute(queue,(gpu_store.size,),gpu_store.data,abs_store.data)
+                cl_abs.execute(queue,(gpu_store.size,),None,gpu_store.data,abs_store.data)
                 max_vals.fill(np.float32(cla.max(abs_store).get()))
 
             if norm == 'local':
@@ -326,20 +328,19 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
                 slice_store = cla.empty(queue,(rows,cols),np.complex64)
                 abs_store   = cla.empty(queue,(rows,cols),np.float32)
                 for n in xrange(nz):
-                    slice_frame.execute(gpu_info[2], (rows,cols), slice_store.data, gpu_store.data, np.int32(n)) # slice and do abs at the same time
-                    cl_abs.execute(queue,(slice_store.size,), slice_store.data, abs_store.data)
+                    slice_frame.execute(gpu_info[2], (rows,cols), None, slice_store.data, gpu_store.data, np.int32(n)) # slice and do abs at the same time
+                    cl_abs.execute(queue,(slice_store.size,), None, slice_store.data, abs_store.data)
                     max_vals[n] = np.float32(cla.max(abs_store).get())
                 mv_gpu = cla.to_device(queue,max_vals.astype(np.float32))
 
             # run the complex -> hsv -> rgb converter on each pixel
-            hsv_convert.execute(queue,gpu_store.shape,gpu_store.data,image_buffer.data,mv_gpu.data).wait()
+            hsv_convert.execute(queue,gpu_store.shape,None,gpu_store.data,image_buffer.data,mv_gpu.data).wait()
 
             # now convert to pil objects
             import scipy.misc as smp
-            images = []
             image_buffer = image_buffer.get()
             print image_buffer.shape
-            for image in image_buffer: images.append(smp.toimage(image))
+            images = [smp.toimage(i) for i in image_buffer]
             return gpu_store.get(), images # done
         
         if gpu_info == None:
@@ -347,11 +348,7 @@ def propagate_distances(data,distances,energy_or_wavelength,pixel_pitch,subregio
             # now convert frames to pil objects
             import scipy.misc as smp
             import io
-            images = []
-            for frame in store:
-                image = io.complex_hsv_image(frame)
-                images.append(smp.toimage(image))
-                
+            images = [smp.toimage(io.complex_hsv_image(frame)) for frame in frames]
             return store, images
        
     def _cpu_phase(z):
@@ -439,6 +436,9 @@ def apodize(data_in, sigma=3, threshold = 0.01):
         
         return sigma, threshold
     
+    def convolve(x,y):
+        return np.fft.ifft2(np.fft.fft2(x)*np.fft.fft2(y))
+    
     sigma, threshold = _check_types(data_in,sigma,threshold)
     
     ad    = np.abs(data_in)
@@ -461,11 +461,10 @@ def apodize(data_in, sigma=3, threshold = 0.01):
     c_pad  = np.zeros((data2.shape[0],2*sig2),data2.dtype)
     data2  = np.hstack([data2,c_pad])
     data2  = np.hstack([c_pad,data2])
-    c = lambda x,y: np.fft.ifft2(np.fft.fft2(x)*np.fft.fft2(y))
     
     # convolve
     kernel     = np.fft.fftshift(shape.gaussian(data2.shape,(sigma,sigma)))
-    convolved  = np.abs(c(kernel,data2))
+    convolved  = np.abs(convolve(kernel,data2))
     convolved *= data2
     
     # rescale
@@ -479,7 +478,7 @@ def apodize(data_in, sigma=3, threshold = 0.01):
     # return
     return convolved, data_in*convolved
  
-def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
+def acutance(data,method='sobel',exponent=2,normalized=True,mask=None,return_type='acutance'):
     """ Calculates the acutance of a back propagated wave field. Right now it
     just does the acutance of the magnitude component.
     
@@ -497,24 +496,29 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
         mask -- you can supply a binary ndarray as mask so that the calculation
             happens only in a certain  region of space. If no mask is supplied
             the calculation is over all space. Default is None.
+        return_type -- (default 'acutance'). If 'acutance', return just the
+            integrated acutance. If 'derivative', return an array of spatial
+            derivatives (for example, to make into images). If 'all' returns
+            acutance, derivatives as a tuple of arrays.
      
     Returns:
         a list of acutance values, one for each frame of the supplied data.
     """
    
-    def _check_types(data,method,exponent,normalized,mask):
+    def _check_types(data,method,exponent,normalized,mask,return_type):
         
         assert isinstance(data, np.ndarray) and data.ndim in (2,3), "data must be 2d or 3d array"
         assert method in ('sobel', 'roll'), "acutance derivative method %s unrecognized"%method
         assert normalized in (True, False, 1, 0), "noramlized must be boolean evaluable"
         assert isinstance(mask,(type(None),np.ndarray)), "mask must be None or ndarray"
+        assert return_type in ('acutance','derivatives','all'), "return_type %s not recognized"%(return_type)
         
         try: exponent = float(exponent)
         except: raise ValueError("couldnt cast exponent to float in propagate.acutance")
         
         return exponent
     
-    def _calc(frame):
+    def _calcD(frame):
 
         if method == 'sobel':
             from scipy.ndimage.filters import sobel
@@ -526,28 +530,42 @@ def acutance(data,method='sobel',exponent=2,normalized=True,mask=None):
             dy = frame-np.roll(frame,1,axis=1)
     
         gradient = np.sqrt(dx**2+dy**2)**exponent
+        
+        return gradient*mask
                 
-        a = np.sum(gradient*mask)
-        if normalized: a *= 1./np.sum(frame*mask)
-        return a
+        #a = np.sum(gradient*mask)
+        #if normalized: a *= 1./np.sum(frame*mask)
+        #return a
 
-    exponent = _check_types(data,method,exponent,normalized,mask)
+    exponent = _check_types(data,method,exponent,normalized,mask,return_type)
     
     import masking
     if data.ndim == 2: data.shape = (1,data.shape[0],data.shape[1])
     if mask == None:   mask = np.ones(data.shape[1:],float)
 
-    bounds = masking.bounding_box(mask)
-    
-    if bounds != None:
-        data = data[:,bounds[0]:bounds[1],bounds[2]:bounds[3]]
-        mask = mask[bounds[0]:bounds[1],bounds[2]:bounds[3]]
+    b    = masking.bounding_box(mask)
+    data = np.abs(data)
 
-    # calculate the acutance
-    acutance_list = []
-    for n,frame in enumerate(data):
-        acutance_list.append(_calc(np.abs(frame).real))
-        
-    # return the calculation
-    return acutance_list
+    # first, calculate the derivatives. i tried using multiprocessing.pool
+    # on this calculation but it turned out that the multiprocessing
+    # overhead and the simplicity of the calculation made the total
+    # time about twice as much, even using 4 processors (!).
+    derivatives = np.zeros_like(data)
+    for j in range(data.shape[0]): derivatives[j] = _calcD(data[j])
+
+    # bail out early if possible
+    if return_type == 'derivatives': return derivatives
+    
+    # now sum the derivatives to get the acutance
+    #acutance = np.array([x[1] for x in output])
+    acutance = np.sum(np.sum(derivatives,axis=-1),axis=-1)
+    
+    # normalize if requested
+    if normalized:
+        #acutance /= np.array([x[2] for x in output])
+        acutance /= np.sum(np.sum(data*mask,axis=-1),axis=-1)
+
+    # final returns
+    if return_type == 'acutance': return acutance
+    if return_type == 'all': return acutance, derivatives
 

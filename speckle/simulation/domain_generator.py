@@ -641,7 +641,7 @@ class generator(common):
         self.copy(self.domains,self.incoming)
         
         # find the domain walls. these get used in self.make_available. make the correct sites available for modification
-        self.findwalls.execute(self.queue,(self.N,self.N),self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,np.int32(self.N))
+        self.findwalls.execute(self.queue,(self.N,self.N),None,self.domains.data,self.allwalls.data,self.poswalls.data,self.negwalls.data,np.int32(self.N))
         self.make_available1(self.available,self.allwalls,self.negpins,self.pospins)
         #if net_m > self.goal_m: self.make_available1(self.available,self.poswalls,self.negpins,self.pospins)
         #if net_m < self.goal_m: self.make_available1(self.available,self.negwalls,self.negpins,self.pospins)

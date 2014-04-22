@@ -204,10 +204,10 @@ class phasing(common):
                     print "  iteration %s"%(iteration+1)
             
         # copy the current reconstruction to the save buffer
-        if use_gpu: self._kexec('copy_to_buffer', self.savebuffer,self.psi_in,self.c0,self.r0, self.numtrial,self.N,shape=(self.cols,self.rows))
+        if use_gpu:
+            self._kexec('copy_to_buffer_f2', self.savebuffer,self.psi_in,self.c0,self.r0,self.numtrial,self.N,shape=(self.cols,self.rows))
         else:
-            self.psi_in = self.psi_in.astype(np.complex64)
-            self.savebuffer[self.numtrial] = self.psi_in[self.r0:self.r0+self.rows,self.c0:self.c0+self.cols]
+            self.savebuffer[self.numtrial] = self.psi_in[self.r0:self.r0+self.rows,self.c0:self.c0+self.cols].astype(np.complex64)
 
         self.numtrial += 1
 
@@ -1138,7 +1138,7 @@ def gpu_prtf(gpuinfo,estimates,N=None,silent=True,prtfq=False):
     fftplan.execute(data_in=frames.data,data_out=transformtmp.data,batch=L)
     
     # accumulate along the frame axis
-    prtf_accumulate.execute(queue, (N,N), np.int32(L), transformtmp.data, accumulation.data)
+    prtf_accumulate.execute(queue, (N,N), None, np.int32(L), transformtmp.data, accumulation.data)
         
     # get the data off the gpu. shift.
     prtf = np.fft.fftshift(accumulation.get())
@@ -1304,17 +1304,17 @@ def gpu_rftf(gpuinfo,estimates,goal_modulus,ipsf=None,silent=True,rftfq=False):
     
     # if we have an ipsf, do the convolution of the abs2
     if ipsf != None:
-        abs2.execute(queue,(L*N*N,),transformtmp.data,transformtmp.data) # coherent speckle
+        abs2.execute(queue,(L*N*N,),None,transformtmp.data,transformtmp.data) # coherent speckle
         fftplan.execute(data_in=transformtmp.data,data_out=transformtmp.data,batch=L) # autocorrelation
-        mult.execute(queue,(N,N), np.int32(L), gpu_ipsf.data, transformtmp.data, transformtmp.data)  # multiply by ipsf across the frame axis
+        mult.execute(queue,(N,N), None,np.int32(L), gpu_ipsf.data, transformtmp.data, transformtmp.data)  # multiply by ipsf across the frame axis
         fftplan.execute(data_in=transformtmp.data,data_out=transformtmp.data,inverse=True,batch=L) # blurred speckle
-        sqrt.execute(queue,(L*N*N,),transformtmp.data,transformtmp.data) # blurred modulus
+        sqrt.execute(queue,(L*N*N,),None,transformtmp.data,transformtmp.data) # blurred modulus
         
     if ipsf == None:
-        abs1.execute(queue,(L*N*N,),transformtmp.data,transformtmp.data)
+        abs1.execute(queue,(L*N*N,),None,transformtmp.data,transformtmp.data)
 
     # accumulate across the frame axis
-    rftf_accumulate.execute(queue,(N*N,),np.int32(L), modulus.data, accumulation.data, transformtmp.data) # this has a bug of some sort
+    rftf_accumulate.execute(queue,(N*N,),None,np.int32(L), modulus.data, accumulation.data, transformtmp.data) # this has a bug of some sort
     rftf = np.fft.fftshift(accumulation.get())
     
     # unwrap and do the angular average
@@ -1507,7 +1507,7 @@ def covar_results(gpuinfo,data,threshold=0.85,mask=None):
     for n in range(frames):
 
         # get the first frame buffered
-        slice_covar.execute(queue,(N,N),dft1.data,gpu_data.data,np.int32(0),np.int32(0),np.int32(n),np.int32(N)).wait()
+        slice_covar.execute(queue,(N,N),None,dft1.data,gpu_data.data,np.int32(0),np.int32(0),np.int32(n),np.int32(N)).wait()
         
         # find the indices of which frames we need to correlate
         row = mask[n,n:]
@@ -1516,7 +1516,7 @@ def covar_results(gpuinfo,data,threshold=0.85,mask=None):
         for m in do:
             
             # get the second frame buffered
-            slice_covar.execute(queue,(N,N),dft2.data,gpu_data.data,np.int32(0),np.int32(0),np.int32(m),np.int32(N))
+            slice_covar.execute(queue,(N,N),None,dft2.data,gpu_data.data,np.int32(0),np.int32(0),np.int32(m),np.int32(N))
                     
             # multiply conj(dft1) and dft2. store in product. inverse transform
             # product; keep in place. make the magnitude of product in corr. take

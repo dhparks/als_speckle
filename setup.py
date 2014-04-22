@@ -2,8 +2,8 @@ from distutils.core import setup
 
 setup(
     name='speckle',
-    version='13.10.24',
-    packages=[ 'speckle', 'speckle.simulation', 'speckle.interfaces' ],
+    version='14.03.26',
+    packages=[ 'speckle', 'speckle.simulation'],
     requires = ['scipy', 'numpy'],
     package_data = { 'speckle': ['kernels/*.cl']},
     author = "Daniel Parks, Keoki Seu",

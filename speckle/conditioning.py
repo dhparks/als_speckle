@@ -410,7 +410,7 @@ def remove_hot_pixels(data_in, iterations=1, threshold=2, gpu_info=None):
             
             if gpu_info != None:
                 gpu_median3.execute(queue,frame.shape, (16,16), gpu_data_hot.data, gpu_data_cold.data,cl.LocalMemory(18*18*4))
-                gpu_hotpix.execute(queue, (frame.size,),gpu_data_hot.data, gpu_data_cold.data,numpy.float32(threshold))
+                gpu_hotpix.execute(queue, (frame.size,),None,gpu_data_hot.data, gpu_data_cold.data,numpy.float32(threshold))
             else:
                 median = medfilt(frame)+.1
                 frame  = numpy.where(frame/median > threshold, median, frame)
@@ -884,7 +884,6 @@ def sort_configurations(data,capture=0.5,louvain=False,gpu_info=None):
             from . import gpu
             assert gpu.valid(gpu_info)
         
-   
     def _sort(weights,capture):
         
         class configurations:

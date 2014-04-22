@@ -310,8 +310,8 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
         # if the number of frames is not a power of two, find the next power of
         # 2 larger than twice the number of frames.
         p2 = ((fr & (fr - 1)) == 0)
-        if p2: L = int(2*p2)
-        else:  L = int(2**(math.floor(math.log(2*fr,2))+1))
+        if p2:     L = int(2*p2)
+        if not p2: L = int(2**(math.floor(math.log(2*fr,2))+1))
         gpu_d['L']   = np.int32(L)
         
         # build the kernels necessary for the correlation
@@ -365,13 +365,13 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
             # in the future, combine abs1 and cpy2. however this will be a very small speedup...
             pxls = int(rows*gpu_d['L'])
             t0 = time.time()
-            gpu_d['setz'].execute(gpu_d['q'],(pxls,),cpx.data).wait()
-            gpu_d['cpy1'].execute(gpu_d['q'],(rows,fr),flt.data,cpx.data,gpu_d['L'])
+            gpu_d['setz'].execute(gpu_d['q'],(pxls,),None,cpx.data).wait()
+            gpu_d['cpy1'].execute(gpu_d['q'],(rows,fr),None,flt.data,cpx.data,gpu_d['L'])
             gpu_d['fftp'].execute(cpx.data,batch=rows,wait_for_finish=True)
-            gpu_d['abs2'].execute(gpu_d['q'],(pxls,),cpx.data,cpx.data).wait()
+            gpu_d['abs2'].execute(gpu_d['q'],(pxls,),None,cpx.data,cpx.data).wait()
             gpu_d['fftp'].execute(cpx.data,batch=rows,wait_for_finish=True,inverse=True)
-            gpu_d['abs1'].execute(gpu_d['q'],(pxls,),cpx.data,cpx.data).wait()
-            gpu_d['cpy2'].execute(gpu_d['q'],(rows,fr),cpx.data,flt.data,gpu_d['L'])
+            gpu_d['abs1'].execute(gpu_d['q'],(pxls,),None,cpx.data,cpx.data).wait()
+            gpu_d['cpy2'].execute(gpu_d['q'],(rows,fr),None,cpx.data,flt.data,gpu_d['L'])
             t1 = time.time()
             f = flt.get()
             t2 = time.time()
@@ -396,7 +396,7 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
         return numerator, set_time, calc_time, get_time
 
     if gpu_info != None: batch_size = 2048
-    
+
     cpu_data     = np.ascontiguousarray(data.reshape(fr,ys*xs).transpose())
     output       = np.zeros((ys*xs,fr),np.float32)
     batches, rem = (ys*xs)/batch_size, (ys*xs)%batch_size
@@ -410,6 +410,7 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
     # make plans, allocate memory, etc
     if gpu_info == None: cpu_d = _prep_cpu()
     if gpu_info != None: gpu_d = _prep_gpu()
+    #print gpu_d
         
     # run the correlations in batches for improved speed. first, make a list of
     # jobs, then iterate over the jobs list. in theory, this could also be

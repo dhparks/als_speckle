@@ -489,13 +489,13 @@ def pairwise_covariances(data, save_memory=False, gpu_info=None, mask=1):
         for n in range(N):
     
             # slice the first dft into dft1
-            gpud['slice'].execute(gpud['queue'],(L,L),gpud['dft1'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(n),np.int32(L)).wait()
+            gpud['slice'].execute(gpud['queue'],(L,L),None,gpud['dft1'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(n),np.int32(L)).wait()
     
             for m in _get_do(n):
                 
                 # slice the second dft into dft2, then find the maximum value of
                 # the cross correlation of dft1 and dft2
-                gpud['slice'].execute(gpud['queue'],(L,L),gpud['dft2'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(m),np.int32(L))
+                gpud['slice'].execute(gpud['queue'],(L,L),None,gpud['dft2'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(m),np.int32(L))
                 _gpu_crosscorr()
                 max_val = cm(gpud['corr']).get()
                 cc[n,m] = max_val

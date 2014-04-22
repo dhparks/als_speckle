@@ -288,7 +288,7 @@ def trace_object(data_in, start, detect_val=None, return_type='detected'):
             ne.append(n)
     
     iteration = 1
-    edge = [start]
+    edge = [start,]
     
     while edge:
         new_edge = []
@@ -302,7 +302,7 @@ def trace_object(data_in, start, detect_val=None, return_type='detected'):
         iteration += 1
         
     if return_type == 'iterations': return detected
-    if return_type == 'detected': return detected.astype(bool)
+    if return_type == 'detected':   return detected.astype(bool)
     
 def find_all_objects(data,detect_val=(.95,1.05),return_type='objects'):
     """ Find all the objects in an array. This is intended for finding all the
