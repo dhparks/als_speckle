@@ -324,14 +324,15 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
         gpu_d['norm'] = gpu.build_kernel_file(gpu_d['c'], gpu_d['d'], kp+'xpcs_fr_norm.cl')
         
         # if the plan for this size does not exist, create the plan
-        global fftplans
-        if L not in fftplans.keys():
-            fftplan     = Plan((L,),queue=gpu_d['q'])
-            fftplans[L] = fftplan
-        else:
-            fftplan = fftplans[L]
-        gpu_d['fftp'] = fftplan
-            
+        #global fftplans
+        #key = '%s-%s'%(id(gpu_info[2]),L)
+        #if L not in fftplans.keys():
+        #    fftplan = Plan((L,),queue=gpu_d['q'])
+        #    fftplans[key] = fftplan
+        #else:
+        #    fftplan = fftplans[key]
+        gpu_d['fftp'] = Plan((L,),queue=gpu_d['q'])
+        
         # allocate memory for the correlations
         if batches > 0:
             gpu_d['bf'] = cla.empty(gpu_d['q'], (batch_size, fr), np.float32)
@@ -410,7 +411,6 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
     # make plans, allocate memory, etc
     if gpu_info == None: cpu_d = _prep_cpu()
     if gpu_info != None: gpu_d = _prep_gpu()
-    #print gpu_d
         
     # run the correlations in batches for improved speed. first, make a list of
     # jobs, then iterate over the jobs list. in theory, this could also be
@@ -425,6 +425,7 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
     
     set_time, calc_time, get_time = 0, 0, 0
     
+    t0 = time.time()
     for n, job in enumerate(jobs):
         start, stop, flt, cpx = job
         g2batch, set_time0, calc_time0, get_time0 = _calc_g2(cpu_data[start:stop],flt,cpx)
@@ -435,6 +436,10 @@ def _g2_numerator(data,batch_size=64,gpu_info=None):
         
     # normalize, reshape, and return data
     output *= 1./(fr-np.arange(fr))
+    t1 = time.time()
+    
+    print "fft executation time %s"%(t1-t0)
+    
     return output.transpose().reshape((fr,ys,xs))
 
 def g2_symm_borthwick_norm(img, numtau, qAvg = ("circle", 10), fft=False):
