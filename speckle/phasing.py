@@ -800,7 +800,7 @@ class phasing(common):
             
         if not use_gpu:
             
-            return ifft2(fft2(to_convolve)*kernel)
+            return self.ifft2(self.fft2(to_convolve)*kernel)
 
     def _fft2(self,data_in,data_out,inverse=False):
         # unified wrapper for fft.
