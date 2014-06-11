@@ -11,5 +11,10 @@ __kernel void execute(
 	float b = in1[i].y;
 	float c = in2[i];
 
-	out[i] = (float2)(a/c,b/c);
+	float ac = a/c;
+	float bc = b/c;
+	if (isnan(ac)) {ac = 0;}
+	if (isnan(bc)) {bc = 0;}
+
+	out[i] = (float2)(ac,bc);
     }
