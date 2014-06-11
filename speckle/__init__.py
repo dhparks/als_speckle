@@ -26,6 +26,7 @@ __all__ = [
     "masking",
     "phasing",
     "propagate",
+    "ptychography",
     "scattering",
     "shape",
     "symmetries",
