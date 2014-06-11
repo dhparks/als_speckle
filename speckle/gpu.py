@@ -130,7 +130,7 @@ class common:
         N = in1.size
             
         arg1, arg2 = in1, in2
-            
+
         if d1 == 'float32':
             if d2 == 'float32':
                 func = 'divide_f_f'
@@ -140,7 +140,7 @@ class common:
                 func = 'divide_f_f2'
                 assert d3 == 'complex64', "float / complex = complex"
 
-        if d2 == 'complex64':
+        if d1 == 'complex64':
             if d2 == 'float32':
                 func = 'divide_f2_f'
                 assert d3 == 'complex64', "complex / float = complex"
@@ -151,7 +151,7 @@ class common:
                 
         self._kexec(func,arg1,arg2,out)
         
-    def _cl_map2d(self,in1,out,x_plan,y_plan,**kwargs):
+    def _cl_map2d(self, in1, out, x_plan, y_plan, **kwargs):
         """ Wrapper for two places where map_coords_f gets called."""
         
         # check types
@@ -173,7 +173,7 @@ class common:
         
         self._kexec(func,in1,c_in,r_in,out,x_plan,y_plan,np.int32(1),**kwargs)
                 
-    def _cl_mult(self,in1,in2,out,**kwargs):
+    def _cl_mult(self, in1, in2, out, **kwargs):
         """ Wrapper function to the various array-multiplication kernels. Every
         combination of input requires a different kernel. This function checks
         dtypes and automatically selects the appropriate kernel.
@@ -250,7 +250,7 @@ class common:
             
         self._kexec(func,arg1,arg2,out,kwargs)
 
-    def _cl_sqrt(self,in1,out):
+    def _cl_sqrt(self, in1, out):
         """ Wrapper func to the various abs kernels. Checks types of in1 and out
         to select appropriate kernel. """
         
@@ -269,7 +269,7 @@ class common:
         
         self._kexec(func,in1,out)
         
-    def _cl_zero(self,in1):
+    def _cl_zero(self, in1):
         """ Wrapper func to set_zero kernels. """
         
         d1 = in1.dtype
@@ -279,7 +279,7 @@ class common:
         
         self._kexec(func,in1)
         
-    def _kexec(self,name,*args,**kwargs):
+    def _kexec(self, name, *args, **kwargs):
         """ Wrapper function to execute elementwise kernels. If the kernel
         does not exist, try to build it. If the named file cannot be found,
         terminate execution of the program.
@@ -330,8 +330,8 @@ class common:
         except AttributeError:
         
             # try to build the kernel
-            cmd1 = "self.%s = build_kernel_file(self.context, self.device, self.kp+'%s_%s.cl')"%(name,self.project,name)
-            cmd2 = "self.%s = build_kernel_file(self.context, self.device, self.kp+'common_%s.cl')"%(name,name)
+            cmd1 = "self.%s = build_kernel_file(self.context, self.device, self.kp+'%s_%s.cl')"%(name,self.project, name)
+            cmd2 = "self.%s = build_kernel_file(self.context, self.device, self.kp+'common_%s.cl')"%(name, name)
             
             try:
                 exec(cmd1)
@@ -347,14 +347,14 @@ class common:
 
             exec(cmd)
 
-    def _set(self,what,where):
+    def _set(self, what, where):
         """ Wrapper to move "what" to "where" regardless of device.
         Only applicable to arrays. Care must be taken that, in the case of
         GPUs, memory is allocated first. For CPUs, allocation gets handled
         dynamically by the interpreter. """
 
-        assert what.shape == where.shape, "incompatible shapes %s %s"%(what.shape,where.shape)
-        assert what.dtype == where.dtype, "incompatible types %s %s"%(what.dtype,where.dtype)
+        assert what.shape == where.shape, "incompatible shapes %s %s"%(what.shape, where.shape)
+        assert what.dtype == where.dtype, "incompatible types %s %s"%(what.dtype, where.dtype)
         if self.use_gpu:
             import pyopencl.array as cla
             where.set(what,queue=self.queue)
@@ -362,7 +362,7 @@ class common:
             where = what
         return where
     
-    def get(self,something):
+    def get(self, something):
         if self.use_gpu:
             try:
                 something.isgpu
@@ -372,28 +372,29 @@ class common:
         if not self.use_gpu:
             return something
     
-    def start(self,gpu_info=None):
+    def start(self, gpu_info=None):
         # inits the gpu. this is the necessary method ONLY IF
         # GPU.INIT WAS NOT CALLED EARLIER TO TURN ON THE GPU.
         
-        self.ints    = (int,np.int8,np.int16,np.int32,np.uint8)
-        self.floats  = (float,np.float16,np.float32,np.float64)
-        self.float2s = (complex,np.complex64,np.complex128)
+        self.ints    = (int, np.int8, np.int16, np.int32, np.uint8)
+        self.floats  = (float, np.float16, np.float32, np.float64)
+        self.float2s = (complex, np.complex64, np.complex128)
         
         try:
             import string
             self.kp = string.join(__file__.split('/')[:-1],'/')+'/kernels/'
             if gpu_info == None:
-                self.context,self.device,self.queue,self.platform = init()
-                self.gpu_info = self.context,self.device,self.queue,self.platform
+                self.context, self.device, self.queue, self.platform = init()
+                self.gpu_info = self.context, self.device, self.queue, self.platform
+                import pyfft
             else:
                 self.gpu_info = gpu_info
-                self.context,self.device,self.queue,self.platform = self.gpu_info
-            return True # becomes the new self.use_gpu
+                self.context, self.device, self.queue, self.platform = self.gpu_info
+            self.use_gpu = True
         
         except:
             print "couldnt init gpu, reverting to cpu"
-            return False # becomes the new self.use_gpu
+            self.use_gpu = False
 
 class GPUInitError(Exception):
     def __init__(self, msg, platform=None, device=None, context=None, queue=None):
