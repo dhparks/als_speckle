@@ -4,12 +4,12 @@ Author: Daniel Parks (dhparks@lbl.gov)
 """
 import numpy as np
 
-from . import shape, wrapping, crosscorr
+from . import wrapping
 
 DFT = np.fft.fft2
 shift = np.fft.fftshift
 
-def make_cosines(components,N):
+def make_cosines(components, N):
     """ Generates cosines to use in cosine decompsition of an autocorrelation.
     
     arguments:
@@ -19,15 +19,18 @@ def make_cosines(components,N):
     returns:
         ndarray of shape (len(components),N) containing cosine values
     """
-    assert isinstance(components,(tuple,list,np.ndarray)), "components must be iterable"
-    assert isinstance(N,int), "N must be int, is %s"%N
+    assert isinstance(components, (tuple, list, np.ndarray)),\
+    "components must be iterable"
+    
+    assert isinstance(N, int), "N must be int, is %s"%N
 
     x = (np.arange(N).astype(float))*(2*np.pi/N)
-    cosines = np.zeros((len(components),N),float)
-    for n,c in enumerate(components): cosines[n] = x*c
+    cosines = np.zeros((len(components), N), float)
+    for n, c in enumerate(components):
+        cosines[n] = x*c
     return np.cos(cosines)
 
-def decompose(ac,cosines):
+def decompose(ac, cosines):
     
     """ Do an explicit cosine decomposition by multiply-sum method
     
@@ -38,17 +41,21 @@ def decompose(ac,cosines):
     returns:
         cosine spectrum, shape (len(ac),len(cosines))
     """
-    assert isinstance(ac,np.ndarray), "ac must be array"
-    assert isinstance(cosines,np.ndarray), "cosines must be array"
-    assert len(cosines[0]) == len(ac[0]), "cosines are wrong shape (c %s ac %s)"%(len(cosines[0]),len(ac[0]))
+    assert isinstance(ac, np.ndarray),\
+    "ac must be array"
+    
+    assert isinstance(cosines, np.ndarray),\
+    "cosines must be array"
+    
+    assert len(cosines[0]) == len(ac[0]),\
+    "cosines are wrong shape (c %s ac %s)"%(len(cosines[0]), len(ac[0]))
     
     N = float(len(ac[0]))
     
-    decomposition = np.zeros((len(ac),len(cosines)),float)
-    for y,row in enumerate(ac):
+    decomposition = np.zeros((len(ac), len(cosines)), float)
+    for y, row in enumerate(ac):
         for x, cosine in enumerate(cosines):
-            d = np.sum(row*cosine)
-            decomposition[y,x] = np.sum(row*cosine)
+            decomposition[y, x] = np.sum(row*cosine)
     return decomposition/float(N)
 
 def fft_decompose(ac):
@@ -66,42 +73,50 @@ def fft_decompose(ac):
     returns:
         cosine spectrum of shape (ac.shape[0],ac.shape[1]/4) """
         
-    assert isinstance(ac,np.ndarray)
+    assert isinstance(ac, np.ndarray)
     
     if ac.ndim == 2:
-        fft = DFT(ac,axes=(1,))
-        return fft[:,2:ac.shape[1]/2+2:2]/ac.shape[1]
+        fft = DFT(ac, axes=(1,))
+        return fft[:, 2:ac.shape[1]/2+2:2]/ac.shape[1]
     if ac.ndim == 1:
         fft = np.fft.fft(ac)
         return fft[2:ac.shape[0]/2+2:2]/ac.shape[0]
         
-def despike(ac,width=4):
+def despike(ac, width=4):
+    """ Quadratic interpolation to try to remove the spike
+    in the angular correlation. """
+    
 
-    def _do(x,w):
+    def _do(x, w):
+        """ Helper """
         # cubic -> quadratic interpolation
-        v0 = x[:,180-2*w]
-        v1 = x[:,180-1*w]
-        v2 = x[:,180+1*w]
-        v3 = x[:,180+2*w]
+        v0 = x[:, 180-2*w]
+        v1 = x[:, 180-1*w]
+        v2 = x[:, 180+1*w]
+        v3 = x[:, 180+2*w]
         d1 = (v3-v2)/w
         d0 = (v1-v0)/w
-        b  = (d1-d0)/(4*w)
-        d  = (2*(v2+v1)-w*(d1-d0))/4
+        b = (d1-d0)/(4*w)
+        d = (2*(v2+v1)-w*(d1-d0))/4
         col_start = 180-w
-        for n in range(2*w): x[:,col_start+n] = b*(n-w)*(n-w)+d
+        for n in range(2*w):
+            x[:, col_start+n] = b*(n-w)*(n-w)+d
         return x
         
-    ac = _do(ac,width)
-    ac = np.roll(ac,180,axis=1)
-    ac = _do(ac,width)
-    return np.roll(ac,90,axis=1)
+    ac = _do(ac, width)
+    ac = np.roll(ac, 180, axis=1)
+    ac = _do(ac, width)
+    return np.roll(ac, 90, axis=1)
 
-def resize(data,shape):
+def resize(data, dims):
+    """ Wrapper to resize an image """
     import scipy.misc as smp
     import Image
-    return smp.fromimage(smp.toimage(data,mode='F').resize(shape,Image.ANTIALIAS))
+    tmp = smp.fromimage(smp.toimage(data, mode='F'))
+    tmp = tmp.resize(dims, Image.ANTIALIAS)
+    return tmp
 
-def rot_sym(speckles,uwplan=None,resize_to=360,get_back=('spectra_ds',)):
+def rot_sym(speckles, uwplan=None, resize_to=360, get_back=None):
     """ Given a speckle pattern, decompose its angular autocorrelation into a
         cosine series.
 
@@ -118,114 +133,169 @@ def rot_sym(speckles,uwplan=None,resize_to=360,get_back=('spectra_ds',)):
             to this width. number of rows remains unchanged. this should be a
             multiple of 4.
 
-        get_back (optional): a tuple of keywords allowing a dictionary of intermediates to
-            be returned. mainly for use with cpu_microscope in order to unify
-            output syntax with gpu_microscope
+        get_back (optional): a tuple of keywords allowing a dictionary of
+            intermediates to be returned. mainly for use with cpu_microscope
+            in order to unify output syntax with gpu_microscope
             allowed kwords:
-                'spectra' - all frames of the input decomposed up to the nyquist limit
+                'spectra' - all frames input decomposed up to the nyquist limit
+                'sepctra_ds' - spectra with spike removed through interpolation
                 'unwrapped' - all frames unwrapped.
-                'correlation'
-            if specified, you get a dictionary back that you call like: output['spectra']
+                'correlations'
+                'correlations_ds
+            if specified, you get a dictionary back that you call like:
+                output['spectra']
 
     returns:
         an ndarray of shape (R-r,len(components)) giving the cosine component
             values of the decomposition.
             
-        others come back if get_back is specified but this is not the default behavior
+        others come back if get_back is specified but this is not the default
+        behavior
     """
+    
+    if get_back == None:
+        get_back = ('spectra_ds',)
+    
     # check types
-    assert isinstance(speckles,np.ndarray) and speckles.ndim in (2,3), "input data must be 2d array"
-    assert isinstance(uwplan,(np.ndarray,tuple,list,type(None))),      "plan type is unrecognized"
+    assert isinstance(speckles, np.ndarray) and speckles.ndim in (2, 3),\
+    "input data must be 2d array"
+    
+    assert isinstance(uwplan, (np.ndarray, tuple, list, type(None))),\
+    "plan type is unrecognized"
+    
     assert len(get_back) > 0
     assert resize_to%4 == 0
     
+    
+    
     was_2d = False
     if speckles.ndim == 2:
-        speckles.shape = (1,speckles.shape[0],speckles.shape[1])
+        speckles.shape = (1, speckles.shape[0], speckles.shape[1])
         was_2d = True
     
-    L,N,M = speckles.shape #N probably = M but dont assume it
-    R     = min([N,M])
+    L, N, M = speckles.shape #N probably = M but dont assume it
+    R = min([N, M])
 
     # if plan comes in as a tuple, make the unwrap plan
-    if isinstance(uwplan,tuple):
-        if len(uwplan) == 2: uwplan = wrapping.unwrap_plan(plan[0],plan[1],(N/2,M/2))
-        if len(uwplan) == 3: uwplan = wrapping.unwrap_plan(plan[0],plan[1],plan[2])
-    if uwplan == None:       uwplan = wrapping.unwrap_plan(0,R/2,(N/2,M/2))
-    R,r = uwplan[:,-1]
+    if isinstance(uwplan, tuple):
+        if len(uwplan) == 2:
+            uwplan = wrapping.unwrap_plan(uwplan[0], uwplan[1], (N/2, M/2))
+        if len(uwplan) == 3:
+            uwplan = wrapping.unwrap_plan(uwplan[0], uwplan[1], uwplan[2])
+    if uwplan == None:
+        uwplan = wrapping.unwrap_plan(0, R/2, (N/2, M/2))
+    R, r = uwplan[:, -1]
     cols = int((len(uwplan[0])-1)/abs(R-r))
     rows = int(R-r)
 
     # if resizing is requested, as it is by default, create a resizing plan
     if resize_to != None:
-        rsplan = wrapping.resize_plan((rows,cols),(rows,resize_to))
-        cols   = resize_to
+        rsplan = wrapping.resize_plan((rows, cols), (rows, resize_to))
+        cols = resize_to
         
-    # initialize the output
-    if 'i0'            in get_back: i0s          = np.zeros((L,rows,resize_to),  np.float32)
-    if 'spectra'       in get_back: spectra      = np.zeros((L,rows,resize_to/4),np.float32)
-    if 'spectra_ds'    in get_back: spectra_ds   = np.zeros((L,rows,resize_to/4),np.float32)
-    if 'unwrapped'     in get_back: unwrappeds   = np.zeros((L,rows,resize_to),  np.float32)
-    if 'correlated'    in get_back: correlations = np.zeros((L,rows,resize_to),  np.float32)
-    if 'correlated_ds' in get_back: correlations = np.zeros((L,rows,resize_to),  np.float32)
+    def _prep_output():
+        """ Helper which sets up the output dictionary """
+        
+        get_back2 = []
+        for kword in get_back:
+            if kword not in ('i0', 'spectra', 'spectra_ds', 'unwrapped',
+                             'correlations', 'correlations_ds'):
+                print "kword %s not suppored"%kword
+            else:
+                get_back2.append(kword)
+        
+        output = {}
+        s1 = (L, rows, resize_to)
+        s2 = (L, rows, resize_to/4)
+        sizes = {'i0':s1, 'spectra':s2, 'spectra_ds':s2,
+                 'unwrapped':s1, 'correlations':s1, 'correlations_ds':s1}
+        
+        d = np.float32
+        if 'i0' in get_back:
+            output['i0'] = np.zeros(sizes['i0'], d)
+            
+        if 'spectra' in get_back:
+            output['i0'] = np.zeros(sizes['spectra'], d)
+            
+        if 'spectra_ds' in get_back:
+            output['i0'] = np.zeros(sizes['spectra_ds'], d)
+            
+        if 'unwrapped' in get_back:
+            output['unwrapped'] = np.zeros(sizes['unwrapped'], d)
+            
+        if 'correlations' in get_back:
+            output['correlations'] = np.zeros(sizes['correlations'], d)
+            
+        if 'correlations_ds' in get_back:
+            output['correlations_ds'] = np.zeros(sizes['correlations_ds'], d)
+            
+        return output, get_back2
+    
+    output, get_back = _prep_output()
 
     # each frame is analyzed in the same sequence:
     # 1. unwrap
     # 2. correlate/normalize
     # 3. despike
     # 3. decompose
-    for f,frame in enumerate(speckles):
+    for f, frame in enumerate(speckles):
         
         # unwrap
-        unwrapped = wrapping.unwrap(frame,uwplan)
+        unwrapped = wrapping.unwrap(frame, uwplan)
         
         # maybe resize
-        if resize_to != None: unwrapped = wrapping.resize(unwrapped,rsplan)
+        if resize_to != None:
+            unwrapped = wrapping.resize(unwrapped, rsplan)
         
-        # correlate and normalize
-        i0       = np.outer(np.average(unwrapped,axis=1)**2,np.ones(cols)) # this is the denominator (<I>)^2
-        #autocorr = crosscorr.crosscorr(unwrapped,unwrapped,axes=(1,),shift=False).real/cols
-        autocorr = np.fft.ifft2(np.abs(np.fft.fft2(unwrapped,axes=(1,)))**2,axes=(1,)).real/cols
-        autocorr = autocorr/i0-1
+        # correlate and normalize. i0 is normalization
+        i0 = np.outer(np.average(unwrapped, axis=1)**2, np.ones(cols))
+        tmp = np.fft.fft2(unwrapped, axes=(1,))
+        tmp = np.abs(tmp)**2
+        tmp = np.fft.ifft2(tmp, axes=(1,)).real/cols
+        autocorr = tmp/i0-1
 
         # maybe despike and decompose
         if 'correlated_ds' in get_back or 'spectra_ds' in get_back:
-            despiked = despike(autocorr.real,width=4)
+            despiked = despike(autocorr.real, width=4)
             spectrum_ds = np.abs(fft_decompose(despiked))
         
         # decompose into cosine series with fft
-        spectrum = np.abs(fft_decompose(autocorr.real)) # I take the abs because there might be leakage into the imag component
+        spectrum = np.abs(fft_decompose(autocorr.real))
         
         # add specified things to output
-        if 'spectra'        in get_back: spectra[f]         = spectrum
-        if 'spectra_ds'     in get_back: spectra_ds[f]      = spectrum_ds
-        if 'unwrapped'      in get_back: unwrappeds[f]      = unwrapped
-        if 'correlated'     in get_back: correlations[f]    = autocorr
-        if 'correldated_ds' in get_back: correlations_ds[f] = despiked
-        if 'i0'             in get_back: i0s[f]             = i0
+        if 'i0' in get_back:
+            output['i0'][f] = i0
         
-    if was_2d: speckles.shape = (speckles.shape[1],speckles.shape[2])
+        if 'spectra' in get_back:
+            output['spectra'][f] = spectrum
+            
+        if 'spectra_ds' in get_back:
+            output['spectra_ds'][f] = spectrum_ds
+            
+        if 'unwrapped' in get_back:
+            output['unwrapped'][f] = unwrapped
+            
+        if 'correlated' in get_back:
+            output['correlations'][f] = autocorr
+            
+        if 'correldated_ds' in get_back:
+            output['correlations_ds'][f] = despiked
+            
+    if was_2d:
+        speckles.shape = (speckles.shape[1], speckles.shape[2])
 
-    to_return = {}
-    if 'i0'            in get_back: to_return['i0']            = i0s
-    if 'spectra'       in get_back: to_return['spectra']       = spectra
-    if 'spectra_ds'    in get_back: to_return['spectra_ds']    = spectra_ds
-    if 'unwrapped'     in get_back: to_return['unwrapped']     = unwrappeds
-    if 'correlated'    in get_back: to_return['correlated']    = correlations
-    if 'correlated_ds' in get_back: to_return['correlated_ds'] = correlations_ds
-    return to_return
+    return output
 
 def concentrations(data_in):
-    # divide each component by the sum of values at the same |q|
+    """ Calculate the concentration of a spectrum along the
+    compponent coordinate"""
 
-    assert isinstance(data_in,np.ndarray)
+    assert isinstance(data_in, np.ndarray)
     assert data_in.ndim == 3
-    import time
-
-    frames, rows, cols = data_in.shape
     
-    # calculate the concentrations. numexpr does not speed this calculation (?!)
-    p  = np.sum(data_in,axis=-1)       # sum along the component-value axis
+    # calculate the concentrations.
+    # numexpr does not speed this calculation (?!)
+    p = np.sum(data_in, axis=-1)
     q = (data_in.transpose()/p.transpose()).transpose()
     c = (q**2).sum(axis=-1).transpose()
 

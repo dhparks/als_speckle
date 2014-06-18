@@ -43,14 +43,14 @@ class ptychography(gpu.common):
             self.compute_device = 'cpu'
         
         if HAVE_FFTW and not force_np_fft:
-            self.fft2  = pyfftw.interfaces.numpy_fft.fft2
+            self.fft2 = pyfftw.interfaces.numpy_fft.fft2
             self.ifft2 = pyfftw.interfaces.numpy_fft.ifft2
         else:
-            self.fft2  = np.fft.fft2
+            self.fft2 = np.fft.fft2
             self.ifft2 = np.fft.ifft2
             
             
-        test = np.random.random((16,16))+1j*np.random.random((16,16))
+        test = np.random.random((16, 16))+1j*np.random.random((16, 16))
         self.test = test.astype(np.complex64)
 
         # state variables. certain of these must be changed from zero for the
@@ -72,10 +72,10 @@ class ptychography(gpu.common):
         self.ipsf_state = 0
 
         # dtype definitions
-        self.array_dtypes = ('float32','complex64')
-        self.ints      = (int, np.int8, np.int16, np.int32, np.uint8)
-        self.floats    = (float, np.float16, np.float32, np.float64)
-        self.float2s   = (complex, np.complex64, np.complex128)
+        self.array_dtypes = ('float32', 'complex64')
+        self.ints = (int, np.int8, np.int16, np.int32, np.uint8)
+        self.floats = (float, np.float16, np.float32, np.float64)
+        self.float2s = (complex, np.complex64, np.complex128)
         self.iterables = (list, tuple, np.ndarray)
         
         # thresholds etc
@@ -199,10 +199,12 @@ class ptychography(gpu.common):
             except:
                 ipsf = None
             
-            self.modulus_frames = np.array([_make(sample, probe, ipsf, coord) for coord in self.coordinates])
+            self.modulus_frames = np.array([_make(sample, probe, ipsf, coord)\
+                                            for coord in self.coordinates])
             self.load(modulus=self.modulus_frames)
 
-    def load(self, sample=None, modulus=None, coordinates=None, probe=None, ipsf=None):
+    def load(self, sample=None, modulus=None, coordinates=None, probe=None,
+             ipsf=None):
         
         """ Load data into the ptychography class.
         
@@ -252,31 +254,34 @@ class ptychography(gpu.common):
                 self.frames_m = modulus.shape[0]
                 self.frames_n = modulus.shape[-1]
                 self.shape = modulus[0].shape
-                self.size  = modulus[0].size
+                self.size = modulus[0].size
 
                 # allocate memory for psi_n^j and fourier intermediates
                 nrr = np.random.random
                 for wave_n in range(self.frames_m):
-                    tmp  = (nrr(self.shape)+I*nrr(self.shape)).astype(np.complex64)
+                    tmp = (nrr(self.shape)+I*nrr(self.shape))
+                    tmp = tmp.astype(np.complex64)
                     name = 'wave'+str(wave_n)
-                    exec(self._alloc_str(name,self.shape,'np.complex64'))
-                    exec(self._set_str(name,'tmp'))
+                    exec(self._alloc_str(name, self.shape, 'np.complex64'))
+                    exec(self._set_str(name, 'tmp'))
 
                 # allocate buffers for fourier space operations
-                for name in ('psi_out', 'psi_fourier', 'fourier_div', 'psi_in', 'product'):
+                for name in ('psi_out', 'psi_fourier', 'fourier_div',
+                             'psi_in', 'product'):
                     exec(self._alloc_str(name, self.shape, 'np.complex64'))
 
             # make the fft plan.
             if self.use_gpu:
                 from pyfft.cl import Plan
-                self.fftplan = Plan((self.frames_n, self.frames_n), queue=self.queue)
+                self.fftplan = Plan((self.frames_n, self.frames_n), \
+                    queue=self.queue)
                 
             # load the modulus
             
-            for wave_n in range(self.frames_m):
-                name = 'modulus'+str(wave_n)
-                exec(self._alloc_str(name,self.shape,'np.float32'))
-                exec(self._set_str(name,'modulus[wave_n]',dtype='np.float32'))
+            for w_n in range(self.frames_m):
+                name = 'modulus'+str(w_n)
+                exec(self._alloc_str(name, self.shape, 'np.float32'))
+                exec(self._set_str(name, 'modulus[w_n]', dtype='np.float32'))
                 
             self.modulus_state = 2
             
@@ -336,8 +341,10 @@ class ptychography(gpu.common):
                 assert len(coord) == 2
                 
             self.coordinates = coordinates
-            self.r_coords = self._allocate((len(self.coordinates),), np.int32, 'r_coords')
-            self.c_coords = self._allocate((len(self.coordinates),), np.int32, 'c_coords')
+            self.r_coords = self._allocate((len(self.coordinates),), \
+                np.int32, 'r_coords')
+            self.c_coords = self._allocate((len(self.coordinates),), \
+                np.int32, 'c_coords')
             
             self.coordinates_state = 2
             
@@ -374,29 +381,31 @@ class ptychography(gpu.common):
         
         for wave_n in range(self.frames_m):
             tmp = np.random.random(self.shape)+1j*np.random.random(self.shape)
-            exec('self.wave%s = self._set(tmp.astype(np.complex64), self.wave%s)'%(wave_n, wave_n))
+            exec('self.wave%s = self._set(tmp.astype(np.complex64),\
+                 self.wave%s)'%(wave_n, wave_n))
 
-    def _alloc_str(self,name,shape,dtype):
-        return self.alloc%(name,shape,dtype,name)
+    def _alloc_str(self, name, shape, dtype):
+        return self.alloc%(name, shape, dtype, name)
     
-    def _set_str(self,name,arrayname,dtype=None):
+    def _set_str(self, name, arrayname, dtype=None):
         if dtype == None:
-            return self.setstr%(name,arrayname,name)
+            return self.setstr%(name, arrayname, name)
         else:
-            return self.setstr2%(name,arrayname,dtype,name)
+            return self.setstr2%(name, arrayname, dtype, name)
 
     def _change_coordinates(self):
         # displace all the coordinates by the min
         
-        rows  = np.array([x[0] for x in self.coordinates]).astype(np.int32)
-        cols  = np.array([x[1] for x in self.coordinates]).astype(np.int32)
+        rows = np.array([x[0] for x in self.coordinates]).astype(np.int32)
+        cols = np.array([x[1] for x in self.coordinates]).astype(np.int32)  
         rows -= rows.min()
         cols -= cols.min()
         
         self.r_coords = self._set(rows, self.r_coords)
         self.c_coords = self._set(cols, self.c_coords)
         
-        self.coordinates = [(rows[i], cols[i]) for i in range(len(self.coordinates))]
+        tmp = [(rows[i], cols[i]) for i in  range(len(self.coordinates))]
+        self.coordinates = tmp
 
     def _build_o_update_kernel(self):
         """ The o update requires looping over a variable number of buffers.
@@ -466,12 +475,14 @@ class ptychography(gpu.common):
             }"""
         
         # build the kernel string
-        global_ptrs = ',\n'.join(['__global float2* wave%s'%i for i in range(self.frames_m)])
+        tmp = ['__global float2* wave%s'%i for i in range(self.frames_m)]
+        global_ptrs = ',\n'.join(tmp)
         repeats = ''.join([repeat%(i, i, i) for i in range(self.frames_m)])
         k_str = header%global_ptrs+indexes+repeats+final
 
         # compile the kernel
-        self.o_update_kernel = gpu.build_kernel(self.context, self.device, k_str)
+        self.o_update_kernel = gpu.build_kernel(self.context,
+                                                self.device, k_str)
         
         # make a string with all the right arguments which can be
         # invoked as a command using exec
@@ -480,7 +491,8 @@ class ptychography(gpu.common):
                   self.probe.data,self.r_coords.data, \
                   self.c_coords.data,np.int32(self.frames_n),'
         execute = 'self.o_update_kernel.execute('
-        joined  = ','.join(['self.wave%s.data'%i for i in range(self.frames_m)])
+        tmp = ['self.wave%s.data'%i for i in range(self.frames_m)]
+        joined = ','.join(tmp)
         execute += arrays+joined+').wait()'
         
         self.o_update = execute
@@ -539,12 +551,14 @@ class ptychography(gpu.common):
             sum2 += o.x*o.x+o.y*o.y;"""
 
         # build the kernel string
-        global_ptrs = ',\n'.join(['__global float2* wave%s'%i for i in range(self.frames_m)])
+        tmp = ['__global float2* wave%s'%i for i in range(self.frames_m)]
+        global_ptrs = ',\n'.join(tmp)
         repeats = ''.join([repeat%(i, i, i) for i in range(self.frames_m)])
         k_str = header%global_ptrs+static_in+repeats+static_out
         
         # compile the kernel
-        self.o_update_kernel = gpu.build_kernel(self.context, self.device, k_str)
+        self.o_update_kernel = gpu.build_kernel(self.context,
+                                                self.device, k_str)
         
         # make a string with all the right arguments which can be
         # invoked as a command using exec
@@ -553,13 +567,16 @@ class ptychography(gpu.common):
                   self.object.data, self.r_coords.data, \
                   self.c_coords.data, np.int32(self.frames_n),'
         execute = 'self.o_update_kernel.execute('
-        joined  = ','.join(['self.wave%s.data'%i for i in range(self.frames_m)])
+        joined = ','.join(['self.wave%s.data'%i for i in range(self.frames_m)])
         execute += arrays+joined+').wait()'
 
         self.p_update = execute
         
     def _can_update_probe(self):
-        return self.iteration > self.probe_update_threshold and self.probe_update_threshold > 0
+        """ Helper: run probe update this iteration? """
+        b1 = self.iteration > self.probe_update_threshold
+        b2 = self.probe_update_threshold > 0
+        return b1 and b2
 
     def _check_states_for_generation(self):
         
@@ -579,7 +596,10 @@ class ptychography(gpu.common):
             generate_problems.append("no coordinates")
 
         # need sample, probe, coordinates
-        if self.sample_state == 2 and self.probe_state == 2 and self.coordinates_state == 2:
+        b1 = self.sample_state == 2
+        b2 = self.probe_state == 2
+        b3 = self.coordinates_state == 2
+        if b1 and b2 and b3:
             
             # sample needs to be bigger than probe
             if self.sample.shape >= self.probe.shape:
@@ -605,7 +625,10 @@ class ptychography(gpu.common):
         problems = []
         
         # need modulus, probe, coordinates
-        if self.modulus_state == 2 and self.probe_state == 2 and self.coordinates_state == 2:
+        b1 = self.modulus_state == 2
+        b2 = self.probe_state == 2
+        b3 = self.coordinates_state == 2
+        if b1 and b2 and b3:
             
             self.can_reconstruct = True
             
@@ -631,8 +654,10 @@ class ptychography(gpu.common):
                 print "    "+message
 
     def _convolvef(self, to_convolve, kernel, convolved=None):
-        # calculate a convolution when to_convolve must be transformed but kernel is already
-        # transformed. the multiplication function depends on the dtype of kernel.
+        """
+        calculate a convolution when to_convolve must be transformed but
+        kernel is already transformed. the multiplication function depends
+        on the dtype of kernel. """
         
         if self.use_gpu:
             msg1 = "input to_convolve has wrong dtype for fftplan"
@@ -657,7 +682,8 @@ class ptychography(gpu.common):
         convention was adopted from pyfft."""
         
         if self.use_gpu:
-            self.fftplan.execute(data_in=data_in.data, data_out=data_out.data, inverse=inverse)
+            self.fftplan.execute(data_in=data_in.data, data_out=data_out.data,
+                                 inverse=inverse)
         else:
             if inverse:
                 data_out = self.ifft2(data_in)
@@ -714,7 +740,8 @@ class ptychography(gpu.common):
             psif = self.psi_fourier
             fdiv = self.fourier_div
             if HAVE_NUMEXPR:
-                self.psi_fourier = numexpr.evaluate("modulus*psif/abs(fdiv)").astype(np.complex64)
+                self.psi_fourier = numexpr.evaluate("modulus*psif/abs(fdiv)")
+                self.psi_fourier = self.psi_fourier.astype(np.complex64)
             else:
                 self.psi_fourier = modulus*psif/np.abs(fdiv)
 
@@ -743,15 +770,15 @@ class ptychography(gpu.common):
             if ncols%16 != 0:
                 ncols = (ncols/16+1)*16
         
-        obj = np.random.rand(nrows, ncols)+complex(0, 1)*np.random.rand(nrows, ncols)
+        obj = np.random.rand(nrows, ncols)+1j*np.random.rand(nrows, ncols)
 
         # we need a top, bottom, and quotient for the object
         self.object = self._allocate(obj.shape, np.complex64, name='object')
         self.object = self._set(obj.astype(np.complex64), self.object)
         self.object.fill(0)
         
-        self.o_top  = self._allocate(obj.shape, np.complex64, name='o_top')
-        self.o_btm  = self._allocate(obj.shape, np.float32, name='o_btm')
+        self.o_top = self._allocate(obj.shape, np.complex64, name='o_top')
+        self.o_btm = self._allocate(obj.shape, np.float32, name='o_btm')
 
     def _rolls(self, array, roll_y, roll_x):
         return np.roll(np.roll(array, roll_y, 0), roll_x, 1)
@@ -783,7 +810,10 @@ class ptychography(gpu.common):
             for wave_n, coord in enumerate(self.coordinates):
                 row1, row2 = coord[0], coord[0]+self.shape[0]
                 col1, col2 = coord[1], coord[1]+self.shape[1]
-                self.o_top[row1:row2, col1:col2] += self.pstar*eval('self.wave%s'%wave_n)
+                
+                self.o_top[row1:row2, col1:col2] += \
+                self.pstar*eval('self.wave%s'%wave_n)
+                
                 self.o_btm[row1:row2, col1:col2] += self.p2
                 
             self.object = np.nan_to_num(self.o_top/self.o_btm)
@@ -815,17 +845,18 @@ class ptychography(gpu.common):
             row1, row2 = coord[0], coord[0]+self.shape[0]
             col1, col2 = coord[1], coord[1]+self.shape[1]
             if self.use_gpu:
-                self._kexec('dm_product', self.probe, self.object, self.product,
-                            eval('self.wave%s'%wave_n), self.psi_in, row1, col1,
-                            self.object.shape[1], shape=self.probe.shape)
+                self._kexec('dm_product', self.probe, self.object,
+                            self.product, eval('self.wave%s'%wave_n),
+                            self.psi_in, row1, col1, self.object.shape[1],
+                            shape=self.probe.shape)
             else:
                 self.product = self.probe*self.object[row1:row2, col1:col2]
-                self.psi_in  = 2*self.product-eval('self.wave%s'%wave_n)
+                self.psi_in = 2*self.product-eval('self.wave%s'%wave_n)
 
             # satisfy the fourier constraint
-            self.psi_out = self._fourier_constraint(self.psi_in,
-                                                    eval('self.modulus%s'%wave_n),
-                                                    self.psi_out)
+            fc = self._fourier_constraint
+            self.psi_out = fc(self.psi_in, eval('self.modulus%s'%wave_n),
+                              self.psi_out)
 
             # update the wave
             if self.use_gpu:

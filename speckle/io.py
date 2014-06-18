@@ -8,7 +8,7 @@ Author: Keoki Seu (kaseu@lbl.gov)
 Author: Daniel Parks (dhparks@lbl.gov)
 
 """
-import numpy
+import numpy as np
 
 # If you need to use the python open() function, use this!!
 import types as _t
@@ -32,7 +32,9 @@ def set_overwrite(val):
 #
 ############### Primary Wrappers ################
 #
-def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimiter='\t', force_reg_size=None):
+def open(filename, quiet=True, orientImageHDU=True,
+         convert_to='float', delimiter='\t', force_reg_size=None):
+    
     """Open a data file listed in filename. This function looks at the filename
     extension and passes the necessary arguments to the correct function:
     openfits, openimage, read_text_array, load_pickle, and open_ds9_mask.
@@ -49,36 +51,50 @@ def open(filename, quiet=True, orientImageHDU=True, convert_to='float', delimite
     """
     
     def _check_name(filename):
+        """ Check name for base and ext """
         
         # get extension from filename
-        assert len(filename.split('.')) >= 2, "filename appears to have no extension"
+        assert len(filename.split('.')) >= 2, \
+        "filename appears to have no extension"
+        
         ext = filename.split('.')[-1]
-        assert ext in all_exts, "ext \"%s\" not recognized" % ext
+        
+        assert ext in all_exts, \
+        "ext \"%s\" not recognized" % ext
         
         return ext
         
     
     # define extension types to control switching
-    img_exts     = ('jpg', 'jpeg', 'gif', 'png', 'bmp', )
-    fits_exts    = ('fits', 'fit', )
-    txt_exts     = ('txt', 'csv', )
-    pck_exts     = ('pck', )
-    zip_exts     = ('zip','gz',) # assume these are actually fits files
+    img_exts = ('jpg', 'jpeg', 'gif', 'png', 'bmp', )
+    fits_exts = ('fits', 'fit', )
+    txt_exts = ('txt', 'csv', )
+    pck_exts = ('pck', )
+    zip_exts = ('zip', 'gz',) # assume these are actually fits files
     ds9mask_exts = ('reg', )
-    fits_exts   += zip_exts
-    all_exts     = img_exts + fits_exts + txt_exts + pck_exts + ds9mask_exts
+    fits_exts += zip_exts
+    all_exts = img_exts + fits_exts + txt_exts + pck_exts + ds9mask_exts
 
     # get extension from filename
     ext = _check_name(filename)
 
     # pass arguments to correct opener
-    if ext in img_exts:     return openimage(filename)
-    if ext in fits_exts:    return openfits(filename,quiet=quiet,orientImageHDU=True)
-    if ext in txt_exts:     return read_text_array(filename,convert_to=convert_to,delimiter=delimiter)
-    if ext in pck_exts:     return load_pickle(filename)
-    if ext in ds9mask_exts: return open_ds9_mask(filename,force_reg_size=force_reg_size)
+    if ext in img_exts:
+        return openimage(filename)
+    if ext in fits_exts:
+        return openfits(filename, quiet=quiet, orientImageHDU=orientImageHDU)
+    if ext in txt_exts:
+        return read_text_array(filename, convert_to=convert_to,
+                               delimiter=delimiter)
+    if ext in pck_exts:
+        return load_pickle(filename)
+    if ext in ds9mask_exts:
+        return open_ds9_mask(filename, force_reg_size=force_reg_size)
 
-def save(filename,data,header={},components=['mag',],color_map='L',delimiter='\t',overwrite=None,scaling=None,do_zip=False,append_component=True):
+def save(filename, data, header=None, components=None, color_map='L',
+         delimiter='\t', overwrite=None, scaling=None, do_zip=False,
+         append_component=True):
+    
     """ Save components of an array as desired filetype specified by file
     extension. This is a wrapper to save_fits, save_image, write_text_array.
     
@@ -88,10 +104,11 @@ def save(filename,data,header={},components=['mag',],color_map='L',delimiter='\t
         header - pyfits.Header object. Default is empty
         components - components of img to be saved. Must be supplied as a list.
             available components are: 'mag', 'phase', 'real', 'imag', 'polar',
-            'cartesian', 'complex_hsv'. 'polar' is shorthead for ['mag','phase']
-            and 'cartesian' is shorthand for ['real','imag']. 'complex_hsv' is only
-            available for images, and putting magnitude on the Value change (V)
-            and phase information on the Hue channel (H). Default is ['mag']
+            'cartesian', 'complex_hsv'. 'polar' is shorthead for
+            ['mag', 'phase']  and 'cartesian' is shorthand for ['real','imag'].
+            'complex_hsv' is only available for images, and putting magnitude
+            on the Value  channel (V) and phase information on the Hue channel
+            (H). Defaultis ['mag']
         color_map - If saving data as an image, the color map to use.  Options
             are 'L','A', 'B', 'SLS', 'HSV' and 'Rainbow'. Default is 'L'. If
             using the 'complex_hsv' component, color_map has no effect.
@@ -103,11 +120,11 @@ def save(filename,data,header={},components=['mag',],color_map='L',delimiter='\t
             operates only on the magnitude component of the data.
             available scales are 'sqrt','log', or a float which is interpreted
             as a power (ie, 0.5 reproduces sqrt).
-        do_zip - if 'each' or 'all', will run the system gz command on the saved output,
-            which replaces it with a zip file. useful for fits files with
-            large spaces of zeros, for example. This will remove the original
-            file following the protocol of the standard gzip utility.
-            Default is False.
+        do_zip - if 'each' or 'all', will run the system gz command on the
+            saved output, which replaces it with a zip file. useful for fits
+            files with large spaces of zeros, for example. This will remove
+            the original  file following the protocol of the standard gzip
+            utility.  Default is False.
             
             'each' (or True): zip each file individually
             'all': combine all the outputs into a single zip file, eg, combine
@@ -123,58 +140,83 @@ def save(filename,data,header={},components=['mag',],color_map='L',delimiter='\t
         nothing. Will raise an exception if something wrong happens.
     """
     
-    def _check_types(data,scaling,filename, do_zip):
+    def _check_types(data, scaling, filename, do_zip):
+        """ Check types """
         
-        assert isinstance(data, numpy.ndarray), "data must be a numpy array"
+        assert isinstance(data, np.ndarray), "data must be a numpy array"
 
-        assert len(filename.split('.')) >= 2, "filename appears to have no extension"
+        assert len(filename.split('.')) >= 2, \
+        "filename appears to have no extension"
+        
         ext = filename.split('.')[-1]
-        assert ext in img_exts or ext in fits_exts or ext in txt_exts, "ext \"%s\" not recognized"%ext
+        
+        vals = [x for val in exts.values() for x in val]
+        assert ext in vals, "ext \"%s\" not recognized"%ext
 
-        assert do_zip in (True,False,1,0,'each','all')
+        assert do_zip in (True, False, 1, 0, 'each', 'all')
 
         if scaling != None:
             assert isinstance(scaling, (str, float, int))
-            if isinstance(scaling, str): assert scaling in scales
+            if isinstance(scaling, str):
+                assert scaling in scales
             else:
-                try: scaling = float(scaling)
-                except: raise ValueError("couldnt cast scaling to float in speckle.save")
+                try:
+                    scaling = float(scaling)
+                except:
+                    raise ValueError("couldnt cast scaling to float in save")
 
         return scaling
 
-    assert isinstance(data,numpy.ndarray), "data must be a numpy array"
+    if header == None:
+        header = {}
+
+    assert isinstance(data, np.ndarray), "data must be a numpy array"
+    if components == None:
+        components = ('mag',)
     
     # define extension types to control switching
-    img_exts  = ('jpg','jpeg','gif','png','bmp')
-    fits_exts = ('fits',)
-    txt_exts  = ('txt','csv')
+    exts = {'img':('jpg', 'jpeg', 'gif', 'png', 'bmp'), 'fits':('fits',), 'txt':('txt', 'csv', 'tsv')}
     
     # these are the known scales with names
-    scales = ('linear','sqrt','log')
+    scales = ('linear', 'sqrt', 'log')
     
     # check types
     scaling = _check_types(data, scaling, filename, do_zip)
     
     # rescale the data
     if scaling != None:
-        mag, phase = numpy.abs(data), numpy.angle(data)
-        if scaling == 'linear': pass
-        if scaling == 'sqrt':   mag = numpy.sqrt(mag)
-        if scaling == 'log':    mag = numpy.log(mag/mag.min())
-        if isinstance(scaling,float): mag = mag**scaling
-        data = mag*numpy.exp(complex(0,1)*phase)
+        mag, phase = np.abs(data), np.angle(data)
+        if scaling == 'linear':
+            pass
+        if scaling == 'sqrt':
+            mag = np.sqrt(mag)
+        if scaling == 'log':
+            mag = np.log(mag/mag.min())
+        if isinstance(scaling, float):
+            mag = mag**scaling
+        data = mag*np.exp(1j*phase)
     
     # get extension from filename
     ext = filename.split('.')[-1]
-    if ext in img_exts:  save_image(filename,data,components=components,color_map=color_map,append_component=append_component)
-    if ext in fits_exts: save_fits(filename,data,header=header,components=components,overwrite=overwrite,append_component=append_component)
-    if ext in txt_exts:
-        if header == {}: header = ''
-        if ext == 'csv': write_text_array(filename,data,header=header,delimiter=',')
-        else: write_text_array(filename,data,header=header)
+    if ext in exts['img']:
+        save_image(filename, data, components=components, color_map=color_map,
+                   append_component=append_component)
+        
+    if ext in exts['fits']:
+        save_fits(filename, data, header=header, components=components,
+                  overwrite=overwrite, append_component=append_component)
+        
+    if ext in exts['txt']:
+        if header == {}:
+            header = ''
+        if ext == 'csv':
+            write_text_array(filename, data, header=header, delimiter=',')
+        else:
+            write_text_array(filename, data, header=header, delimiter=delimiter)
 
     # zip output
-    if do_zip != False: _zip(filename,do_zip)
+    if do_zip != False:
+        _zip(filename, do_zip)
 
 #
 ############### Text ########################
@@ -185,14 +227,15 @@ def write_text_array(filename, array, header='', delimiter='\t'):
     arguments:
         filename - filename to write to
         array - array name to write
-        header - A string to write before the file is written. Defaults to empty
-        delimiter - Delimiter to use. Defaults to tab ('\\t')
+        header - A string to write before the file is written. Defaults to
+        empty delimiter - Delimiter to use. Defaults to tab ('\\t')
     returns:
         nothing.  It will throw an IOError if it cannot write the file
     """
     import csv
     
-    if array.ndim == 1: array = [array] # this works around a bug in csv for 1d data
+    if array.ndim == 1:
+        array = [array] # this works around a bug in csv for 1d data
     
     with _open(filename, "w") as f:
         f.write(header)
@@ -212,13 +255,15 @@ def read_text_array(filename, convert_to='float', delimiter='\t'):
     returns:
         The parsed file as a list or array depending on convert_to
     """
+    
     import csv
-    assert convert_to in (None, 'float', 'int', 'complex'), "unknown type to convert, %s" % convert_to
+    assert convert_to in (None, 'float', 'int', 'complex'), \
+    "unknown type to convert, %s" % convert_to
 
     if convert_to == 'float':
-        conv_fn = numpy.float
+        conv_fn = np.float
     elif convert_to == 'int':
-        conv_fn = numpy.int
+        conv_fn = np.int
     else: # We should never get here.
         conv_fn = lambda x: x
 
@@ -237,7 +282,7 @@ def read_text_array(filename, convert_to='float', delimiter='\t'):
                 res.append([conv_fn(d) for d in r])
             except ValueError:
                 pass
-        return numpy.array(res)
+        return np.array(res)
     else:
         return rows
 
@@ -260,15 +305,17 @@ def get_beamline_parameters(fitsfile, BCSLFilesDir):
     if locdate is False:
         return "no time information"
     
-    fmt="%Y/%B/%m-%d-%Y" # Data, DIO, Motor, Status
-    BCSBase = "%s/%s" % (BCSLFilesDir, locdate.strftime(fmt))
-#    outstr = "File acquired on %s.\n" % datetime.datetime.strftime(locdate, "%Y/%m/%d %H:%M:%S %z")
-    var_dict = {}
-    for ext in ("Motor", "Data", "DIO"):
-        file = "%s %s.txt" % (BCSBase, ext)
-        var_dict.update(_get_nearest_bcs_line(file, locdate))
-    
-    return var_dict
+    else:
+        fmt = "%Y/%B/%m-%d-%Y" # Data, DIO, Motor, Status
+        BCSBase = "%s/%s" % (BCSLFilesDir, locdate.strftime(fmt))
+        #outstr = "File acquired on %s.\n" % \
+        #datetime.datetime.strftime(locdate, "%Y/%m/%d %H:%M:%S %z")
+        var_dict = {}
+        for ext in ("Motor", "Data", "DIO"):
+            filename = "%s %s.txt" % (BCSBase, ext)
+            var_dict.update(_get_nearest_bcs_line(filename, locdate))
+        
+        return var_dict
 
 def _get_nearest_bcs_line(bcsfile, fitstime):
     """Get info from a BCS (Data, Motor, DIO) file, grab line nearest to
@@ -280,12 +327,15 @@ def _get_nearest_bcs_line(bcsfile, fitstime):
     try:
         data = read_text_array(bcsfile, convert_to=None)
     except IOError:
-        return {"ERROR": "_get_nearest_bcs_line: file %s not found\n" % (bcsfile)}
+        return {"ERROR": "_get_nearest_bcs_line: no file %s\n"%(bcsfile)}
     
     def combine_logs(line, motors):
+        """ Helper; combines log files for all the motors? """
         combined_logs = {}
         for i in range(len(line)):
-            combined_logs[motors[i].decode('latin-1')] = line[i].decode('latin-1')
+            index = motors[i].decode('latin-1')
+            decoded = line[i].decode('latin-1')
+            combined_logs[index] = decoded
         return combined_logs
     
     prog = re.compile("[0-9]{1,2}/[0-9]{1,2}/20[0-9]{2} [0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2}.[0-9]{2} [AM|PM]{1}") # compile before looping
@@ -293,7 +343,7 @@ def _get_nearest_bcs_line(bcsfile, fitstime):
     tz = pytz.timezone('US/Pacific')
     
     motor_names = data[0]
-    isFirstLine = True
+    is_first_line = True
     for line in data:
         if not re.search(prog, line[0]):
             continue
@@ -313,17 +363,19 @@ def _get_nearest_bcs_line(bcsfile, fitstime):
         logtime = tz.localize(mytime).astimezone(tz)
         
         if fitstime > logtime:
-            lastline = (logtime, line)
-            isFirstLine = False
+            last_line = (logtime, line)
+            is_first_line = False
             continue
         else:
             curline = (logtime, line)
-            if isFirstLine or abs((fitstime-lastline[0]).total_seconds()) > abs((fitstime-curline[0]).total_seconds()):
+            diff1 = abs((fitstime-last_line[0]).total_seconds())
+            diff2 = abs((fitstime-curline[0]).total_seconds())
+            if is_first_line or diff1 > diff2:
                 # curline is closer to our time
                 return combine_logs(curline[1], motor_names)
             else:
-                # lastline is closer
-                return combine_logs(lastline[1], motor_names)
+                # last_line is closer
+                return combine_logs(last_line[1], motor_names)
 
 #
 ############### FITS ########################
@@ -340,10 +392,12 @@ def openfits(filename, quiet=True, orientImageHDU=True):
             defaults to false
         orientImageHDU - If the data is in ImageHDU, there is a good chance it
             was written by LabView, which rotates and flips the image. If True,
-            reorient the image back to the Andor coordinates.  Defaults to True.
+            reorient the image back to the Andor coordinates.  Defaults to
+            True.
     returns:
         img - the opened image data.
     """
+    
     import pyfits
     import os
     
@@ -354,15 +408,17 @@ def openfits(filename, quiet=True, orientImageHDU=True):
         quiet = True
     
     def pr(msg):
+        """ Helper """
         if not quiet:
             print msg
 
-    # open fits file - Labview software stores data in ImageHDU and Andor stores it in PrimaryHDU.
+    # open fits file - Labview software stores data in ImageHDU and Andor
+    # stores it in PrimaryHDU.
     a = pyfits.open(filename)
     
     # check if an ImageHDU exists in the list of HDUs
     for HDU in a:
-        if isinstance(HDU,pyfits.core.ImageHDU):
+        if isinstance(HDU, pyfits.core.ImageHDU):
             has_imagehdu = True
         
     # if not, the file was written (presumably!) by Andor or pyfits.    
@@ -370,16 +426,17 @@ def openfits(filename, quiet=True, orientImageHDU=True):
         pr('openfits: %s data located in PrimaryHDU' % filename)
         return a[0].data
     
-    # if so, the file was written by labview, so make sure to open the ImageHDU and not
-    # one of the other HDUs.
+    # if so, the file was written by labview, so make sure to open the
+    # ImageHDU and not one of the other HDUs.
     if has_imagehdu:
         for HDU in a:
-            if isinstance(HDU,pyfits.core.ImageHDU):
+            if isinstance(HDU, pyfits.core.ImageHDU):
                 
                 pr('openfits: %s data located in ImageHDU' % filename)
 
                 if orientImageHDU:
-                    # Default to reorient the image into the correct (andor) orientation.
+                    # Default to reorient the image into the correct
+                    # (andor) orientation.
                     pr('openfits: orienting ImageHDU data properly')
                     return _labview_to_andor(HDU.data)
                 else:
@@ -397,12 +454,16 @@ def openframe(filename, frame=0, quiet=True):
     """
     import pyfits
     a = pyfits.open(filename)
+    
+    e1 = "openframe: %s is three dimensional, returning frame %d.\n"
+    e2 = "openframe: %s is not 3d or frame %d does not exist."
+    
     if a[0].header['NAXIS'] == 3 and frame < a[0].header['NAXIS3']:
         if not quiet:
-            print("openframe: %s is three dimensional, returning frame %d.\n" % (filename, frame))
-        return a[0].section[frame,:,:]
+            print(e1%(filename, frame))
+        return a[0].section[frame, :, :]
     else:
-        raise IOError("openframe: %s is not 3d or frame %d does not exist." % (filename, frame))
+        raise IOError(e2%(filename, frame))
 
 def openheader(filename, card=0):
     """ Open just the header from a filename.
@@ -438,29 +499,40 @@ def openimage(filename):
             
     return smp.fromimage(Image.open(filename).convert("L"))
 
-def writefits(filename, img, headerItems={}, overwrite=None):
+def writefits(filename, img, header_items=None, overwrite=None):
     """ Write a FITS file,  optionally with a previously constructed header.
 
     arguments:
         filename - output filename to write.
         img - numpy array to write.
-        headerItems - A dictionary of items to be added to the header.
+        header_items - A dictionary of items to be added to the header.
             This will overwrite items if they are already in the header.
         overwrite - Overwrite the curernt file, if it exists.
     returns:
         returns nothing.  Will raise an error if it fails.
     """
+    
+    if header_items == None:
+        header_items = {}
+    
     import pyfits
-    assert isinstance(headerItems, dict), "headerItems must be a dictionary"
+    
+    assert isinstance(header_items, dict), \
+    "header_items must be a dictionary"
+    
     if overwrite == None: overwrite = overwrite_default
-    assert isinstance(overwrite,bool) or overwrite==None, "overwrite must be True/False"
-    assert isinstance(img,numpy.ndarray), "array to save must be an array"
+    
+    assert isinstance(overwrite, bool) or overwrite == None, \
+    "overwrite must be True/False"
+    
+    assert isinstance(img, np.ndarray), \
+    "array to save must be an array"
 
     header = pyfits.Header()
 
     # append items to header
-    if isinstance(headerItems, dict):
-        for key, val in headerItems.iteritems():
+    if isinstance(header_items, dict):
+        for key, val in header_items.iteritems():
             #print "KEYTEST", key, "VAL", val
             if len(key) > 8 or key.rfind(' ') == 1:
                 key = "HIERARCH " + key
@@ -476,24 +548,27 @@ def writefits(filename, img, headerItems={}, overwrite=None):
             os.remove(filename)
             hdulist.writeto(filename)
         else:
-            raise type(e)(e.message + " Try using the overwrite=True keyword to speckle.io.writefits()")
+            msg = " Try overwrite=True keyword with speckle.io.writefits()"
+            raise type(e)(e.message + msg)
 
-def write_complex_fits(base, fits, headerItems={}, overwrite=None):
+def write_complex_fits(base, fits, header_items=None, overwrite=None):
     """ Write a complex array to disk.
 
     arguments:
         base - base filename; the function appends "_imag" and "_real".
         fits - Array to write.
         header - a pyfits.Header object. Defaults to empty.
-        headerItems - A dictionary of items to be added to the header.
+        header_items - A dictionary of items to be added to the header.
             This will overwrite items if they are already in the header.
         overwrite - Whether to overwrite file. Defaults to false.
     """
+    if header_items == None:
+        header_items = {}
+    writefits(base + "_imag.fits", np.imag(fits), header_items, overwrite)
+    writefits(base + "_real.fits", np.real(fits), header_items, overwrite)
 
-    writefits(base + "_imag.fits", numpy.imag(fits), headerItems, overwrite)
-    writefits(base + "_real.fits", numpy.real(fits), headerItems, overwrite)
-
-def write_mag_phase_fits(base, fits, header="", headerItems={}, overwrite=None):
+def write_mag_phase_fits(base, fits, header=None, header_items=None,
+                         overwrite=None):
     """ Write a complex array to disk by writing magnitude (abs())
     and phase (angle()).
 
@@ -501,14 +576,18 @@ def write_mag_phase_fits(base, fits, header="", headerItems={}, overwrite=None):
         base - base filename; the function appends "_mag" and "_phase".
         fits - Array to write.
         header - a pyfits.Header object. Defaults to empty.
-        headerItems - A dictionary of items to be added to the header.
+        header_items - A dictionary of items to be added to the header.
             This will overwrite items if they are already in the header.
         overwrite - Whether to overwrite file. Defaults to false.
     returns:
         img - a complex-valued array
     """
-    writefits(base + "_mag.fits", numpy.abs(fits), headerItems, overwrite)
-    writefits(base + "_phase.fits", numpy.angle(fits), headerItems, overwrite)
+    if header == None:
+        header = ""
+    if header_items == None:
+        header_items = {}
+    writefits(base + "_mag.fits", np.abs(fits), header_items, overwrite)
+    writefits(base + "_phase.fits", np.angle(fits), header_items, overwrite)
 
 def open_mag_phase_fits(base):
     """ Open a complex array that was written to disk using
@@ -520,7 +599,11 @@ def open_mag_phase_fits(base):
     returns:
         img - a complex-valued array
     """
-    return openfits( base + "_mag.fits")*numpy.exp(complex(0,1)*openfits(base + "_phase.fits"))
+    
+    mag = openfits(base+"_mag.fits")
+    phase = openfits(base+"_phase.fits")
+    
+    return mag*np.exp(1j*phase)
     
 def open_complex_fits(base):
     """ Open a complex array that was written to disk using write_complex_fits.
@@ -534,9 +617,11 @@ def open_complex_fits(base):
         img - a complex-valued array
     """
     try:
-        return openfits(base+"_real.fits")+1j*openfits(base+"_imag.fits")
+        real = openfits(base+"_real.fits")
+        imag = openfits(base+"_imag.fits")
+        return real+1j*imag
     except AssertionError:
-        return openfits(base+"_mag.fits")*numpy.exp(1j*openfits(base+'_phase.fits'))
+        return open_mag_phase_fits(base)
 
 def _labview_to_andor(img):
     """Reorientes a LabView acquiried image so that it is the same orientation
@@ -548,28 +633,28 @@ def _labview_to_andor(img):
         img - the aligned imaged rotated 90 degrees counter-clockwise and
             flipped horzontally.
     """
-    assert img.ndim in (2,3), "_labview_to_andor: Image is neither 2D nor 3D."
+    assert img.ndim in (2, 3), "_labview_to_andor: Image is neither 2D nor 3D."
 
     dim = img.ndim
     if dim == 3:
-        (fr,ys,xs) = img.shape
-        for f in range(fr):
-            img[f] = numpy.rot90(numpy.fliplr(img[f]))
+        for f in range(img.shape[0]):
+            img[f] = np.rot90(np.fliplr(img[f]))
     elif dim == 2:
-        img = numpy.rot90(numpy.fliplr(img))
+        img = np.rot90(np.fliplr(img))
 
     return img
 
 def open_photon_counting_fits(filename, correct=False, sort=False, quiet=True):
-    """Open a FITS file generated by the photon counting detector. The format of
-    this file is a tuple of (x, y, gain, time_counter) and each has it's own
+    """Open a FITS file generated by the photon counting detector. The format
+    of this file is a tuple of (x, y, gain, time_counter) and each has it's own
     datatype.
 
     arguments:
         filename - file to open
         correct - whether or not to correct overflows in the data
         sort - whether to sort the data by increasing incidence times
-        quiet - whether to inform the user of what we're doing. Default is false
+        quiet - whether to inform the user of what we're doing. Default is
+        false
     returns:
         data - data as a numpy array. This will raise an IOError if the data is
             in an unfamiliar format.
@@ -591,7 +676,7 @@ def open_photon_counting_fits(filename, correct=False, sort=False, quiet=True):
         pass
     elif data.ndim == 1:
         ys = len(data)
-        newdata = numpy.zeros((ys, ncol), dtype='i4')
+        newdata = np.zeros((ys, ncol), dtype='i4')
         for i in range(0, ncol):
             newdata[:, i] = data.field(i)
         data = newdata
@@ -601,16 +686,20 @@ def open_photon_counting_fits(filename, correct=False, sort=False, quiet=True):
     time_column = 3
     if correct:
         overflow = 2**31
-        # Takes the data from the fast camera and corrects the overflow that happens when the counter rolls over.
+        # Takes the data from the fast camera and corrects the overflow
+        # that happens when the counter rolls over.
         data = data.astype('float')
         timecol = data[:, time_column]
-        diffdata = numpy.diff(timecol)
+        diffdata = np.diff(timecol)
         
         finished = False
         while not finished:
             minarg = diffdata.argmin()
-            if diffdata[minarg] < -2e9: # if you set this to 0, then there are false positives.  The data may have 'bumps' where the deriv < 0 but these are not rollovers.
-                timecol[minarg+1:] +=  overflow
+            if diffdata[minarg] < -2e9:
+                # if you set this to 0, then there are false positives.
+                # The data may have 'bumps' where the deriv < 0 but
+                # these are not rollovers.
+                timecol[minarg+1:] += overflow
                 diffdata[minarg] = 1
                 print("Overflow at row %d. Shifted by %d" % (minarg, overflow))
             else:
@@ -622,7 +711,8 @@ def open_photon_counting_fits(filename, correct=False, sort=False, quiet=True):
 
     return data
 
-def save_fits(filename, img, header={}, components=['mag'], overwrite=None,append_component=True):
+def save_fits(filename, img, header=None, components=None, overwrite=None,
+              append_component=True):
     """ Save components of an array as a fits file.
     
     arguments:
@@ -638,17 +728,24 @@ def save_fits(filename, img, header={}, components=['mag'], overwrite=None,appen
     returns:
         nothing. Will throw an exception if something wrong happens.
     """
+    
+    if header == None:
+        header = {}
+    if components == None:
+        components = ('mag',)
 
-    exts = ['fits','jpg','gif','png','csv', 'jpeg','bmp']
+    exts = ['fits', 'jpg', 'gif', 'png', 'csv', 'jpeg', 'bmp']
     # remove any extension (if it exists)
     for ext in exts:
         filename = filename.replace("." + ext, "")
 
     for c in _process_components(components):
+        cmap = _save_maps[c](img)
         if append_component:
-            writefits(filename + "_" + c + ".fits", _save_maps[c](img), header, overwrite)
+            name = "%s_%s.fits"%(filename, c)
         else:
-            writefits(filename+".fits", _save_maps[c](img), header, overwrite)
+            name = '%s.fits'%filename
+        writefits(name, cmap, header, overwrite)
 
 def open_fits_header(filename, card=0):
     """    Open just the header from a filename.
@@ -671,12 +768,12 @@ def get_fits_binning(filename):
     try:
         hb = get_fits_key(filename, 'HBIN')
     except KeyError:
-        hb  = 1
+        hb = 1
 
     try:
         vb = get_fits_key(filename, 'VBIN')
     except KeyError:
-        vb  = 1
+        vb = 1
 
     return int(hb), int(vb)
 
@@ -750,10 +847,11 @@ def get_fits_window(filename, card=0):
     """
     # returns the subimage window that was used when the image was taken.
     from string import split
-    hdr=open_fits_header(filename, card)
+    hdr = open_fits_header(filename, card)
     window = split(hdr['SUBRECT'], ',')
     # note out of order here, ymax comes before ymin
-    (xmin, xmax, ymax, ymin) = (int(window[0]), int(window[1]), int(window[2]), int(window[3]))
+    (xmin, xmax, ymax, ymin) = (int(window[0]), int(window[1]),
+                                int(window[2]), int(window[3]))
     return (xmin, xmax, ymin, ymax)
 
 def get_fits_kct(filename):
@@ -775,7 +873,7 @@ def get_fits_dimensions(filename, card=0):
     hdr = open_fits_header(filename, card)
     naxes = hdr["NAXIS"]
     dim = []
-    while(naxes != 0):
+    while naxes != 0:
         dim.append(hdr["NAXIS%d" % naxes])
         naxes -= 1
 
@@ -814,13 +912,17 @@ def get_fits_acq_time(filename, timezone="US/Pacific"):
         print "get_acq_time: Cannot import the pytz module.  Please install it."
         return False
 
-    assert timezone in pytz.common_timezones, "%s is not a timezone" % timezone
+    assert timezone in pytz.common_timezones, \
+    "%s is not a timezone" % timezone
+    
     tz = pytz.timezone(timezone)
     utc = pytz.UTC
 
     try:
         # SSI camera date. This is given in UTC
-        fitsdate = get_fits_key(filename, "DATE") + " " + get_fits_key(filename, "TIME")
+        key1 = get_fits_key(filename, "DATE")
+        key2 = get_fits_key(filename, "TIME")
+        fitsdate = "%s %s"%(key1, key2)
         parsed_date = datetime.datetime.strptime(fitsdate, "%Y-%m-%d %H:%M:%S")
         return utc.localize(parsed_date)
     except KeyError:
@@ -859,14 +961,14 @@ def load_pickle(filename):
     """
     try:
         import cPickle as pickle
-    except:
+    except ImportError:
         import pickle
     
-    with _open(filename,'rb') as f:
+    with _open(filename, 'rb') as f:
         x = pickle.load(f)
         return x
     
-def save_pickle(path,data):
+def save_pickle(path, data):
     """ Load a pickled file.
     
     arguments:
@@ -878,16 +980,17 @@ def save_pickle(path,data):
     """
     try:
         import cPickle as pickle
-    except:
+    except ImportError:
         import pickle
-    with _open(path,'wb') as f:
-        pickle.dump(data,f)
+    with _open(path, 'wb') as f:
+        pickle.dump(data, f)
 
 #
 ############### PNG #########################
 #
     
-def save_image(filename, img, components=['mag'], color_map='L',append_component=True):
+def save_image(filename, img, components=None, color_map='L',
+               append_component=True):
     """ Save components of an array as an image using PIL.  The type of image
     depends on the extension of the filename.
 
@@ -903,13 +1006,16 @@ def save_image(filename, img, components=['mag'], color_map='L',append_component
         nothing. Will throw an exception if something wrong happens.
     """
     
+    if components == None:
+        components = ('mag',)
+    
     # check to see if an image extension has been included.
     # jpg, png, gif, bmp
     # png is default if no extension is included.
     
     ext = filename.split('.')[-1]
 
-    exts = ['jpg','gif','png', 'jpeg']
+    exts = ['jpg', 'gif', 'png', 'jpeg']
     if ext in exts:
         filename = filename.replace("." + ext, "")
     else:
@@ -917,9 +1023,10 @@ def save_image(filename, img, components=['mag'], color_map='L',append_component
 
     for c in _process_components(components):
         if append_component:
-            write_image(filename + "_" + c + "." + ext, _save_maps[c](img), color_map)
+            name = '%s_%s.%s'%(filename, c, ext)
         else:
-            write_image(filename + "." + ext, _save_maps[c](img), color_map)
+            name = '%s.%s'%(filename, ext)
+        write_image(name, _save_maps[c](img), color_map)
 
 def write_image(filename, array, color_map='L'):
     """Write an image to disk as an image.  The image type depends on the
@@ -929,8 +1036,8 @@ def write_image(filename, array, color_map='L'):
         filename - filename to save
         array - array to save. if 3d, assume a set of RGB channels.
             if 2d, use a color map.
-        color_map -  Color map to use.  Can be generated by color_maps(). Default
-        is 'L'.
+        color_map -  Color map to use.  Can be generated by color_maps().
+            Default is 'L'.
         
     returns:
         no return arguments.
@@ -945,10 +1052,15 @@ def write_image(filename, array, color_map='L'):
             print "cant import image tools"
             exit()
     
-    assert isinstance(array,numpy.ndarray), "in write_image, array must be ndarray but is %s"%type(array)
-    assert array.ndim in (2,3), "in write_image, array must be 2d or 3d; is %s"%array.ndim
+    assert isinstance(array, np.ndarray), \
+    "in write_image, array must be ndarray but is %s"%type(array)
+    
+    assert array.ndim in (2, 3), \
+    "in write_image, array must be 2d or 3d; is %s"%array.ndim
+    
     ext = filename.split('.')[-1]
-    assert ext in ('gif', 'png', 'jpg', 'jpeg'), "unknown file format, %s" % ext
+   
+    assert ext in ('gif', 'png', 'jpg', 'jpeg'), "unknown file format, %s"%ext
     
     if array.ndim == 2:
 
@@ -959,17 +1071,21 @@ def write_image(filename, array, color_map='L'):
         else:
             im.putpalette(color_maps(color_map))
             # now save the image
-            if ext in ('gif','png'):  im.save(filename)
-            if ext in ('jpg','jpeg'): im.convert('RGB').save(filename,quality=95)
+            if ext in ('gif', 'png'):
+                im.save(filename)
+            if ext in ('jpg', 'jpeg'):
+                im.convert('RGB').save(filename, quality=95)
             
     if array.ndim == 3:
-        im = smp.toimage(array,channel_axis=None)
-        if ext in ('gif','png'):  im.save(filename)
-        if ext in ('jpg','jpeg'): im.convert('RGB').save(filename,quality=95)
+        im = smp.toimage(array, channel_axis=None)
+        if ext in ('gif', 'png'):
+            im.save(filename)
+        if ext in ('jpg', 'jpeg'):
+            im.convert('RGB').save(filename, quality=95)
              
 def complex_hls_image(array):
     
-    """ Take a complex numpy.ndarray and perform 2 transformations. First,
+    """ Take a complex np.ndarray and perform 2 transformations. First,
     separate array into mag/phase. Use mag as L and phase as H channel in
     an image with s = 1. Second, transform the HLS-space image into RGB.
     
@@ -982,38 +1098,44 @@ def complex_hls_image(array):
 
     # unacceptably slow. find a faster algorithm.
     
-    def _hlsrgb_v(m1,m2,hue):
-
+    def _hlsrgb_v(m1, m2, hue):
+        """ Helper """
         hue = hue%1.
-        #print "hue m1 m2 %s %s %s"%(hue[N/2,N/2],m1[N/2,N/2],m2[N/2,N/2])
-        h1  = numpy.where(hue < 1./6,1.,0.)
-        h2  = numpy.where(hue < 0.5,1.,0.)-h1
-        h3  = numpy.where(hue < 2./3,1.,0.)-h1-h2
-        return h1*(m1+(m2-m1)*hue*6.)+h2*m2+h3*(m1+(m2-m1)*(2./3-hue)*6.)+(1-h1-h2-h3)*m1
+        h1 = np.where(hue < 1./6, 1., 0.)
+        h2 = np.where(hue < 0.5, 1., 0.)-h1
+        h3 = np.where(hue < 2./3, 1., 0.)-h1-h2
+        
+        tmp1 = h1*(m1+(m2-m1)*hue*6.)
+        tmp2 = h2*m2+h3*(m1+(m2-m1)*(2./3-hue)*6.)
+        tmp3 = (1-h1-h2-h3)*m1
+        
+        return tmp1+tmp2+tmp3
     
-    assert isinstance(array,numpy.ndarray), "array must be ndarray, is %s"%type(array)
+    assert isinstance(array, np.ndarray), \
+    "array must be ndarray, is %s"%type(array)
+    
     assert array.ndim == 2, "array must be 2d, is %sd"%array.ndim
     
     # convert to hls
-    array = array.astype(numpy.complex64)
+    array = array.astype(np.complex64)
 
-    l = numpy.abs(array)
+    l = np.abs(array)
     l *= 0.8/l.max()
-    h = (numpy.angle(array)+numpy.pi)/(2*numpy.pi)
+    h = (np.angle(array)+np.pi)/(2*np.pi)
     s = 1.
 
     # adapt algorithm from colorsys to use with array operations:
     # http://hg.python.org/cpython/file/2.7/Lib/colorsys.py
 
-    m2_mask = numpy.where(l <= 0.5,1,0)
-    m2      = m2_mask*(s+1)*l+(1-m2_mask)*(l+s-l*s)
-    m1      = 2*l-m2
+    m2_mask = np.where(l <= 0.5, 1, 0)
+    m2 = m2_mask*(s+1)*l+(1-m2_mask)*(l+s-l*s)
+    m1 = 2*l-m2
     
-    red = _hlsrgb_v(m1,m2,h+1./3)
-    green = _hlsrgb_v(m1,m2,h)
-    blue = _hlsrgb_v(m1,m2,h-1./3)
+    red = _hlsrgb_v(m1, m2, h+1./3)
+    green = _hlsrgb_v(m1, m2, h)
+    blue = _hlsrgb_v(m1, m2, h-1./3)
     
-    return (numpy.dstack((red, green, blue))*255.999).astype(numpy.uint8)
+    return (np.dstack((red, green, blue))*255.999).astype(np.uint8)
 
 def complex_hsv_image(array):
     
@@ -1028,57 +1150,53 @@ def complex_hsv_image(array):
     """
     
     # these map hi to v,p,q,t in complex_xxx_image
-    hsv_r_map = numpy.array((0,2,1,1,3,0))
-    hsv_g_map = numpy.array((3,0,0,2,1,1))
-    hsv_b_map = numpy.array((1,1,3,0,0,2))
+    hsv_r_map = np.array((0, 2, 1, 1, 3, 0))
+    hsv_g_map = np.array((3, 0, 0, 2, 1, 1))
+    hsv_b_map = np.array((1, 1, 3, 0, 0, 2))
     
     # first, convert the complex to hsv
-    v = numpy.abs(array)
+    v = np.abs(array)
     v /= v.max()
 
-    N = len(array)
-    h = numpy.mod(numpy.angle(array,deg=True)+360,360)
+    h = np.mod(np.angle(array, deg=True)+360, 360)
 
     #unravel for mapping
     try:
         v.shape = (v.size,)
         h.shape = (h.size,)
     except AttributeError:
-        v = numpy.reshape(v,(v.size,))
-        h = numpy.reshape(h,(h.size,))
+        v = np.reshape(v, (v.size,))
+        h = np.reshape(h, (h.size,))
 
     # prep the p,q,t,v components which get mapped to rgb
-    h60  = h/60.
-    h60f = numpy.floor(h60)
-    hi   = numpy.mod(h60f,6).astype(int)
-    f    = h60-h60f
+    h60 = h/60.
+    h60f = np.floor(h60)
+    hi = np.mod(h60f, 6).astype(int)
+    f = h60-h60f
     
     # build the vpqt array (see commented code above)
     # calculating the pieces and then making an array
-    # by numpy.array([v,p,q,t]) takes MUCH more time
-    vpqt = numpy.zeros((4,array.size),numpy.float32)
+    # by np.array([v,p,q,t]) takes MUCH more time
+    vpqt = np.zeros((4, array.size), np.float32)
     vpqt[0] = v
     vpqt[2] = v*(1-f)
     vpqt[3] = v*f
     
-    #r = numpy.zeros(array.size,numpy.float32)
-    #g = numpy.zeros(array.size,numpy.float32)
-    #b = numpy.zeros(array.size,numpy.float32)
-    n = numpy.arange(array.size)
+    #r = np.zeros(array.size,np.float32)
+    #g = np.zeros(array.size,np.float32)
+    #b = np.zeros(array.size,np.float32)
+    n = np.arange(array.size)
 
     # map: x_map[hi[n]] gets the row in vpqt
-    r = vpqt[hsv_r_map[hi[n]],n]
-    g = vpqt[hsv_g_map[hi[n]],n]
-    b = vpqt[hsv_b_map[hi[n]],n]
+    red = vpqt[hsv_r_map[hi[n]], n]
+    green = vpqt[hsv_g_map[hi[n]], n]
+    blue = vpqt[hsv_b_map[hi[n]], n]
 
-    r.shape = array.shape
-    g.shape = array.shape
-    b.shape = array.shape
+    red.shape = array.shape
+    green.shape = array.shape
+    blue.shape = array.shape
 
-    h.shape = array.shape
-    hi.shape = array.shape
-
-    return (numpy.dstack((r,g,b))*255).astype(numpy.uint8)
+    return (np.dstack((red, green, blue))*255).astype(np.uint8)
 
 def color_maps(color_map):
     """ List of colorcolor_maps.  Used for image output.
@@ -1090,13 +1208,16 @@ def color_maps(color_map):
     returns:
         R, G, B - RGB components
     """
-    assert color_map in ('A', 'B', 'SLS', 'HSV', 'Rainbow'), "unknown color_map: %s" % color_map
+    
+    assert color_map in ('A', 'B', 'SLS', 'HSV', 'Rainbow'), \
+    "unknown color_map: %s" % color_map
 
-    irange = numpy.arange(256)
-    red, green, blue = numpy.zeros_like(irange),numpy.zeros_like(irange),numpy.zeros_like(irange)
+    irange = np.arange(256)
+    red = np.zeros_like(irange)
+    green = np.zeros_like(irange)
+    blue = np.zeros_like(irange)
     
     if color_map == 'B':
-        # define the color palette in terms of RGB channels. these are piece-wise functions.
         red[128:] = 255
         red[65:128] = 4*irange[65:128]-256
         
@@ -1108,7 +1229,6 @@ def color_maps(color_map):
         blue[192:256] = 4*irange[192:256]-4*192
         
     if color_map == 'A':
-        # define the color palette in terms of RGB channels
         red[128:] = 255
         red[65:128] = 4*irange[65:128]-256
         
@@ -1139,10 +1259,10 @@ def color_maps(color_map):
     return [item for sublist in zip(red, green, blue) for item in sublist]
 
 _save_maps = {
-    "mag": numpy.abs,
-    "phase": numpy.angle, 
-    "real": numpy.real,
-    "imag": numpy.imag,
+    "mag": np.abs,
+    "phase": np.angle, 
+    "real": np.real,
+    "imag": np.imag,
     "complex_hls": complex_hls_image,
     "complex_hsv": complex_hsv_image,
     "complexhsv": complex_hsv_image
@@ -1165,18 +1285,18 @@ def _process_components(components):
             "components %s not recognized" % components
         #print components
         components = [components]
-    elif type(components) in (list,tuple,set):
+    elif type(components) in (list, tuple, set):
         components = list(components)
 
     # shortcuts to save common combinations of components
     if 'polar' in components:
-        components.extend( ('mag', 'phase') )
-        components.remove( 'polar' )
+        components.extend(('mag', 'phase'))
+        components.remove('polar')
     if 'cartesian' in components:
-        components.extend( ['real', 'imag'] )
+        components.extend(['real', 'imag'])
         components.remove('cartesian')
     if 'all' in components:
-        components = ['mag','phase','real','imag']
+        components = ['mag', 'phase', 'real', 'imag']
     #print components, "components"
     for elem in components:
         assert elem in _save_maps.keys(), "unknown component %s" % elem
@@ -1187,6 +1307,9 @@ def _process_components(components):
 ############### DS9 Masks #########################
 #
 def _draw_polygon(shapedesc, dim):
+    
+    """ Draw a polygon (helper for open_ds9) """
+    
     from PIL import Image, ImageDraw
     ys, xs = dim
     
@@ -1195,14 +1318,15 @@ def _draw_polygon(shapedesc, dim):
     for v in range(nvertex):
         xc = shapedesc[v*2]
         yc = shapedesc[v*2+1]
-        verticies.append((xc,yc))
+        verticies.append((xc, yc))
 
     img = Image.new("L", (xs, ys), 0)
     ImageDraw.Draw(img).polygon(verticies, outline=1, fill=1)
 
-    return numpy.array(img)
+    return np.array(img)
 
-def open_ds9_mask(filename, individual_regions = False, remove_intersections = False, force_reg_size=None):
+def open_ds9_mask(filename, individual_regions=False,
+                  remove_intersections=False, force_reg_size=None):
     """ From a region file input construct a mask.
     
     arguments:
@@ -1218,135 +1342,151 @@ def open_ds9_mask(filename, individual_regions = False, remove_intersections = F
             mask is returned otherwise a region mask is returned.
     """
 
-    assert isinstance(individual_regions, (bool, int)), "individual_regions must be boolean-evaluable"
-    assert isinstance(remove_intersections, (bool, int)), "remove_intersections must be boolean-evaluable"
-    assert isinstance(force_reg_size, (type(None), int, tuple, list)), "force_size must be None, int, or iterable"
+    assert isinstance(individual_regions, (bool, int)), \
+    "individual_regions must be boolean-evaluable"
+    
+    assert isinstance(remove_intersections, (bool, int)), \
+    "remove_intersections must be boolean-evaluable"
+    
+    assert isinstance(force_reg_size, (type(None), int, tuple, list)), \
+    "force_size must be None, int, or iterable"
+    
     if isinstance(force_reg_size, (tuple, list)):
-        assert len(force_reg_size) == 2, "force_reg_size must be of length 2"
+        assert len(force_reg_size) == 2, \
+        "force_reg_size must be of length 2"
     
-    import re
-    file_exp = re.compile("# Filename: ((?:\/[\w\.\-\ ]+)+)(?:(\[\w\])?)")
-
-    shapes = []
-    with _open(filename, "r") as f:
-        aline = f.readline()
-        while aline:
-            if file_exp.match(aline):
-                spl = file_exp.split(aline)
-                afile = spl[1]
-                if len(spl) == 4 and spl[3] != "\n": # we have a card
-                    card = spl[3][1:-2] # looks like "[file]\n", so remove '[]\n'
-                else: # no card
-                    card = 0
-
-                try:
-                    dim = get_fits_dimensions(afile, card)
-                except IOError:
-                    if force_reg_size == None:
-                        dim = (1,2048,2048)
-                    else:
-                        if isinstance(force_reg_size, (tuple, list)):
-                            dim = (1, force_reg_size[0], force_reg_size[1])
-                        else:
-                            dim = (1,force_reg_size,force_reg_size)
-
-                aline = f.readline()
-                continue
-    
-            elif aline.split("(")[0] in ("box", "circle", "polygon", "ellipse", "annulus"):
-                shapes.append(aline[0:-1])
+    def _parse_shapes():
+        
+        """ Read the ds9 file and find the shape specifications
+        Return shapes and dim, the size of the array """
+        
+        import re
+        file_exp = re.compile("# Filename: ((?:\/[\w\.\-\ ]+)+)(?:(\[\w\])?)")
+        
+        shapes = []
+        allowed = ["box", "circle", "polygon", "ellipse", "annulus"]
+        with _open(filename, "r") as f:
             aline = f.readline()
+            while aline:
+                if file_exp.match(aline):
+                    spl = file_exp.split(aline)
+                    afile = spl[1]
+                    if len(spl) == 4 and spl[3] != "\n": # we have a card
+                        card = spl[3][1:-2] # looks like "[file]\n" so remove '[]\n'
+                    else: # no card
+                        card = 0
+    
+                    try:
+                        dim = get_fits_dimensions(afile, card)
+                    except IOError:
+                        if force_reg_size == None:
+                            dim = (1, 2048, 2048)
+                        else:
+                            if isinstance(force_reg_size, (tuple, list)):
+                                dim = (1, force_reg_size[0], force_reg_size[1])
+                            else:
+                                dim = (1, force_reg_size, force_reg_size)
+    
+                    aline = f.readline()
+                    continue
+        
+                
+                elif aline.split("(")[0] in allowed:
+                    shapes.append(aline[0:-1])
+                aline = f.readline()
+                
+        # ignore 3rd dimension
+        if len(dim) == 3:
+            dim = dim[1:]
+                
+        return shapes, dim
+        
+    def _make_circle(shapedesc):
+        """ Helper """
+        x_c, y_c, rad = shapedesc
+        obj = shape.circle(dim, rad, (y_c, x_c), AA=False)
+        return obj
+    
+    def _make_box(shapedesc):
+        """ Helper """
+        
+        center = (shapedesc[1], shapedesc[0])
+        inner = (shapedesc[2], shapedesc[3])
+        obj = shape.rect(dim, inner, center)
 
-    if len(dim) == 3: # cut down to 2d, ignore 3rd dimension
-        dim = dim[1:]
+        if len(shapedesc) == 7:
+            outer = (shapedesc[4], shapedesc[5])
+            obj = shape.rect(dim, outer, center)-obj
+            
+        return obj    
+    
+    def _make_ellipse(shapedesc):
+        """ Helper """
+        
+        angle = -1*shapedesc[-1]
+        center = (shapedesc[1], shapedesc[0])
+        inner = (shapedesc[2], shapedesc[3])
+        
+        obj = shape.ellipse(dim, inner, center, angle, AA=False)
+        
+        if len(shapedesc) == 7:
+            outer = (shapedesc[4], shapedesc[5])
+            obj = shape.ellipse(dim, outer, center, angle, AA=False)-obj
+            
+        return obj
+    
+    def _make_annulus(shapedesc):
+        """ Helper """
+        
+        size = (y_size, x_size)
+        center = (shapedesc[1], shapedesc[0])
+        radii = (shapedesc[2], shapedesc[3])
+        
+        obj = shape.annulus(size, radii, center, AA=False)
+        
+        return obj
+    
+    shapes, dim = _parse_shapes()
+    
+    import shape
     
     count = 1
-    binarydata = numpy.zeros(dim)
-    data = numpy.zeros(dim)
+    binarydata = np.zeros(dim)
+    data = np.zeros(dim)
     (y_size, x_size) = dim
     for s in shapes:
+        
         shapetype, shapedesc = s.split("(")
         shapest = s.find("(")
         shapeend = s.find(")")
-        shapedesc = [float(val) for val in s[shapest+1:shapeend].split(",") ]
+        shapedesc = [float(val) for val in s[shapest+1:shapeend].split(",")]
+        shapedesc[0] -= 1
+        shapedesc[1] -= 1
+        
         if shapetype == "circle":
-            # fix discrepancy between ds9 and python indices (1 vs 0)
-            shapedesc[0] = shapedesc[0] - 1
-            shapedesc[1] = shapedesc[1] - 1
+            obj = _make_circle(shapedesc)
 
-            x_center, y_center, rad = shapedesc
-            obj = shape.circle( dim, rad, (y_center,x_center), AA=False )
-            data += count*obj
-            binarydata += obj
-            count += 1
         elif shapetype == "box":
-            # fix discrepancy between ds9 and python indices (1 vs 0)
-            shapedesc[0] = shapedesc[0] - 1
-            shapedesc[1] = shapedesc[1] - 1
-
-            if len(shapedesc) == 7:
-                x_center, y_center, in_x_width, in_y_width, out_x_width, out_y_width, angle = shapedesc
-                angle = -angle # ds9 angles are measured in the opposite direction.
-                obj1 = shape.rect((y_size, x_size), (out_y_width, out_x_width), (y_center, x_center))
-                obj2 = shape.rect((y_size, x_size), (in_y_width, in_x_width), (y_center, x_center))
-                data += count*(obj1-obj2)
-                binarydata += obj
-                count += 1
-            else:
-                x_center, y_center, x_width, y_width, angle = shapedesc
-                angle = -angle # ds9 angles are measured in the opposite direction.
-                obj = shape.rect((y_size, x_size), (y_width, x_width), (y_center, x_center))
-                data += count*obj
-                binarydata += obj
-                count += 1
-
+            obj = _make_box(shapedesc)
+            
         elif shapetype == "polygon":
-            # fix discrepancy between ds9 and python indices (1 vs 0)
-            for i in range(len(shapedesc)):
-                shapedesc[i] = shapedesc[i] - 1
-
+            shapedesc = [s-1 for s in shapedesc]
             obj = _draw_polygon(shapedesc, dim)
-            data += count*obj
-            binarydata += obj
-            count += 1
-
+            
         elif shapetype == "ellipse":
-            # fix discrepancy between ds9 and python indices (1 vs 0)
-            shapedesc[0] = shapedesc[0]-1
-            shapedesc[1] = shapedesc[1]-1
-            if len(shapedesc) == 7:
-                x_center, y_center, in_x_width, in_y_width, out_x_width, out_y_width, angle = shapedesc
-                angle = -angle # ds9 angles are measured in the opposite direction.
-                obj1 = shape.ellipse((y_size, x_size), (out_y_width, out_x_width), (y_center, x_center), angle, AA=False)
-                obj2 = shape.ellipse((y_size, x_size), (in_y_width, in_x_width), (y_center, x_center), angle, AA=False)
-                data += count*(obj1-obj2)
-                binarydata += obj
-                count += 1
-
-            else:
-                x_center, y_center, x_width, y_width, angle = shapedesc
-                angle = -angle # ds9 angles are measured in the opposite direction.
-                obj = shape.ellipse((y_size, x_size), (y_width, x_width), (y_center, x_center), angle, AA=False)
-                data += count*obj
-                binarydata += obj
-                count += 1
+            obj = _make_ellipse(shapedesc)
 
         elif shapetype == "annulus":
-            # fix discrepancy between ds9 and python indices (1 vs 0)
-            shapedesc[0] = shapedesc[0] - 1
-            shapedesc[1] = shapedesc[1] - 1
-
-            (x_center, y_center, rin, rout) = shapedesc
-            obj = shape.annulus((y_size, x_size), (rin, rout), (y_center, x_center), AA=False)
-            data += count*obj
-            binarydata += obj
-            count += 1
+            obj = _make_annulus(shapedesc)
     
+        data += count*obj
+        binarydata += obj
+        count += 1
 
     if remove_intersections:
-        mask = numpy.where( (binarydata % 2) == 0 , 0, 1)
+        mask = np.where((binarydata % 2) == 0, 0, 1)
     else:
-        mask =  numpy.where(binarydata >= 1, 1, 0)
+        mask = np.where(binarydata >= 1, 1, 0)
 
     if individual_regions:
         return mask*data
@@ -1354,9 +1494,10 @@ def open_ds9_mask(filename, individual_regions = False, remove_intersections = F
         return mask
     
 ########## ZIP ########
-# Opening of zipped fits is already supported by pyfits, so just need a save function
+# Opening of zipped fits is already supported by pyfits,
+# so just need a save function
 
-def _zip(filename,do_zip):
+def _zip(filename, do_zip):
     """ Helper function which takes saved data and
     compresses it using gzip"""
     
@@ -1365,8 +1506,8 @@ def _zip(filename,do_zip):
 
     import os
     import glob
-    ext     = filename.split('.')[-1]
-    base    = filename.replace('.%s'%ext,'')
+    ext = filename.split('.')[-1]
+    base = filename.replace('.%s'%ext, '')
     matches = glob.glob('%s*.*'%base)
         
     if do_zip == 'each':
@@ -1374,8 +1515,8 @@ def _zip(filename,do_zip):
             import gzip
             for match in matches:
                 if match.split('.')[-1] not in ('zip', 'gz'):
-                    f_out = gzip.open(match+'.gz','wb')
-                    f_in = _open(match,'rb')
+                    f_out = gzip.open(match+'.gz', 'wb')
+                    f_in = _open(match, 'rb')
                     f_out.writelines(f_in)
                     f_in.close()
                     
@@ -1393,7 +1534,7 @@ def _zip(filename,do_zip):
             
             with z.ZipFile(zfile, 'w') as archive:
                 for match in matches:
-                    if match.split('.')[-1] not in ('gz','zip'):
+                    if match.split('.')[-1] not in ('gz', 'zip'):
                         archive.write(match, match.split('/')[-1], z.ZIP_DEFLATED)
                         os.remove(match)
 
