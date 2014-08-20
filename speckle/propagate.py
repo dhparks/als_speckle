@@ -14,12 +14,13 @@ except ImportError:
     
 try:
     import pyfftw
-    pyfftw.interfaces.cache.enable()
     DFT = pyfftw.interfaces.numpy_fft.fft2
     IDFT = pyfftw.interfaces.numpy_fft.ifft2
+    HAVE_FFTW = True
 except ImportError:
     DFT = np.fft.fft2
     IDFT = np.fft.ifft2
+    HAVE_FFTW = False
 
 def propagate_one_distance(data, energy_or_wavelength=None, z=None,
                            pixel_pitch=None, phase=None, data_is_fourier=False,
@@ -459,6 +460,9 @@ def propagate_distances(data, distances, energy_or_wavelength, pixel_pitch,
     # depending on the compute device, allocate memory etc
     if gpu_info == None:
         f, store = _prep_cpu()
+        if HAVE_FFTW:
+            pyfftw.interfaces.cache.enable()
+        
     if gpu_info != None:
         k_pm, k_ctb, fftplan, gpu_r, gpu_f, gpu_phase, gpu_back,\
         gpu_store, build = _prep_gpu()
@@ -472,6 +476,9 @@ def propagate_distances(data, distances, energy_or_wavelength, pixel_pitch,
             sys.stdout.write("\rpropagating: %1.2e m (%02d/%02d)"%(z, n+1, nf))
             sys.stdout.flush()
         _calc(n, z)
+        
+    if gpu_info == None and HAVE_FFTW:
+        pyfftw.interfaces.cache.disable()
         
     # if im_convert, return both array data AND converted images.
     # otherwise, just return the array data

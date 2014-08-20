@@ -31,7 +31,6 @@ except ImportError:
     
 try:
     import pyfftw
-    pyfftw.interfaces.cache.enable()
     have_fftw = True
 except ImportError:
     have_fftw = False
@@ -538,14 +537,16 @@ class microscope(common):
         if 'spectrum_ds' in self.returnables_list:
             self.cached_spectra_ds = self._allocate(s, d,
                                                     name='cached_spectra_ds')
-
+            
         print self.returnables_list
+        if not use_gpu and HAVE_FFTW:
+            pyfftw.interfaces.cache.enable()
 
         # run the microscope on each site, then copy the spectrum
         # to a local buffer to minimize the number of host-device transfers
         for m, coord in enumerate(coords):
             self.run_on_site(coord[0], coord[1], cache_spectra=True)
-            if 'spectrum'    in self.returnables_list:
+            if 'spectrum' in self.returnables_list:
                 if use_gpu:
                     self._kexec('copy_to_buffer_f2', self.spectrum,
                                 self.cached_spectra, m, shape=(self.rows, 128))
@@ -558,6 +559,9 @@ class microscope(common):
                                 shape=(self.rows, 128))
                 else:
                     self.cached_spectra_ds[m] = self.spectrum_ds
+                    
+        if not use_gpu and HAVE_FFTW:
+            pyfftw.interfaces.cache.disable()
             
         # get the cached spectra
         if 'spectrum' in self.returnables_list:

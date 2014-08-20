@@ -13,10 +13,10 @@ import time
 
 try:
     import pyfftw
-    pyfftw.interfaces.cache.enable()
-    have_fftw = True
+    #pyfftw.interfaces.cache.enable()
+    HAVE_FFTW = True
 except ImportError:
-    have_fftw = False
+    HAVE_FFTW = False
     
 # keep a record of gpu fft plans
 fftplans = {}
@@ -253,7 +253,8 @@ def _g2_numerator(data, batch_size=64, gpu_info=None):
             cpu_d['tmp1'] = np.zeros((batch_size, 2*fr), np.float32)
         if rem > 0:
             cpu_d['tmp2'] = np.zeros((rem, 2*fr), np.float32)
-        if have_fftw:
+        if HAVE_FFTW:
+            pyfftw.interfaces.cache.enable()
             cpu_d['DFT'] = pyfftw.interfaces.numpy_fft.fft2
             cpu_d['IDFT'] = pyfftw.interfaces.numpy_fft.ifft2
         else:
@@ -420,6 +421,8 @@ def _g2_numerator(data, batch_size=64, gpu_info=None):
     t1 = time.time()
     
     print "fft executation time %s"%(t1-t0)
+    if gpu_info == None and HAVE_FFTW:
+        pyfftw.interfaces.cache.disable()
     
     return output.transpose().reshape((fr, ys, xs))
 

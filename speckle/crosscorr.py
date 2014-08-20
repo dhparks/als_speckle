@@ -10,13 +10,12 @@ from . import averaging, shape, wrapping, masking
 # check for numexpr and fftw
 try:
     import pyfftw
-    pyfftw.interfaces.cache.enable()
-    have_fftw = True
+    HAVE_FFTW = True
     DFT  = pyfftw.interfaces.numpy_fft.fft2
     IDFT = pyfftw.interfaces.numpy_fft.ifft2
     
 except ImportError:
-    have_fftw = False
+    HAVE_FFTW = False
     DFT  = np.fft.fft2
     IDFT = np.fft.ifft2
 
@@ -371,17 +370,24 @@ def pairwise_covariances(data, save_memory=False, gpu_info=None, mask=1):
         # calculate the pair-wise normalized covariances  
         covars = np.zeros((frames,frames),float)
             
+        if HAVE_FFTW:
+            pyfftw.interfaces.cache.enable()
+            
         for j in range(frames):
             ac = ACs[j]
             for k in range(frames-j):
                 k += j
                 bc = ACs[k]
-                if save_memory: corr = crosscorr(data[j],data[k])
+                if save_memory:
+                    corr = crosscorr(data[j],data[k])
                 else:
                     corr = crosscorr(dfts[j],dfts[k],already_fft=(0,1))
                     fill = covar(np.abs(corr).max(),ac,bc)
                 covars[j,k] = fill
                 covars[k,j] = fill
+                
+        if HAVE_FFTW:
+            pyfftw.interfaces.cache.disable()
       
     # gpu codepath          
     if gpu_info != None:
@@ -463,25 +469,25 @@ def pairwise_covariances(data, save_memory=False, gpu_info=None, mask=1):
             # multiply conj(dft1) and dft2. store in product. inverse transform
             # product; keep in place. make the magnitude of product in corr. take
             # the max of corr and return it to host.
-            gpud['conj'](gpud['dft1'],gpud['dft2'],gpud['prod']).wait() 
-            gpud['plan'].execute(gpud['prod'].data,inverse=True,wait_for_finish=True)
-            gpud['abs'](gpud['prod'],gpud['corr']).wait()
+            gpud['conj'](gpud['dft1'], gpud['dft2'], gpud['prod']).wait() 
+            gpud['plan'].execute(gpud['prod'].data, inverse=True, wait_for_finish=True)
+            gpud['abs'](gpud['prod'], gpud['corr']).wait()
             
         def _get_do(n):
-            row = mask[n,n:]
+            row = mask[n, n:]
             return np.nonzero(row)[0]+n
             
         # prepare for the calculation
-        data   = _embed(data)
-        N, L   = data.shape[:2]
-        mask   = _sampling(mask)
-        gpud   = _prep_gpu()
-        cc     = np.zeros((N,N),float) # in host memory
-        covars = np.zeros((N,N),float) # in host memory
+        data = _embed(data)
+        N, L = data.shape[:2]
+        mask = _sampling(mask)
+        gpud = _prep_gpu()
+        cc = np.zeros((N, N), float) # in host memory
+        covars = np.zeros((N, N), float) # in host memory
 
         # put the data on the gpu and precompute the dfts
         gpud['data'].set(data)
-        gpud['plan'].execute(gpud['data'].data,batch=N,wait_for_finish=True)
+        gpud['plan'].execute(gpud['data'].data, batch=N, wait_for_finish=True)
         
         from pyopencl.array import max as cm
         
@@ -489,13 +495,19 @@ def pairwise_covariances(data, save_memory=False, gpu_info=None, mask=1):
         for n in range(N):
     
             # slice the first dft into dft1
-            gpud['slice'].execute(gpud['queue'],(L,L),None,gpud['dft1'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(n),np.int32(L)).wait()
+            gpud['slice'].execute(gpud['queue'], (L, L), None,
+                                  gpud['dft1'].data, gpud['data'].data,
+                                  np.int32(0), np.int32(0), np.int32(n),
+                                  np.int32(L)).wait()
     
             for m in _get_do(n):
                 
                 # slice the second dft into dft2, then find the maximum value of
                 # the cross correlation of dft1 and dft2
-                gpud['slice'].execute(gpud['queue'],(L,L),None,gpud['dft2'].data,gpud['data'].data,np.int32(0),np.int32(0),np.int32(m),np.int32(L))
+                gpud['slice'].execute(gpud['queue'],(L, L), None,
+                                      gpud['dft2'].data, gpud['data'].data,
+                                      np.int32(0), np.int32(0), np.int32(m),
+                                      np.int32(L))
                 _gpu_crosscorr()
                 max_val = cm(gpud['corr']).get()
                 cc[n,m] = max_val
@@ -505,13 +517,13 @@ def pairwise_covariances(data, save_memory=False, gpu_info=None, mask=1):
         # covar(i,j) = cc(i,j)/sqrt(cc(i,i)*cc(j,j))
         for n in range(N):
             for m in _get_do(n):
-                covar = cc[n,m]/np.sqrt(cc[n,n]*cc[m,m])
+                covar = cc[n, m]/np.sqrt(cc[n, n]*cc[m, m])
                 covars[n,m] = covar
                 covars[m,n] = covar
 
     return covars
 
-def alignment_coordinates(obj, ref, already_fft=()):
+def alignment_coordinates(obj, ref, already_fft=None):
     """ Computes the roll coordinates to align obj and ref. The returned
     values r0 and r1 are such the following numpy command will align obj to ref.
 
@@ -529,25 +541,29 @@ def alignment_coordinates(obj, ref, already_fft=()):
     """
     
     def _check_types():
-        assert isinstance(ref,np.ndarray) and ref.ndim==2, "ref must be 2d array"
-        assert isinstance(obj,np.ndarray) and obj.ndim==2, "obj must be 2d array"
+        assert isinstance(ref, np.ndarray) and ref.ndim==2, "ref must be 2d array"
+        assert isinstance(obj, np.ndarray) and obj.ndim==2, "obj must be 2d array"
         assert ref.shape == obj.shape, "ref and obj must have same same"
         
     _check_types()
+    if already_fft == None:
+        already_fft = ()
     
     rows,cols = ref.shape
     
     # compute the cross correlation and find the location of the max
-    corr   = crosscorr(obj,ref,already_fft=already_fft)
+    corr = crosscorr(obj, ref, already_fft=already_fft)
     cc_max = np.abs(corr).argmax()
-    max_row,max_col = cc_max/cols,cc_max%cols
+    max_row, max_col = cc_max/cols, cc_max%cols
     
     # do modulo arithmetic to account for the fftshift in crosscorr and the
     # cyclic boundary conditions of the fft
     max_row += -rows/2
     max_col += -cols/2
-    if max_row > rows/2: max_row += -rows
-    if max_col > cols/2: max_col += -cols
+    if max_row > rows/2:
+        max_row += -rows
+    if max_col > cols/2:
+        max_col += -cols
     
     return -max_row, -max_col
 

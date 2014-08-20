@@ -11,7 +11,6 @@ except ImportError:
     
 try:
     import pyfftw
-    pyfftw.interfaces.cache.enable()
     HAVE_FFTW = True
 except ImportError:
     HAVE_FFTW = False
@@ -48,7 +47,6 @@ class ptychography(gpu.common):
         else:
             self.fft2 = np.fft.fft2
             self.ifft2 = np.fft.ifft2
-            
             
         test = np.random.random((16, 16))+1j*np.random.random((16, 16))
         self.test = test.astype(np.complex64)
@@ -357,6 +355,9 @@ class ptychography(gpu.common):
         self._check_states_for_reconstruction()
         self._change_coordinates()
 
+        if not self.use_gpu and HAVE_FFTW:
+            pyfftw.interfaces.cache.enable()
+
         if self.can_reconstruct:
             
             if self.object == None: self._make_object()
@@ -375,6 +376,9 @@ class ptychography(gpu.common):
                 self._update_waves()
 
             self.iterations = iterations
+            
+        if not self.use_gpu and HAVE_FFTW:
+            pyfftw.interfaces.cache.disable()
 
     def reset_phi(self):
         """ Replace all self.waveX with random complex numbers """
@@ -794,6 +798,200 @@ class ptychography(gpu.common):
         if propagator == 'auto' and self.ipsf_state != 2:
             propagator = 'fc'
         self.propagator = propagator
+
+    def _update_coherence(self, iterations=100):
+        """ Update the estimate of the coherence function by
+        using Richardson-Lucy deconvolution of the measured modulus
+        by the current estimate of the modulus. We do a deconvolution
+        for each view, then use the average outcome as the new ipsf.
+        
+        This method is a cut-down method of that originally written for
+        phasing; only RLD is offered as an estimate of ipsf.
+        """
+        
+        import shape
+
+        # check gpu
+        global use_gpu
+        old_use_gpu = use_gpu
+        device = 'gpu'
+        if force_cpu:
+            use_gpu = False
+            common.use_gpu = False
+            device = 'cpu'
+
+        self.counter = 0
+        
+        def _allocate_rl():
+            """ Allocate memory for arrays used in the deconvolver"""
+            if self.rl_state != 2:
+                self.rl_d = self._allocate(s, c, 'rl_d')
+                self.rl_u = self._allocate(s, c, 'rl_u')
+                self.rl_p = self._allocate(s, c, 'rl_p')
+                self.rl_ph = self._allocate(s, c, 'rl_ph')
+                self.rl_sum = self._allocate(s, c, 'rl_sum')
+                self.rl_blur = self._allocate(s, c, 'rl_blur')
+                self.rl_state = 2
+         
+            # zero rl_sum, which holds the sum of the deconvolved frames  
+            if use_gpu:
+                self._cl_zero(self.rl_sum)
+            else:
+                self.rl_sum = np.zeros_like(self.rl_sum)
+            
+        def _finalize_rl():
+            """ Finalize RL deconvolution """
+            
+            # to be power preserving, the ipsf should be 1 at (0,0)?
+            ipsf = self.get(self.rl_u)
+            ipsf *= 1./abs(ipsf[0, 0])
+            
+            # load new ipsf
+            self.load(ipsf=ipsf)
+            self.rl_state = 0 # why?
+        
+        def _opt_iter_rl():
+            """
+            # implement the rl deconvolution algorithm.
+            # explanation of quantities:
+            # p is the point spread function (the reconstructed intensity)
+            # d is the measured partially coherent intensity
+            # u is the estimate of the psf, what we are trying to reconstruct
+            """
+            
+            # convolve u and p. this should give a blurry intensity
+            if use_gpu:
+                self._fft2(self.rl_u, self.rl_blur)
+                self._cl_mult(self.rl_blur, self.rl_p, self.rl_blur)
+                self._fft2(self.rl_blur, self.rl_blur, inverse=True)
+            else:
+                self.rl_blur = np.fft.ifft2(np.fft.fft2(self.rl_u)*self.rl_p)
+                
+            # divide d by the convolution
+            if use_gpu:
+                self._cl_div(self.rl_d, self.rl_blur, self.rl_blur)
+            else:
+                self.rl_blur = self.rl_d/self.rl_blur
+
+            # convolve the quotient with phat
+            if use_gpu:
+                self._fft2(self.rl_blur, self.rl_blur)
+                self._cl_mult(self.rl_blur, self.rl_ph, self.rl_blur)
+                self._fft2(self.rl_blur, self.rl_blur, inverse=True)
+            else:
+                tmp = np.fft.fft2(self.rl_blur)*self.rl_ph
+                self.rl_blur = np.fft.ifft2(tmp)
+                
+            # multiply u and blur to get a new estimate of u
+            if use_gpu:
+                self._cl_mult(self.rl_u, self.rl_blur, self.rl_u)
+            else:
+                self.rl_u *= self.rl_blur
+        
+        def _postprocess_rl():
+            """Post process the RL deconvolution """
+
+            # make rl_u into the ipsf with an fft
+            if use_gpu:
+                self._fft2(self.rl_u, self.rl_u)
+            else:
+                self.rl_u = np.fft.fft2(self.rl_u)
+                
+            # add rl_u to rl_sum
+            if use_gpu:
+                self._cl_add(self.rl_sum, self.rl_u, self.rl_sum)
+            else:
+                self.rl_sum += self.rl_u.astype(c)
+                
+            # reset types to single precision from double precision for cpu path
+            d = np.float32
+            if not use_gpu:
+                self.rl_u = self.rl_u.astype(d)
+                self.rl_p = self.rl_p.astype(d)
+                self.rl_blur = self.rl_blur.astype(d)
+                
+            if not silent:
+                print "finished richardson-lucy estimate %s of %s"\
+                %(n+1, self.frame_m)
+
+        def _preprocess_rl():
+            """ Preprocess the RL deconvolution
+            
+            self.rl_p is the "best estimate" in real space. Make its fourier
+            intensity.
+            # precompute the fourier transform for the convolutions.
+            # make modulus into intensity
+            """
+            
+            m2 = (modulus**2)
+            m2 /= m2.sum()
+            g = np.fft.fftshift(shape.gaussian(s, (s[0]/4, s[1]/4)))
+            
+            self.rl_p = self._set(active.astype(c), self.rl_p)
+            self.rl_d = self._set(m2.astype(c), self.rl_d)
+            self.rl_u = self._set(g.astype(c), self.rl_u)
+
+            if use_gpu:
+                # fourier modulus of best_estimate
+                self._fft2(self.rl_p, self.rl_p) 
+                self._cl_abs(self.rl_p, self.rl_p)
+                
+                # square to make intensity
+                self._cl_mult(self.rl_p, self.rl_p, self.rl_p) 
+                rlpsum = self.rl_p.get().sum().real
+                div = (1./rlpsum).astype(np.float32)
+                self._cl_mult(self.rl_p, div, self.rl_p)
+                
+                # fft, precomputed for convolution
+                self._fft2(self.rl_p, self.rl_p) 
+
+                # precompute p-hat
+                self._cl_copy(self.rl_p, self.rl_ph)
+                self._kexec('flip_f2', self.rl_p, self.rl_ph, shape=s) 
+            else:
+                d = np.complex64
+                self.rl_p = np.abs(np.fft.fft2(self.rl_p))**2 # intensity
+                self.rl_p /= self.rl_p.sum()
+                self.rl_p = np.fft.fft2(self.rl_p).astype(d) # precomputed fft
+                self.rl_ph = self.rl_p[::-1, ::-1] # phat
+
+        def _start(frame_n):
+            """ Get the modulus and estimate for the current view number"""
+            
+            wave = self.get(eval('self.wave%s'%frame_n))
+            fmod = self.get(eval('self.modulus'%frame_n))
+            
+            tmp = np.zeros(fmod.shape, c)
+            if wave.shape != fmod.shape:
+                tmp[:wave.shape[0], :wave.shape[1]] = wave
+                wave = tmp
+            
+            return wave, fmod
+               
+        # allocate memory. s, f, c are local variables
+        # for this function only. active_ holds the
+        # current view and its goal modulus
+        s, f, c = self.shape, np.float32, np.complex64
+        _allocate_rl()
+        
+        # loop over the frames, performing a de
+        for frame_n in range(self.frame_m):
+            active, modulus = _start(frame_n)
+            
+            # load initial values and preprocess
+            _preprocess_rl()
+            
+            # now run the deconvolver for a set number of iterations
+            for opt_i in range(iterations):
+                _opt_iter_rl()
+            
+            # make rl_u into ipsf with fft; add to sum
+            _postprocess_rl()
+                    
+        use_gpu = old_use_gpu
+        common.use_gpu = old_use_gpu
+            
+        _finalize_rl()
 
     def _update_object(self):
         # implement equation s7 in thibault science 2008 "high resolution..."

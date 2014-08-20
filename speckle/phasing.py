@@ -27,7 +27,6 @@ except ImportError:
     
 try:
     import pyfftw
-    pyfftw.interfaces.cache.enable()
     HAVE_FFTW = True
 except ImportError:
     HAVE_FFTW = False
@@ -95,6 +94,7 @@ class phasing(common):
             
             if HAVE_FFTW and not force_np_fft:
                 print "using fftw"
+                pyfftw.interfaces.cache.enable()
                 self.fft2 = pyfftw.interfaces.numpy_fft.fft2
                 self.ifft2 = pyfftw.interfaces.numpy_fft.ifft2
                 
@@ -244,6 +244,10 @@ class phasing(common):
         order_list = [x for entry in tmp for x in entry]
         k = len(order_list)
                 
+        # turn on the fft cache
+        if HAVE_FFTW:
+            pyfftw.interfaces.cache.enable()
+                
         # run the iterations
         for iteration in range(iterations):
 
@@ -275,6 +279,10 @@ class phasing(common):
             self.savebuffer[self.numtrial] = sliced.astype(np.complex64)
 
         self.numtrial += 1
+        
+        # turn off the fft cache
+        if HAVE_FFTW:
+            pyfftw.interfaces.cache.disable()
 
     def load(self, modulus=None, support=None, ipsf=None, spectrum=None,
              numtrials=None):
