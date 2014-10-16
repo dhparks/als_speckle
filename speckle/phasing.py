@@ -3,10 +3,9 @@
 # the goal of this code is to completely unify the phasing interface,
 # which was previously split between cpu and gpu files.
 
-global use_gpu
-
 import numpy as np
 import wrapping, masking, gpu, sys, time, io
+from math import sin, cos
 w = sys.stdout.write
 common = gpu.common
 
@@ -15,9 +14,9 @@ try:
     import pyopencl
     import pyopencl.array as cla
     import pyfft
-    use_gpu = True
+    HAVE_GPU = True
 except ImportError:
-    use_gpu = False
+    HAVE_GPU = False
     
 try:
     import numexpr
@@ -52,14 +51,29 @@ class phasing(common):
     Data can be loaded in any order. Data can also be changed, eg, to update
     the estimate of the support.
     
+    Typical basic usage might be as follows:
+        reconstructor = speckle.phasing.phasing()
+        reconstructor.load(modulus=$modulus_data, support=$support_data, trials=10)
+        reconstructor.iterate(500)
+        results = reconstructor.get(reconstructor.save_buffer)
+        
+    More advanced usage (for example: refinement of the support):
+        reconstructor = speckle.phasing.phasing()
+        reconstructor.load(modulus=$modulus_data, support=$support_data, trials=10)
+        reconstructor.iterate(500)
+        results = reconstructor.get(reconstructor.save_buffer)
+        
+        average_result = results.mean()
+        new_support = speckle.phasing.refine_support(reconstructor.get(reconstructor.support), average_result)
+        reconstructor.load(support=new_support)
+        reconstructor.iterate(500)
+        results = reconstructor.get(reconstructor.save_buffer)
             
     Publicly available methods in this class are:
     
         get() -  retrieve class attributes; same interface between cpu and gpu.
         iterate() - run iterations on the current trial
         load() - load data into the class
-        optimize_gaussian_coherence() - try to optimize the ipsf assuming
-            the coherence function is gaussian
         optimize_coherence(): attempt to optimize the coherence function using
             one of two methods. first, an estimate can be made using
             richardson-lucy deconvolution. second, an estimate can be made
@@ -69,32 +83,30 @@ class phasing(common):
     """
     
     def __init__(self, force_cpu=False, force_np_fft=False, gpu_info=None):
-        global use_gpu
 
         # load the gpu if available
         # keep context, device, queue, platform, and kp in the parent namespace
         # (still available to self)
-        if use_gpu:
+        if HAVE_GPU and not force_cpu:
             common.project = 'phasing'
-            use_gpu = self.start(gpu_info) 
-        if force_cpu:
-            use_gpu = False
-            
-        # tell the methods in common which device we're using
-        common.use_gpu = use_gpu 
+            self.start(gpu_info)
+        else:
+            self.use_gpu = False
 
-        if use_gpu:
+        # tell the methods in common which device we're using
+        common.use_gpu = self.use_gpu 
+
+        if self.use_gpu:
             self.compute_device = 'gpu'  
         else:
             self.compute_device = 'cpu'
         
         # can switch between np.fft and pyfft by use of the force_np_fft
         # switch. mainly this is just for testing
-        if not use_gpu:
+        if not self.use_gpu:
             
             if HAVE_FFTW and not force_np_fft:
                 print "using fftw"
-                pyfftw.interfaces.cache.enable()
                 self.fft2 = pyfftw.interfaces.numpy_fft.fft2
                 self.ifft2 = pyfftw.interfaces.numpy_fft.ifft2
                 
@@ -134,6 +146,7 @@ class phasing(common):
         self.support = None
         self.size = None
         self.shape = None
+        self.reconstruction = None
         
         # attributes for saving trials to buffer
         self.numtrials = None
@@ -165,7 +178,6 @@ class phasing(common):
         self.optimize_bl = None
         self.counter = None
         
-
     def iterate(self, iterations, order=None, silent=True, beta=0.8,
                 debug_on=None):
     
@@ -231,7 +243,7 @@ class phasing(common):
         
         if order == None:
             order = (('hio', 99), ('er', 1))
-            
+
         tmp = []
         for entry in order:
             try:
@@ -243,10 +255,6 @@ class phasing(common):
             tmp.append([t for j in range(i)])
         order_list = [x for entry in tmp for x in entry]
         k = len(order_list)
-                
-        # turn on the fft cache
-        if HAVE_FFTW:
-            pyfftw.interfaces.cache.enable()
                 
         # run the iterations
         for iteration in range(iterations):
@@ -268,7 +276,7 @@ class phasing(common):
                     print "  iteration %s"%(iteration+1)
             
         # copy the current reconstruction to the save buffer
-        if use_gpu:
+        if self.use_gpu:
             self._kexec('copy_to_buffer_f2', self.savebuffer, self.psi_in,
                         self.c0, self.r0, self.numtrial, self.N,
                         shape=(self.cols, self.rows))
@@ -279,10 +287,6 @@ class phasing(common):
             self.savebuffer[self.numtrial] = sliced.astype(np.complex64)
 
         self.numtrial += 1
-        
-        # turn off the fft cache
-        if HAVE_FFTW:
-            pyfftw.interfaces.cache.disable()
 
     def load(self, modulus=None, support=None, ipsf=None, spectrum=None,
              numtrials=None):
@@ -365,7 +369,7 @@ class phasing(common):
                 
             # make the fft plan. because this is remade every time, don't
             # expect it to go stale.
-            if use_gpu:
+            if self.use_gpu:
                 from pyfft.cl import Plan
                 self.fftplan = Plan((self.N, self.N), queue=self.queue)
                 
@@ -484,14 +488,14 @@ class phasing(common):
                 self.support_state = 2
                 
                 # allocate memory for savebuffer
-                shape = (self.numtrials+1, self.rows, self.cols)
-                tmp1 = self.buffer_state == 1
-                tmp2 = self.buffer_state == 2
-                tmp3 = self.savebuffer.shape != shape
-                if tmp1 or (tmp2 and tmp3):
-                    dt = np.complex64
-                    self.savebuffer = self._allocate(shape, dt, 'savebuffer')
-                    self.buffer_state = 2
+                if self.buffer_state > 0:
+                    shape = (self.numtrials+1, self.rows, self.cols)
+                    tmp1 = self.buffer_state == 1
+                    tmp2 = self.buffer_state == 2
+                    if tmp1 or (tmp2 and self.savebuffer.shape != shape):
+                        dt = np.complex64
+                        self.savebuffer = self._allocate(shape, dt, 'savebuffer')
+                        self.buffer_state = 2
             
         # set the flag which allows iteration.
         tmp1 = self.modulus_state == 2
@@ -502,7 +506,7 @@ class phasing(common):
 
     def optimize_coherence(self, best_estimate, modulus=None, force_cpu=False,
                            load=True, silent=False, iterations=500,
-                           method='richardson_lucy'):
+                           method='richardson_lucy', is_fourier=False):
     
         """
         This function presents methods to optimize the estimated coherence
@@ -559,13 +563,9 @@ class phasing(common):
                 print "couldnt cast iterations %s to int"%iterations
 
         # check gpu
-        global use_gpu
-        old_use_gpu = use_gpu
-        device = 'gpu'
+        old_use_gpu = self.use_gpu
         if force_cpu:
-            use_gpu = False
-            common.use_gpu = False
-            device = 'cpu'
+            self.use_gpu = False
 
         self.counter = 0
         
@@ -612,7 +612,7 @@ class phasing(common):
                 self.rl_state = 2
          
             # zero rl_sum, which holds the sum of the deconvolved frames  
-            if use_gpu:
+            if self.use_gpu:
                 self._cl_zero(self.rl_sum)
             else:
                 self.rl_sum = np.zeros_like(self.rl_sum)
@@ -661,7 +661,7 @@ class phasing(common):
             self.counter += 1
             
             # make the gaussian
-            if use_gpu:
+            if self.use_gpu:
                 self._kexec('gaussian_f', self.optimize_g, cl[0],
                             cl[1], shape=modulus.shape)
                 
@@ -671,7 +671,7 @@ class phasing(common):
                 self.optimize_g = gy*gx
                 
             # blur the speckle pattern
-            if use_gpu:
+            if self.use_gpu:
                 self._cl_mult(self.optimize_g, self.optimize_ac,
                               self.optimize_ac2)
                 self._fft2(self.optimize_ac2, self.optimize_bl)
@@ -683,7 +683,7 @@ class phasing(common):
                 self.optimize_bl2 = np.sqrt(temp)
                 
             # calculate the absolute difference and return the sum of the square
-            if use_gpu:
+            if self.use_gpu:
                 
                 self._kexec('subtract_f_f', self.optimize_bl2,
                             self.optimize_m, self.optimize_bl2)
@@ -709,7 +709,7 @@ class phasing(common):
             """
             
             # convolve u and p. this should give a blurry intensity
-            if use_gpu:
+            if self.use_gpu:
                 self._fft2(self.rl_u, self.rl_blur)
                 self._cl_mult(self.rl_blur, self.rl_p, self.rl_blur)
                 self._fft2(self.rl_blur, self.rl_blur, inverse=True)
@@ -717,13 +717,13 @@ class phasing(common):
                 self.rl_blur = np.fft.ifft2(np.fft.fft2(self.rl_u)*self.rl_p)
                 
             # divide d by the convolution
-            if use_gpu:
+            if self.use_gpu:
                 self._cl_div(self.rl_d, self.rl_blur, self.rl_blur)
             else:
                 self.rl_blur = self.rl_d/self.rl_blur
 
             # convolve the quotient with phat
-            if use_gpu:
+            if self.use_gpu:
                 self._fft2(self.rl_blur, self.rl_blur)
                 self._cl_mult(self.rl_blur, self.rl_ph, self.rl_blur)
                 self._fft2(self.rl_blur, self.rl_blur, inverse=True)
@@ -732,7 +732,7 @@ class phasing(common):
                 self.rl_blur = np.fft.ifft2(tmp)
                 
             # multiply u and blur to get a new estimate of u
-            if use_gpu:
+            if self.use_gpu:
                 self._cl_mult(self.rl_u, self.rl_blur, self.rl_u)
             else:
                 self.rl_u *= self.rl_blur
@@ -745,20 +745,20 @@ class phasing(common):
             """Post process the RL deconvolution """
 
             # make rl_u into the ipsf with ans fft
-            if use_gpu:
+            if self.use_gpu:
                 self._fft2(self.rl_u, self.rl_u)
             else:
                 self.rl_u = np.fft.fft2(self.rl_u)
                 
             # add rl_u to rl_sum
-            if use_gpu:
+            if self.use_gpu:
                 self._cl_add(self.rl_sum, self.rl_u, self.rl_sum)
             else:
                 self.rl_sum += self.rl_u.astype(c)
                 
             # reset types to single precision from double precision for cpu path
             d = np.float32
-            if not use_gpu:
+            if not self.use_gpu:
                 self.rl_u = self.rl_u.astype(d)
                 self.rl_p = self.rl_p.astype(d)
                 self.rl_blur = self.rl_blur.astype(d)
@@ -774,7 +774,7 @@ class phasing(common):
             self.optimize_ac = self._set(active.astype(c), self.optimize_ac)
             
             # fft, abs, square, ifft
-            if use_gpu:
+            if self.use_gpu:
                 self._fft2(self.optimize_ac, self.optimize_ac)
                 self._cl_abs(self.optimize_ac, self.optimize_ac)
                 self._cl_mult(self.optimize_ac, self.optimize_ac, \
@@ -802,10 +802,13 @@ class phasing(common):
             self.rl_d = self._set(m2.astype(c), self.rl_d)
             self.rl_u = self._set(g.astype(c), self.rl_u)
 
-            if use_gpu:
-                # fourier modulus of best_estimate
-                self._fft2(self.rl_p, self.rl_p) 
-                self._cl_abs(self.rl_p, self.rl_p)
+            if self.use_gpu:
+                
+                # fourier modulus of best_estimate if best_estimate
+                # is real-space
+                if not is_fourier:
+                    self._fft2(self.rl_p, self.rl_p) 
+                    self._cl_abs(self.rl_p, self.rl_p)
                 
                 # square to make intensity
                 self._cl_mult(self.rl_p, self.rl_p, self.rl_p) 
@@ -818,7 +821,9 @@ class phasing(common):
 
                 # precompute p-hat
                 self._cl_copy(self.rl_p, self.rl_ph)
-                self._kexec('flip_f2', self.rl_p, self.rl_ph, shape=s) 
+                self._kexec('flip_f2', self.rl_p, self.rl_ph, shape=s)
+
+                
             else:
                 d = np.complex64
                 self.rl_p = np.abs(np.fft.fft2(self.rl_p))**2 # intensity
@@ -863,7 +868,7 @@ class phasing(common):
             assert best_estimate.shape[2] <= modulus.shape[1]
             
             # make the fft plan if one does not exist already
-            if use_gpu and self.modulus_state != 2:
+            if self.use_gpu and self.modulus_state != 2:
                 from pyfft.cl import Plan
                 self.fftplan = Plan(modulus.shape, queue=self.queue)
                 
@@ -916,14 +921,70 @@ class phasing(common):
                 # make rl_u into ipsf with fft; add to sum
                 _postprocess_rl()
                     
-        use_gpu = old_use_gpu
-        common.use_gpu = old_use_gpu
+        self.use_gpu = old_use_gpu
                     
         if method == 'gaussian':
-            _finalize_g()
+            return _finalize_g()
             
         if method == 'richardson_lucy':
-            _finalize_rl()
+            return _finalize_rl()
+
+    def reconstruct(self, iterations=100, rounds=1, order=None, refine_support=True, refinement_parameters=None):
+        """ Wrap the seeding and iterating behind a single method.
+        
+        If refine_support = True, the support will be refined at the
+        end of each round on the basis of the average reconstruction.
+        Parameters for support refinement can be passed as a dictionary
+        to kwarg refinement_parameters. Allowed values in the dictionary
+        are:
+            1. local_threshold
+            2. global_threshold
+            3. blur_sigma
+            4. kill_weakest
+        Please consult the documentation for refine_support in the phasing
+        module for information regarding these parameters. If parameters
+        are not given, sensible defaults are used.
+        """
+        
+        for r in rounds:
+        
+            for trial in range(self.trials):
+                self.seed()
+                self.iterate(iterations, silent=100)
+                
+            # once the trials are complete, get the savebuffer into
+            # guaranteed cpu space, align the global phase, and form
+            # the average over trials
+            save_buffer = self.get(self.savebuffer)
+            save_buffer = align_global_phase(save_buffer)
+            save_buffer[-1] = np.mean(save_buffer, axis=0)
+            
+            self.reconstruction = save_buffer[-1]
+            
+            # if we are refining the support, do so on the basis
+            # of the average reconstruction
+            if refine_support:
+                
+                assert isinstance(refinement_parameters, (type(None), dict))
+                
+                rp = {'local_threshold':0.08, 'blur_sigma':3, 'global_threshold':0.0,
+                      'kill_weakest':False}
+                
+                if refinement_parameters != None:
+                    rp.update(refinement_parameters)
+                
+                refined = refine_support(
+                    self.support[self.r0:self.r0+self.rows,self.c0:self.c0+self.cols],
+                    save_buffer[-1],
+                    blur=rp['blur_sigma'],
+                    local_threshold=rp['local_threshold'],
+                    global_threshold=rp['global_threshold'])[0]
+            
+                new_support = np.zeros(self.shape, np.float32)
+                new_support[0:refined.shape[0], 0:refined.shape[1]] = refined
+
+                # load the refined support
+                self.load(support=new_support)
 
     def seed(self, supplied=None):
         """ Replaces self.psi_in with random numbers. Use this method to
@@ -961,7 +1022,7 @@ class phasing(common):
 
         self.psi_in = self._set(supplied.astype(np.complex64), self.psi_in)
         
-        if use_gpu:
+        if self.use_gpu:
             self._cl_mult(self.psi_in, self.support, self.psi_in)
         else:
             self.psi_in *= self.support
@@ -986,7 +1047,7 @@ class phasing(common):
         on the dtype of kernel.
         """
         
-        if use_gpu:
+        if self.use_gpu:
             assert to_convolve.dtype == 'complex64',\
             "in _convolvef, input to_convolve has wrong dtype for fftplan"
             
@@ -1002,18 +1063,23 @@ class phasing(common):
 
     def _fft2(self, data_in, data_out, inverse=False):
         """ unified wrapper for fft.
-        # note that this does not expose the full functionatily of the pyfft
-        # plan because of assumptions regarding the input (eg, is complex)
+        note that this does not expose the full functionatily of the pyfft
+        plan because of assumptions regarding the input (eg, is complex)
         """
         
-        if use_gpu:
+        if self.use_gpu:
             self.fftplan.execute(data_in=data_in.data, \
                                  data_out=data_out.data, inverse=inverse)
         else:
+
             if inverse:
+                tmp = self.ifft2(data_in)
                 data_out = self.ifft2(data_in)
             else:
+                tmp = self.ifft2(data_in)
                 data_out = self.fft2(data_in)
+            data_out = data_out.astype(np.complex64)
+                
         return data_out
 
     def _iteration(self, algorithm, beta=0.8, iteration=None, debug=False):
@@ -1045,7 +1111,7 @@ class phasing(common):
             div = self.fourier_div
             
             # gpu code path
-            if use_gpu:
+            if self.use_gpu:
                 
                 # convert to modulus
                 self._cl_abs(psi, div)
@@ -1137,13 +1203,13 @@ class phasing(common):
                         s(self.get(self.fourier_div)), components='polar')
             
             # 3. execute the magnitude replacement
-            if use_gpu:
+            if self.use_gpu:
                 self._kexec('fourier', self.psi_fourier, self.fourier_div,\
                             self.modulus, self.psi_fourier)
             else:
                 m, pf, fd = self.modulus, self.psi_fourier, self.fourier_div
                 if HAVE_NUMEXPR:
-                    self.psi_fourier = numexpr.evaluate("m*pf/abs(fd)")
+                    self.psi_fourier = numexpr.evaluate("m*pf/abs(fd)").astype(np.complex64)
                 else:
                     self.psi_fourier = m*pf/np.abs(fd)
             if debug:
@@ -1161,7 +1227,7 @@ class phasing(common):
         #### define the algorithm functions
         def _hio(psi_in, psi_out, support):
             """# hio algorithm, given psi_in and psi_out"""
-            if use_gpu:
+            if self.use_gpu:
                 self._kexec('hio', np.float32(beta), support, \
                             psi_in, psi_out, psi_in)
             else:
@@ -1174,7 +1240,7 @@ class phasing(common):
             
         def _er(psi_in, psi_out, support):
             """ ER algorithm"""
-            if use_gpu:
+            if self.use_gpu:
                 self._kexec('er', support, psi_out, psi_in)
             else:
                 if HAVE_NUMEXPR:
@@ -1185,7 +1251,7 @@ class phasing(common):
         
         def _raar(psi_in, psi_out, support):
             """ RAAR algorithm """
-            if use_gpu:
+            if self.use_gpu:
                 self._kexec('raar', beta, support, psi_in, psi_out, psi_in)
             else:
                 if HAVE_NUMEXPR:
@@ -1199,7 +1265,7 @@ class phasing(common):
         
         def _sf(psi_in, psi_out, support):
             """ SF algorithm"""
-            if use_gpu:
+            if self.use_gpu:
                 self._kexec('sf', support, psi_in, psi_out, psi_in)
             else:
                 if HAVE_NUMEXPR:
@@ -1220,7 +1286,7 @@ class phasing(common):
             gamma_s = -gamma_m
             
             # make the modified estimate. enforce fourier constraint in-place
-            if use_gpu: self._kexec('dm1', gamma_m, support, psi_in,\
+            if self.use_gpu: self._kexec('dm1', gamma_m, support, psi_in,\
                                     self.fourier_tmp)
             else:
                 if HAVE_NUMEXPR:
@@ -1233,7 +1299,7 @@ class phasing(common):
                                                    self.fourier_tmp)
             
             # enforce the real-space constraint
-            if use_gpu:
+            if self.use_gpu:
                 self._kexec('dm2', beta, gamma_s, support, psi_in, psi_out, \
                             self.fourier_tmp, psi_in)
             else:
@@ -1261,13 +1327,13 @@ class phasing(common):
         # 1. enforce the fourier constraint. this is the same for all
         # algorithms. however, the way the constraint is satisfied depends
         # on coherence information.
-        self.psi_out = _fourier_constraint(self.psi_in, self.psi_out)
+        self.psi_out = _fourier_constraint(self.psi_in, self.psi_out).astype(np.complex64)
         
         # 2. enforce the real space constraint. algorithm can be changed
         # based on incoming keyword
-        self.psi_in = algos[algorithm](self.psi_in, self.psi_out, self.support)
-
-def align_global_phase(data):
+        self.psi_in = algos[algorithm](self.psi_in, self.psi_out, self.support).astype(np.complex64)
+        
+def align_global_phase(data_in):
     """ Phase retrieval is degenerate to a global phase factor. This function
     tries to align the global phase rotation by minimizing the sum of the abs
     of the imag component.
@@ -1281,21 +1347,30 @@ def align_global_phase(data):
         
     from scipy.optimize import fminbound
     
+    # work on a copy
+    data = np.copy(data_in)
+    
     # check types
     assert isinstance(data, np.ndarray), "data must be array"
     assert data.ndim in (2, 3), "data must be 2d or 3d"
     assert np.iscomplexobj(data), "data must be complex"
     was2d = False
-    
+
     if data.ndim == 2:
         was2d = True
         data.shape = (1, data.shape[0], data.shape[1])
         
     I = 0+1j
+    
     for frame in data:
-        e = lambda p: np.sum(np.abs((frame.ravel()*np.exp(I*p)).imag))
-        opt = fminbound(e, 0, 2*np.pi, full_output=1)[0]
-        frame *= np.exp(1j*opt)
+
+        fr = frame.real
+        fi = frame.imag
+        e = lambda p: np.sum(np.abs(fr*sin(p)+fi*cos(p))**2)
+
+        opt = fminbound(e, 0, 2*np.pi, xtol=1e-9, full_output=1)
+            
+        frame *= np.exp(1j*opt[0])
         
         # minimizing the imaginary component can give a degenerate solution
         # (ie, 0, pi) now check the value of the real.sum() against -real.sum()
@@ -1303,7 +1378,7 @@ def align_global_phase(data):
         s2 = (-1*frame).real.sum()
         if s2 > s1:
             frame *= -1
-    
+
     if was2d:
         data = data[0]
     
@@ -1625,7 +1700,11 @@ def center_of_mass_average(imgs):
     """
     
     assert isinstance(imgs, np.ndarray)
-    assert imgs.ndim == 3
+    assert imgs.ndim in (2, 3)
+    
+    if imgs.ndim == 2:
+        was_2d = True
+        imgs.shape = (1,)+imgs.shape
     
     rows, cols = np.indices(imgs.shape[1:])
     
@@ -1679,7 +1758,7 @@ def refine_support(support, average_mag, blur=3, local_threshold=.2,
     "global_threshold must be a number (is %s)"%type(global_threshold)
     
     assert isinstance(local_threshold, (float, int)),\
-    "lobal_threshold must be a number (is %s)"%type(local_threshold)
+    "local_threshold must be a number (is %s)"%type(local_threshold)
     
     refined = np.zeros_like(support)
     average_mag = np.abs(average_mag) # just to be sure...
@@ -1749,7 +1828,7 @@ def covar_results(gpuinfo, data, threshold=0.85, mask=None):
         """ Helper to set up the GPU stuff """
         
         # load gpu libs
-        if use_gpu:
+        if self.use_gpu:
 
             context = gpuinfo[0]
             queue = gpuinfo[2]
