@@ -50,10 +50,7 @@ def _apply_smooth(img, mask):
     assert isinstance(img, np.ndarray) and img.ndim in (2,3), "must be 2 or 3-dimensional array"
     if img.ndim == 3:
         assert mask.shape == img[0].shape, "image and mask must have the same x/y dimensions"
-        result = np.zeros_like(img)
-        for i in range(img.shape[0]):
-            # normalize result by number of pixels in the mask
-            result[i] = np.real(fftconvolve(img[i], mask))
+        result = np.real(fftconvolve(img, mask))
         return result/mask.sum()
     else:
         assert mask.shape == img.shape, "image and mask must have the same x/y dimensions"
@@ -185,13 +182,15 @@ def fftconvolve(imgA, imgB):
     """
 
     assert isinstance(imgA, np.ndarray) and isinstance(imgB, np.ndarray), "Images must be arrays"
-    assert imgA.shape == imgB.shape, "Images must be the same shape."
-    assert imgA.ndim == 2, "Images must be two-dimensional."
+    
+    if imgA.ndim == 2:
+        assert imgA.shape == imgB.shape
+        
+    if imgA.ndim == 3:
+        assert imgA[0].shape == imgB.shape
 
-    (ysize, xsize) = imgA.shape
     result = np.fft.ifft2(np.fft.fft2(imgA) * np.fft.fft2(imgB))
-    result = np.roll(result, int(ysize/2), axis=0)
-    result = np.roll(result, int(xsize/2), axis=1)
+    result = np.fft.fftshift(result)
     return result
 
 def sg_smoothing(y, window_size, order, deriv=0):
