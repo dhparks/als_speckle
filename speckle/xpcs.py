@@ -204,7 +204,7 @@ def g2(data, numtau=None, norm="plain", qAvg=("circle", 10), gpu_info=None,
     # now compute the numerator of the g2 function; autocorrelate along t axis.
     # if the dataset is large, computing the fft in a single pass may be
     # inefficient as it no longer fits in memory. for this reason, the data
-    # is broken into 8x8 pixel tiles and correlated in batches.
+    # is broken into tiles and correlated in batches.
     if not silent:
         print "g2 numerator"
     numerator = _g2_numerator(data, batch_size=64, gpu_info=gpu_info)[tauvals]
