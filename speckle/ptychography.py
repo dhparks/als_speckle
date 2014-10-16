@@ -2,6 +2,13 @@ import numpy as np
 import gpu
 import time
 import io
+import conditioning
+
+try:
+    import pyopencl.array as cla
+    import pyopencl as cl
+except:
+    pass
     
 try:
     import numexpr
@@ -17,6 +24,8 @@ except ImportError:
     
 io.set_overwrite(True)
 I = complex(0, 1)
+
+import pyopencl.array as cla
     
 class ptychography(gpu.common):
 
@@ -37,7 +46,11 @@ class ptychography(gpu.common):
             self.start(gpu_info) 
 
         if self.use_gpu:
-            self.compute_device = 'gpu'  
+            self.compute_device = 'gpu'
+            kp = '/'.join(gpu.__file__.split('/')[:-1])+'/kernels/'
+            self.gpu_median3 = gpu.build_kernel_file(self.context, self.device, kp+'medianfilter3_ex.cl')
+            self.gpu_hotpix = gpu.build_kernel_file(self.context, self.device, kp+'remove_hot_pixels.cl')
+            self.gpu_replace_mag = gpu.build_kernel_file(self.context, self.device, kp+'replace_mag_f_f2.cl')
         else:
             self.compute_device = 'cpu'
         
@@ -47,6 +60,8 @@ class ptychography(gpu.common):
         else:
             self.fft2 = np.fft.fft2
             self.ifft2 = np.fft.ifft2
+            
+        np.random.seed(1001101)
             
         test = np.random.random((16, 16))+1j*np.random.random((16, 16))
         self.test = test.astype(np.complex64)
@@ -63,6 +78,7 @@ class ptychography(gpu.common):
         self.modulus_state = 0
         self.object_state = 0
         self.can_reconstruct = 0
+        self.converged = False
         
         # for data reconstruction and data generation
         self.probe_state = 0
@@ -117,6 +133,7 @@ class ptychography(gpu.common):
         self.o_btm = None
         self.o_update = None
         self.o_update_kernel = None
+        self.power = 0
         
         # for wave updates
         self.product = None 
@@ -146,9 +163,14 @@ class ptychography(gpu.common):
         self.shape = None
         self.size = None
         
+        # for coherence estimate
+        self.rl_state = 0
+        self.opt_gaussian_state = 0
+        
         # timings (help with optimizing)
         self.fft_time = 0
         self.o_update_time = 0
+        self.p_update_time = 0
 
     def clear_coordinates(self):
         self.coordinates = None
@@ -157,17 +179,80 @@ class ptychography(gpu.common):
     def clear_modulus(self):
         self.modulus = None
         self.modulus_state = 0
-        
+
     def clear_probe(self):
         self.probe = None
         self.probe_state = 0
-        
+
     def clear_ipsf(self):
         self.ipsf = None
         self.ipsf_state = 0
-           
+
     def clear_object(self):
         self.object = None
+ 
+    def compare_to_known(self, sample=None, probe=None):
+        
+        """ If a known sample or probe is supplied, report an error
+        metric """
+        
+        errors = {}
+        
+        # compare the probe
+        if probe != None:
+            
+            from phasing import align_global_phase
+            
+            assert isinstance(probe, np.ndarray)
+            assert probe.shape == self.probe.shape
+            
+            # align the global phases using the routine in phasing
+            estimate = self.get(self.probe)
+            aligned1 = align_global_phase(estimate)
+            aligned2 = align_global_phase(np.copy(probe)) 
+
+            v1 = np.sqrt(np.sum(np.abs(aligned1-aligned2)**2))
+            v2 = np.sum(np.abs(aligned2))
+            
+            errors['probe_error'] = v1/v2
+            
+            # calculate a similarity figure
+            f1 = np.fft.fft2(aligned1)
+            f2 = np.fft.fft2(aligned2)
+            ac1 = np.abs(np.fft.ifft2(aligned1*np.conjugate(aligned1))).max()
+            ac2 = np.abs(np.fft.ifft2(aligned2*np.conjugate(aligned2))).max()
+            cc  = np.abs(np.fft.ifft2(aligned1*np.conjugate(aligned2))).max()
+            
+            errors['probe_error2'] = cc/np.sqrt(ac1*ac2)
+            
+            if errors['probe_error2'] > 0.95:
+                self.converged = True
+
+        return errors
+
+    def probe_coverage(self, method='sum'):
+        
+        rc = self.get(self.r_coords)
+        cc = self.get(self.c_coords)
+        
+        if self.coordinates_state == 2 and self.probe_state == 2:
+            coverage = np.zeros((self.probe.shape[0]+rc.max()-cc.min(),
+                                 self.probe.shape[1]+rc.max()-cc.min()),
+                                np.float32)
+            
+            probe = np.abs(self.get(self.probe))
+            for coord in self.coordinates:
+                
+                row1, row2 = coord[0], coord[0]+self.shape[0]
+                col1, col2 = coord[1], coord[1]+self.shape[1]
+                
+                if method == 'sum':
+                    coverage[row1:row2, col1:col2] += probe
+                    
+                if method == 'max':
+                    coverage[row1:row2, col1:col2] = np.max([coverage[row1:row2, col1:col2], probe])
+                    
+            return coverage
  
     def generate_diffraction_patterns(self):
         """ Generate ptychography diffraction patterns from:
@@ -184,7 +269,7 @@ class ptychography(gpu.common):
             tmp = np.abs(self.fft2(tmp*probe))
             if self.ipsf_state == 2:
                 tmp = np.sqrt(np.abs(self.fft2(self.ifft2(tmp**2)*ipsf)))
-            return tmp
+            return np.ascontiguousarray(tmp)
 
         self._check_states_for_generation()
 
@@ -225,7 +310,6 @@ class ptychography(gpu.common):
         Is there a way to make the dependency check graph-based?
         
         """
-        
                 
         # check types, sizes, etc
         types = (type(None), np.ndarray)
@@ -235,6 +319,10 @@ class ptychography(gpu.common):
         assert isinstance(ipsf, types), "ipsf must be ndarray if supplied"
         
         ### first, do all the loading that has no dependencies
+        
+        # anytime we change any of the data, the reconstruction must be
+        # considered unconverged
+        self.converged = False
         
         # load the modulus. should be (MxNxN) array. N should be a power of 2.
         # M is the number of diffraction patterns.
@@ -275,7 +363,6 @@ class ptychography(gpu.common):
                     queue=self.queue)
                 
             # load the modulus
-            
             for w_n in range(self.frames_m):
                 name = 'modulus'+str(w_n)
                 exec(self._alloc_str(name, self.shape, 'np.float32'))
@@ -287,7 +374,7 @@ class ptychography(gpu.common):
             # SAUSAGE GETTING MADE
             if self.use_gpu:
                 self._build_o_update_kernel()
-                #self._build_p_update_kernel()
+                self._build_p_update_kernel()
             
             # clear the object
             self.clear_object()
@@ -302,11 +389,21 @@ class ptychography(gpu.common):
             
             self.probe = self._allocate(probe.shape, np.complex64, 'probe')
             self.probe = self._set(probe.astype(np.complex64), self.probe)
+            
+            self.probe_support = self._allocate(probe.shape, np.float32, 'probe_support')
+            self.probe_support = self._set(np.where(np.abs(probe) > 0, 1., 0).astype(np.float32), self.probe_support)
 
             # need these for implementing the update
-            self.p_top = self._allocate(probe.shape, np.complex64, 'probe')
-            self.p_btm = self._allocate(probe.shape, np.float32, 'probe')
+            self.p_top = self._allocate(probe.shape, np.complex64, 'p_top')
+            self.p_btm = self._allocate(probe.shape, np.float32, 'p_btm')
+            self.p_mag = self._allocate(probe.shape, np.float32, 'p_mag')
             
+            self.row_vals = self._allocate(probe.shape, np.float32, 'row_vals')
+            self.col_vals = self._allocate(probe.shape, np.float32, 'col_vals')
+            t1, t2 = np.indices(probe.shape, np.float32)-probe.shape[0]/2
+            self._set(t1, self.row_vals)
+            self._set(t2, self.col_vals)
+
             self.probe_state = 2
             
         # load the sample for generation of patterns
@@ -345,8 +442,8 @@ class ptychography(gpu.common):
                 np.int32, 'c_coords')
             
             self.coordinates_state = 2
-            
-    def reconstruct(self, iterations=15, propagator='auto'):
+
+    def reconstruct(self, iterations=15, propagator='auto', coherence_period=-1, comparison_probe=None):
         
         """ Reconstruct a set of overlapping diffraction patterns.
         
@@ -355,30 +452,61 @@ class ptychography(gpu.common):
         self._check_states_for_reconstruction()
         self._change_coordinates()
 
-        if not self.use_gpu and HAVE_FFTW:
-            pyfftw.interfaces.cache.enable()
+        self.coherence_update_period = coherence_period
+        self.coherence_update_threshold = 1
+
+        self.round_count = 0
+        self.iteration2 = 0
 
         if self.can_reconstruct:
             
-            if self.object == None: self._make_object()
+            # need try/except here because == None will
+            # fail for gpu arrays
+            try:
+                if self.object == None:
+                    self._make_object()
+            except:
+                pass
+            
             self._set_propagator(propagator)
         
-            for self.iteration in range(iterations):
-                
-                # 1. update the object (updates o_top, o_btm, object)
-                self._update_object()
-                
-                # 2. update the probe (but not always!)
+            # using a while loop allows early termination if
+            # we find the solution. in this case, self.converged = True
+            self.iteration = 0
+            keep_going = True
+            while keep_going:
+
+                # check for convergence
+                if self.iteration%100 == 0:
+                    if comparison_probe != None:
+                        errors = self.compare_to_known(probe=comparison_probe)
+                    keep_going = self.iteration < iterations and not self.converged or self.iteration < 400
+                    print self.iteration, errors['probe_error2'], keep_going
+
+                # if we are above the probe threshold, update both
+                # the probe and the object twice to ensure good
+                # decoupling
                 if self._can_update_probe():
-                    self._update_probe()
-
-                # 3. update the waves
+                    for n in range(2):
+                        self.iteration2 = n
+                        self._update_probe()
+                        self._update_object()
+                     
+                # if not above the probe update threshold, just
+                # update the object
+                else:
+                    self._update_object()
+                    
                 self._update_waves()
+                
+                # 4. update the coherence function (but not always!)
+                if self._can_update_coherence():
+                    self._update_coherence(fraction=0.5)
+                    self.round_count += 1
+                    
+                self.iteration += 1
 
-            self.iterations = iterations
-            
-        if not self.use_gpu and HAVE_FFTW:
-            pyfftw.interfaces.cache.disable()
+            self.iterations = iterations 
 
     def reset_phi(self):
         """ Replace all self.waveX with random complex numbers """
@@ -421,10 +549,14 @@ class ptychography(gpu.common):
         header = """
         __kernel void execute(
             __global float2* object,
+            __global float2* o_top,
+            __global float* o_btm,
+            __global float* o_mag,
             __global float2* probe,
             __global int* rc,
             __global int* cc,
             int L,
+            int iteration,
             %s) {
         """
         
@@ -470,12 +602,27 @@ class ptychography(gpu.common):
             float divx = sum2.x/sum1;
             float divy = sum2.y/sum1;
             
-            if (isnan(divx) || isnan(divy)) {
-                divx = 0;
-                divy = 0;
+            if (isnan(divx)) { divx = 0;}
+            if (isnan(divy)) { divy = 0;}
+
+            float mag = hypot(divx, divy);
+
+            if (iteration%10 == 0) {
+                
+                if (mag > 1) {
+                    divx = divx/mag;
+                    divy = divy/mag;
+                    mag = 1;
+                }
+                
             }
 
+            o_mag[o_idx] = mag;
             object[o_idx] = (float2) (divx, divy);
+            
+            o_top[o_idx] = sum2;
+            o_btm[o_idx] = sum1;
+            
             }"""
         
         # build the kernel string
@@ -492,8 +639,9 @@ class ptychography(gpu.common):
         # invoked as a command using exec
         
         arrays = 'self.queue,self.object.shape,None,self.object.data, \
+                  self.o_top.data, self.o_btm.data, self.o_mag.data,\
                   self.probe.data,self.r_coords.data, \
-                  self.c_coords.data,np.int32(self.frames_n),'
+                  self.c_coords.data,np.int32(self.frames_n),np.int32(self.iteration),'
         execute = 'self.o_update_kernel.execute('
         tmp = ['self.wave%s.data'%i for i in range(self.frames_m)]
         joined = ','.join(tmp)
@@ -505,7 +653,11 @@ class ptychography(gpu.common):
         
         header = """__kernel void execute(
             __global float2* probe, // this is where we write to
+            __global float* probe_support, // for bounding spatially
+            __global float* probe_mag, // for bounding on a value basis
+            __global float2* p_top,
             __global float2* object, // this is the estimate of the object
+
             __global int* rc, // row coordinates
             __global int* cc, // col coordinates
             int L,            // object columns
@@ -517,6 +669,7 @@ class ptychography(gpu.common):
             int i = get_global_id(0);
             int j = get_global_id(1);
             int N = get_global_size(1);
+            int idx = i*N+j;
     
             // sums
             float2 sum1 = (float2) (0, 0);
@@ -526,33 +679,37 @@ class ptychography(gpu.common):
             float2 o; // data from object
             float2 w; // data from wave
             int r;    // row offset
-            int c;    // col offset"""
+            int c;    // col offset
+
+            if (probe_support[idx] > 0) {
+            """
             
         static_out = """ // write to output
+        
+            } // closes the support condition
         
             float divx = sum1.x/sum2;
             float divy = sum1.y/sum2;
             
-            if (isnan(divx)) {
-                divx = 0;
-                divy = 0;
-            }
-        
-            probe[i*N+j] = (float2) (divx, divy);
+            if (isnan(divx)) {divx = 0;}
+            if (isinf(divx)) {divx = 0;}
+            if (isnan(divy)) {divy = 0;}
+            if (isinf(divy)) {divy = 0;}
+
+            probe[idx] = (float2) (divx, divy);
+            probe_mag[idx] = hypot(divx, divy);
+            p_top[idx] = sum1;
+
             }"""
             
         repeat = """
-        
-            // repeated section. get the row and column offsets; pull
-            // object data; add correct product/quotient to sums
-            r = rc[%s];
-            c = cc[%s];
-    
-            o = object[(i+r)*L+j+c];
-            w = wave%s[i*N+j];
-    
-            sum1 += (float2) (o.x*w.x+o.y*w.y, -o.y*w.x-o.x*w.y);
-            sum2 += o.x*o.x+o.y*o.y;"""
+                r = rc[%s];
+                c = cc[%s];
+                o = object[(i+r)*L+j+c];
+                w = wave%s[idx];
+                sum1 += (float2) (o.x*w.x+o.y*w.y, -o.y*w.x+o.x*w.y);
+                sum2 += o.x*o.x+o.y*o.y;
+                """
 
         # build the kernel string
         tmp = ['__global float2* wave%s'%i for i in range(self.frames_m)]
@@ -561,26 +718,36 @@ class ptychography(gpu.common):
         k_str = header%global_ptrs+static_in+repeats+static_out
         
         # compile the kernel
-        self.o_update_kernel = gpu.build_kernel(self.context,
+        self.p_update_kernel = gpu.build_kernel(self.context,
                                                 self.device, k_str)
         
         # make a string with all the right arguments which can be
         # invoked as a command using exec
         
         arrays = 'self.queue, self.probe.shape,None, self.probe.data, \
-                  self.object.data, self.r_coords.data, \
-                  self.c_coords.data, np.int32(self.frames_n),'
-        execute = 'self.o_update_kernel.execute('
+                  self.probe_support.data, self.p_mag.data, self.p_top.data, self.object.data, self.r_coords.data, \
+                  self.c_coords.data, np.int32(self.object.shape[1]),'
+        execute = 'self.p_update_kernel.execute('
         joined = ','.join(['self.wave%s.data'%i for i in range(self.frames_m)])
         execute += arrays+joined+').wait()'
-
+        
         self.p_update = execute
+
+    def _can_update_coherence(self):
+        """ Helper: run coherence update this iteration?"""
+        b1 = self.iteration > self.coherence_update_threshold
+        b2 = self.coherence_update_threshold > 0
+        b3 = self.iteration%self.coherence_update_period == 0
+        b4 = self.coherence_update_period > 0
+        return b1 and b2 and b3 and b4
         
     def _can_update_probe(self):
         """ Helper: run probe update this iteration? """
         b1 = self.iteration > self.probe_update_threshold
         b2 = self.probe_update_threshold > 0
-        return b1 and b2
+        b3 = self.iteration%self.probe_update_period == 0
+        b4 = self.probe_update_period > 0
+        return b1 and b2 and b3 and b4
 
     def _check_states_for_generation(self):
         
@@ -696,7 +863,7 @@ class ptychography(gpu.common):
                 
         return data_out
 
-    def _fourier_constraint(self, psi_in, constraint_modulus, out):
+    def _fourier_constraint(self, psi_in, constraint_modulus, out, debug=False):
         
         """ Enforce the usual fourier constraint. """
         
@@ -758,23 +925,14 @@ class ptychography(gpu.common):
         
         # make the object (thibault's O(r)) based on probe
         # size and coordinates.
-        
+
         rows = [x[0] for x in self.coordinates]
         cols = [x[1] for x in self.coordinates]
         
         nrows = max(rows)-min(rows)+self.probe.shape[0]
         ncols = max(cols)-min(cols)+self.probe.shape[1]
-        
-        # make the size of the object divisible by 16 in each
-        # axis for gpu computations. (workgroup (16,16) is usually
-        # fastest). for cpu, modulo doesnt matter
-        if self.use_gpu:
-            if nrows%16 != 0:
-                nrows = (nrows/16+1)*16
-            if ncols%16 != 0:
-                ncols = (ncols/16+1)*16
-        
-        obj = np.random.rand(nrows, ncols)+1j*np.random.rand(nrows, ncols)
+
+        obj = np.random.random((nrows, ncols))+1j*np.random.random((nrows, ncols))
 
         # we need a top, bottom, and quotient for the object
         self.object = self._allocate(obj.shape, np.complex64, name='object')
@@ -783,6 +941,7 @@ class ptychography(gpu.common):
         
         self.o_top = self._allocate(obj.shape, np.complex64, name='o_top')
         self.o_btm = self._allocate(obj.shape, np.float32, name='o_btm')
+        self.o_mag = self._allocate(obj.shape, np.float32, name='o_mag')
 
     def _rolls(self, array, roll_y, roll_x):
         return np.roll(np.roll(array, roll_y, 0), roll_x, 1)
@@ -791,15 +950,20 @@ class ptychography(gpu.common):
         
         assert isinstance(propagator, str)
         propagator = propagator.lower()
-        assert propagator in ('auto', 'pc', 'fc')
+        assert propagator in ('auto', 'pc', 'fc', 'refine')
         
         if propagator == 'auto' and self.ipsf_state == 2:
             propagator = 'pc'
         if propagator == 'auto' and self.ipsf_state != 2:
             propagator = 'fc'
+        if propagator == 'refine' and self.ipsf_state != 2:
+            propagator = 'fc'
+        if propagator == 'refine' and self.ipsf_state == 2:
+            propagator = 'pc'
+            
         self.propagator = propagator
 
-    def _update_coherence(self, iterations=100):
+    def _update_coherence(self, mode='gaussian', rl_iterations=200, silent=True, fraction=1):
         """ Update the estimate of the coherence function by
         using Richardson-Lucy deconvolution of the measured modulus
         by the current estimate of the modulus. We do a deconvolution
@@ -807,18 +971,18 @@ class ptychography(gpu.common):
         
         This method is a cut-down method of that originally written for
         phasing; only RLD is offered as an estimate of ipsf.
+        
+        arguments:
+            iterations -- number of iterations for RLD process
+            silent -- whether to print RLD progress
+            fraction -- (default 0.5) which fraction of the ptychography
+                illumination sites should contribute to the average.
+                Because all site presumably are exposed to the same
+                psf, averaging the estimated psf from all sites might
+                be overkill.
         """
         
         import shape
-
-        # check gpu
-        global use_gpu
-        old_use_gpu = use_gpu
-        device = 'gpu'
-        if force_cpu:
-            use_gpu = False
-            common.use_gpu = False
-            device = 'cpu'
 
         self.counter = 0
         
@@ -834,21 +998,71 @@ class ptychography(gpu.common):
                 self.rl_state = 2
          
             # zero rl_sum, which holds the sum of the deconvolved frames  
-            if use_gpu:
+            if self.use_gpu:
                 self._cl_zero(self.rl_sum)
             else:
                 self.rl_sum = np.zeros_like(self.rl_sum)
+            
+        def _allocate_g():
+            """ Allocate memory for arrays used in the optimizer"""
+            
+            if self.opt_gaussian_state != 2:
+            
+                self.optimize_ac = self._allocate(s, c, 'optimize_ac')
+                self.optimize_ac2 = self._allocate(s, c, 'optimize_ac2')
+                self.optimize_m = self._allocate(s, f, 'optimize_m')
+                
+                # this holds the blurry image
+                self.optimize_bl = self._allocate(s, c, 'optimize_bl')
+                
+                # this holds the blurry image, abs-ed to f
+                self.optimize_bl2 = self._allocate(s, f, 'optimize_bl2')
+                
+                # this holds the difference
+                self.optimize_d = self._allocate(s, c, 'optimize_d')
+                
+                # this holds the gaussian
+                self.optimize_g = self._allocate(s, f, 'optimize_g')   
+                
+                self.opt_gaussian_state = 2
+    
+            # to make a gaussian, first make coordinate arrays
+            rows, cols = np.indices(self.shape)-self.shape[0]/2.
+            rows = np.fft.fftshift(rows)
+            cols = np.fft.fftshift(cols)
+            optcls = np.zeros((2, self.shape[0]), f)
+            
+            return rows, cols, optcls
             
         def _finalize_rl():
             """ Finalize RL deconvolution """
             
             # to be power preserving, the ipsf should be 1 at (0,0)?
-            ipsf = self.get(self.rl_u)
-            ipsf *= 1./abs(ipsf[0, 0])
-            
+            ipsf = self.get(self.rl_sum)
+            ipsf *= 1./np.abs(ipsf[0, 0])
+
             # load new ipsf
             self.load(ipsf=ipsf)
             self.rl_state = 0 # why?
+            
+            self._set_propagator('pc')
+        
+        def _finalize_g():
+            """ Having optimized the coherence estimate for each frame,
+            form the average to use as a composite estimate """
+
+            ave_cl = np.average(optcls, axis=1)
+            
+            average_gaussian = np.zeros(self.shape, np.float32)
+            for o in optcls:
+                gy = np.exp(-rows**2/(2*o[0]**2))
+                gx = np.exp(-cols**2/(2*o[1]**2))
+                average_gaussian += gy*gx
+                
+            self.load(ipsf=average_gaussian)
+            self._set_propagator('pc')
+
+            return optcls
         
         def _opt_iter_rl():
             """
@@ -860,7 +1074,7 @@ class ptychography(gpu.common):
             """
             
             # convolve u and p. this should give a blurry intensity
-            if use_gpu:
+            if self.use_gpu:
                 self._fft2(self.rl_u, self.rl_blur)
                 self._cl_mult(self.rl_blur, self.rl_p, self.rl_blur)
                 self._fft2(self.rl_blur, self.rl_blur, inverse=True)
@@ -868,44 +1082,103 @@ class ptychography(gpu.common):
                 self.rl_blur = np.fft.ifft2(np.fft.fft2(self.rl_u)*self.rl_p)
                 
             # divide d by the convolution
-            if use_gpu:
+            if self.use_gpu:
                 self._cl_div(self.rl_d, self.rl_blur, self.rl_blur)
+                
             else:
                 self.rl_blur = self.rl_d/self.rl_blur
 
             # convolve the quotient with phat
-            if use_gpu:
+            if self.use_gpu:
                 self._fft2(self.rl_blur, self.rl_blur)
                 self._cl_mult(self.rl_blur, self.rl_ph, self.rl_blur)
                 self._fft2(self.rl_blur, self.rl_blur, inverse=True)
+
             else:
                 tmp = np.fft.fft2(self.rl_blur)*self.rl_ph
                 self.rl_blur = np.fft.ifft2(tmp)
                 
             # multiply u and blur to get a new estimate of u
-            if use_gpu:
+            if self.use_gpu:
                 self._cl_mult(self.rl_u, self.rl_blur, self.rl_u)
+
             else:
                 self.rl_u *= self.rl_blur
+        
+        def _opt_iter_g(cl):
+            """ This is the error function for optimizing the gaussian.
+            I don't know how to implement the minimizer on the gpu so
+            this calculates the convolution and difference on the gpu,
+            then brings the summed error back to python to calculate the
+            next parameters. """
+
+            self.counter += 1
+            
+            # make the gaussian
+            if self.use_gpu:
+                self._kexec('gaussian_f', self.optimize_g, cl[0],
+                            cl[1], shape=modulus.shape)
+                
+            else:
+                gy = np.exp(-rows**2/(2*cl[0]**2))
+                gx = np.exp(-cols**2/(2*cl[1]**2))
+                self.optimize_g = gy*gx
+                
+            # blur the speckle pattern
+            if self.use_gpu:
+                self._cl_mult(self.optimize_g, self.optimize_ac,
+                              self.optimize_ac2)
+                self._fft2(self.optimize_ac2, self.optimize_bl)
+                self._cl_abs(self.optimize_bl, self.optimize_bl)
+                self._cl_sqrt(self.optimize_bl, self.optimize_bl2)
+                
+                #if frame_n == 0:
+                #    io.save('blur0.fits', np.fft.fftshift(self.get(self.optimize_bl2)), components='mag')
+                #    io.save('g0.fits', np.fft.fftshift(self.get(self.optimize_g)), components='mag')
+                #    exit()
+                
+
+            else:
+                temp = np.abs(np.fft.fft2(self.optimize_g*self.optimize_ac))
+                self.optimize_bl2 = np.sqrt(temp)
+                
+            # calculate the absolute difference and return the sum of the square
+            if self.use_gpu:
+                
+                self._kexec('subtract_f_f', self.optimize_bl2,
+                            self.optimize_m, self.optimize_bl2)
+                
+                self._cl_abs(self.optimize_bl2, self.optimize_bl2,
+                             square=True)
+                
+                x = cla.sum(self.optimize_bl2).get()
+                print cl, x
+
+            else:
+                diff = self.optimize_bl2-self.optimize_m
+                x = np.sum(np.abs(diff)**2)
+            
+            return x
         
         def _postprocess_rl():
             """Post process the RL deconvolution """
 
             # make rl_u into the ipsf with an fft
-            if use_gpu:
+            if self.use_gpu:
                 self._fft2(self.rl_u, self.rl_u)
             else:
                 self.rl_u = np.fft.fft2(self.rl_u)
                 
             # add rl_u to rl_sum
-            if use_gpu:
+            if self.use_gpu:
                 self._cl_add(self.rl_sum, self.rl_u, self.rl_sum)
+                
             else:
                 self.rl_sum += self.rl_u.astype(c)
                 
             # reset types to single precision from double precision for cpu path
             d = np.float32
-            if not use_gpu:
+            if not self.use_gpu:
                 self.rl_u = self.rl_u.astype(d)
                 self.rl_p = self.rl_p.astype(d)
                 self.rl_blur = self.rl_blur.astype(d)
@@ -913,6 +1186,11 @@ class ptychography(gpu.common):
             if not silent:
                 print "finished richardson-lucy estimate %s of %s"\
                 %(n+1, self.frame_m)
+
+        def _postprocess_g():
+            """ Post process the Gaussian optimization """
+            print frame_n, p1
+            optcls[:, frame_n] = p1
 
         def _preprocess_rl():
             """ Preprocess the RL deconvolution
@@ -931,11 +1209,11 @@ class ptychography(gpu.common):
             self.rl_d = self._set(m2.astype(c), self.rl_d)
             self.rl_u = self._set(g.astype(c), self.rl_u)
 
-            if use_gpu:
+            if self.use_gpu:
                 # fourier modulus of best_estimate
                 self._fft2(self.rl_p, self.rl_p) 
                 self._cl_abs(self.rl_p, self.rl_p)
-                
+
                 # square to make intensity
                 self._cl_mult(self.rl_p, self.rl_p, self.rl_p) 
                 rlpsum = self.rl_p.get().sum().real
@@ -943,11 +1221,12 @@ class ptychography(gpu.common):
                 self._cl_mult(self.rl_p, div, self.rl_p)
                 
                 # fft, precomputed for convolution
-                self._fft2(self.rl_p, self.rl_p) 
-
+                self._fft2(self.rl_p, self.rl_p)
+                
                 # precompute p-hat
                 self._cl_copy(self.rl_p, self.rl_ph)
-                self._kexec('flip_f2', self.rl_p, self.rl_ph, shape=s) 
+                self._kexec('flip_f2', self.rl_p, self.rl_ph, shape=s)
+                
             else:
                 d = np.complex64
                 self.rl_p = np.abs(np.fft.fft2(self.rl_p))**2 # intensity
@@ -955,11 +1234,47 @@ class ptychography(gpu.common):
                 self.rl_p = np.fft.fft2(self.rl_p).astype(d) # precomputed fft
                 self.rl_ph = self.rl_p[::-1, ::-1] # phat
 
+        def _preprocess_g():
+            """ Preprocess the Gaussian optimization """
+            
+            # load the autocorrelation
+            self.optimize_ac = self._set(active.astype(c), self.optimize_ac)
+            self.optimize_g.fill(0)
+            
+            if frame_n == 0:
+                io.save('active0.fits', self.get(active), components='mag')
+            
+            # fft, abs, square, ifft
+            if self.use_gpu:
+                self._fft2(self.optimize_ac, self.optimize_ac)
+                self._cl_abs(self.optimize_ac, self.optimize_ac)
+                
+                if frame_n == 0:
+                    io.save('fft0.fits', np.fft.fftshift(self.get(self.optimize_ac)), components='mag')
+                    io.save('modulus0.fits', np.fft.fftshift(modulus), components='mag')
+                
+                self._cl_mult(self.optimize_ac, self.optimize_ac, \
+                              self.optimize_ac)
+                self._fft2(self.optimize_ac, self.optimize_ac, inverse=True)
+                
+                if frame_n == 0:
+                    io.save('ac0.fits', self.get(self.optimize_ac), components='mag')
+                
+            else:
+                tmp = np.fft.fft2(self.optimize_ac)
+                tmp = np.abs(tmp)**2
+                tmp = np.fft.ifft2(tmp)
+                self.optimize_ac = tmp
+
         def _start(frame_n):
             """ Get the modulus and estimate for the current view number"""
             
-            wave = self.get(eval('self.wave%s'%frame_n))
-            fmod = self.get(eval('self.modulus'%frame_n))
+            fmod = self.get(eval('self.modulus%s'%frame_n))
+            
+            coord = self.coordinates[frame_n]
+            row1, row2 = coord[0], coord[0]+self.shape[0]
+            col1, col2 = coord[1], coord[1]+self.shape[1]
+            wave = probe*obj[row1:row2, col1:col2]
             
             tmp = np.zeros(fmod.shape, c)
             if wave.shape != fmod.shape:
@@ -972,26 +1287,63 @@ class ptychography(gpu.common):
         # for this function only. active_ holds the
         # current view and its goal modulus
         s, f, c = self.shape, np.float32, np.complex64
-        _allocate_rl()
         
-        # loop over the frames, performing a de
-        for frame_n in range(self.frame_m):
+        if mode == 'rl':
+            _allocate_rl()
+            
+        if mode == 'gaussian':
+            from scipy.optimize import fmin
+            rows, cols, optcls = _allocate_g()
+
+        obj = self.get(self.object)
+        probe = self.get(self.probe)
+
+        # loop over a random sample of the frames, deconvolving
+        # each. at the end, the average ipsf estimate will be
+        # loaded into the self namespace via self.load(ipsf=average_estimate)
+        # in the _finalize_rl() helper function
+        #samples = np.random.choice(np.arange(self.frames_m),
+        #                           fraction*self.frames_m, replace=False)
+        for frame_n in range(self.frames_m):#samples:
+
             active, modulus = _start(frame_n)
+
+            if mode == 'rl':
+
+                # load initial values and preprocess
+                _preprocess_rl()
+                
+                # now run the deconvolver for a set number of iterations
+                for opt_i in range(rl_iterations):
+                    _opt_iter_rl()
+                
+                # make rl_u into ipsf with fft; add to sum
+                _postprocess_rl()
+                
+            if mode == 'gaussian':
+                
+                print frame_n
+                
+                # make the autocorrelation of the current data
+                _preprocess_g()
             
-            # load initial values and preprocess
-            _preprocess_rl()
+                # run the optimizer
+                p0 = (self.shape[0]/2, self.shape[1]/2)
+                p1 = fmin(_opt_iter_g, p0, disp=False, ftol=.1, xtol=0.1)
+                
+                # save optimal lengths to do statistics.
+                _postprocess_g()
+                exit()
             
-            # now run the deconvolver for a set number of iterations
-            for opt_i in range(iterations):
-                _opt_iter_rl()
-            
-            # make rl_u into ipsf with fft; add to sum
-            _postprocess_rl()
-                    
-        use_gpu = old_use_gpu
-        common.use_gpu = old_use_gpu
-            
-        _finalize_rl()
+        if mode == 'gaussian':
+            _finalize_g()    
+        
+        if mode == 'rl':
+            _finalize_rl()
+        
+        if self.iteration%100 == 0:
+            io.save('ipsf %s %s.fits'%(self.iteration, self.compute_device),
+                    self.get(self.ipsf), components='mag')
 
     def _update_object(self):
         # implement equation s7 in thibault science 2008 "high resolution..."
@@ -1011,29 +1363,47 @@ class ptychography(gpu.common):
                 
                 self.o_top[row1:row2, col1:col2] += \
                 self.pstar*eval('self.wave%s'%wave_n)
-                
                 self.o_btm[row1:row2, col1:col2] += self.p2
                 
             self.object = np.nan_to_num(self.o_top/self.o_btm)
+            
+            if self.iteration%10 == 0:
+                mag, phase = np.abs(self.object), np.angle(self.object)
+                mag[mag > 1] = 1
+                self.object = mag*np.exp(1j*phase)
+            
+        #if self.iteration%100 == 0 and self.iteration > 0:
+        #    io.save('object %s %s.jpg'%(self.iteration, self.compute_device),
+        #            self.get(self.object), components='complex_hsv')
   
     def _update_probe(self):
         # implement equation s8 in thibault science 2008 "high resolution..."
         
-        self.p_top.fill(0)
-        self.p_btm.fill(0)
+        # on the gpu codepath, execute the kernel built at start
+        if self.use_gpu:
+            exec(self.p_update)
+            
+            if self.iteration%10 == 0:
+                self._gpu_hot_pixels(self.p_mag, self.p_btm, self.probe, threshold=5.)
+            
+        else:
+            self.p_top.fill(0)
+            self.p_btm.fill(0)
 
-        for wave_n, coord in enumerate(self.coordinates):
-            row1, row2 = coord[0], coord[0]+self.shape[0]
-            col1, col2 = coord[1], coord[1]+self.shape[1]
-            if self.use_gpu:
-                self._kexec('update_p', self.p_top, self.p_btm, self.object,
-                            eval('self.wave%s'%wave_n), row1, col1,
-                            self.object.shape[1], shape=self.shape)
-            else:
+            for wave_n, coord in enumerate(self.coordinates):
+                row1, row2 = coord[0], coord[0]+self.shape[0]
+                col1, col2 = coord[1], coord[1]+self.shape[1]
+
                 tmp = self.object[row1:row2, col1:col2]
                 self.p_top += np.conjugate(tmp)*eval('self.wave%s'%wave_n)
                 self.p_btm += np.abs(tmp)**2
-
+                
+            self.probe = np.nan_to_num(self.p_top/self.p_btm)*self.probe_support
+            
+        #if self.iteration%100 == 0:
+        #    io.save('probe %s %s.jpg'%(self.iteration, self.compute_device),
+        #            self.get(self.probe), components='complex_hsv')
+            
     def _update_waves(self):
         # implement equation s9 in thibault science 2008 "high resolution..."
         
@@ -1043,18 +1413,21 @@ class ptychography(gpu.common):
             row1, row2 = coord[0], coord[0]+self.shape[0]
             col1, col2 = coord[1], coord[1]+self.shape[1]
             if self.use_gpu:
+
                 self._kexec('dm_product', self.probe, self.object,
                             self.product, eval('self.wave%s'%wave_n),
                             self.psi_in, row1, col1, self.object.shape[1],
                             shape=self.probe.shape)
+
             else:
                 self.product = self.probe*self.object[row1:row2, col1:col2]
                 self.psi_in = 2*self.product-eval('self.wave%s'%wave_n)
 
             # satisfy the fourier constraint
             fc = self._fourier_constraint
+            
             self.psi_out = fc(self.psi_in, eval('self.modulus%s'%wave_n),
-                              self.psi_out)
+                              self.psi_out, debug=True)
 
             # update the wave
             if self.use_gpu:
@@ -1063,7 +1436,22 @@ class ptychography(gpu.common):
             else:
                 to_exec = 'self.wave%s = self.wave%s+self.psi_out-self.product'
                 exec(to_exec%(wave_n, wave_n))
+                
+    def _gpu_hot_pixels(self, hot_mag, cold_mag, master, threshold=2.0):
+        """ An implementation of the hot pixel removal found in conditioning
+        for arrays already in gpu memory """
+        
+        self.gpu_median3.execute(self.queue, hot_mag.shape, (16, 16),
+                                    hot_mag.data, cold_mag.data,
+                                    cl.LocalMemory(18*18*4))
+                
+        self.gpu_hotpix.execute(self.queue, (hot_mag.size,), None,
+                                   hot_mag.data, cold_mag.data,
+                                   np.float32(threshold))
 
+        self.gpu_replace_mag.execute(self.queue, (hot_mag.size,), None,
+                                       cold_mag.data, master.data, master.data) 
+        
 def find_overlap_displacement(aperture, overlap_ratio):
     """ Given an aperture function, attempt to calculate how many
     pixels the aperture must be displaced to generate a desired
@@ -1095,7 +1483,7 @@ def find_overlap_displacement(aperture, overlap_ratio):
     else:
         return 0
     
-def make_raster(grid_size, delta, center=None):
+def make_raster(grid_size, delta, jitter=0, center=None):
     """ Generate raster-grid coordinates for ptychography.
     
     Required input:
@@ -1137,7 +1525,7 @@ def make_raster(grid_size, delta, center=None):
         cols += center[1]-cols.mean()
     cols = cols.astype(int)
     
-    return [(x[0], x[1]) for x in itertools.product(rows, cols)]
+    return [(x[0]+int(np.random.randn()*jitter), x[1]+int(np.random.randn()*jitter)) for x in itertools.product(rows, cols)]
     
     
     
