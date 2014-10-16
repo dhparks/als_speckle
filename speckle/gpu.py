@@ -148,8 +148,8 @@ class common:
             if d2 == 'complex64':
                 func = 'divide_f2_f2'
                 assert d3 == 'complex64', "complex / complex = complex"
-                
-        self._kexec(func,arg1,arg2,out)
+
+        self._kexec(func, arg1, arg2, out)
         
     def _cl_map2d(self, in1, out, x_plan, y_plan, **kwargs):
         """ Wrapper for two places where map_coords_f gets called."""
@@ -318,15 +318,16 @@ class common:
         # build the command string for execution
         cmd = 'self.%s.execute(self.queue,%s,%s'%(name,shape,local)
         for arg in args:
-            if isinstance(arg,cla.Array):       cmd += ',self.%s.data'%arg.name
-            if isinstance(arg,cl_.LocalMemory): cmd += ',self.%s'%arg.name
-            if isinstance(arg,self.ints):       cmd += ',np.int32(%s)'%arg
-            if isinstance(arg,self.floats):     cmd += ',np.float32(%s)'%arg
-            if isinstance(arg,self.float2s):    cmd += ',np.complex64(%s)'%arg # not tested
+            if isinstance(arg, cla.Array):       cmd += ',self.%s.data'%arg.name
+            if isinstance(arg, cl_.LocalMemory): cmd += ',self.%s'%arg.name
+            if isinstance(arg, self.ints):       cmd += ',np.int32(%s)'%arg
+            if isinstance(arg, self.floats):     cmd += ',np.float32(%s)'%arg
+            if isinstance(arg, self.float2s):    cmd += ',np.complex64(%s)'%arg # not tested
         cmd += ').wait()'
 
         # try to run the command. this fails if the kernel hasnt yet been built
-        try: exec(cmd)
+        try:
+            exec(cmd)
         except AttributeError:
         
             # try to build the kernel
