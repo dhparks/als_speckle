@@ -116,8 +116,7 @@ def bounding_box(data, threshold=1e-10, force_to_square=False, pad=0,
             rmax = average_r+delta_c/2
             
         return rmin, rmax, cmin, cmax
-        
-    
+
     import math
     
     assert isinstance(data, np.ndarray) and data.ndim == 2, \
