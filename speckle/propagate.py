@@ -315,11 +315,12 @@ def propagate_distances(data, distances, energy_or_wavelength, pixel_pitch,
         fftplan.execute(fourier.data, wait_for_finish=True)
 
         return phase_multiply, copy_to_buffer, fftplan, rarray, fourier,\
-        phase, back, store, build
+               phase, back, store, build
         
     def _build_helper(con, dev, path):
         
         def _hidden(name):
+            import gpu
             return gpu.build_kernel_file(con, dev, path+name)
         
         return _hidden
@@ -342,6 +343,7 @@ def propagate_distances(data, distances, energy_or_wavelength, pixel_pitch,
         """ Calculate the transform for a single distance """
         
         if gpu_info == None:
+            
             phase_z = _cpu_phase(z)
             back = IDFT(f*phase_z)
             store[n] = back[sr[0]:sr[1], sr[2]:sr[3]]
@@ -556,11 +558,10 @@ def apodize(data_in, sigma=3, threshold=0.01):
     
     # now pad the array sufficiently to ensure cyclic boundary conditions
     # don't matter (much)
-    r1, c1 = data2.shape
-    r_pad = np.zeros((2*sig2, c1), data2.dtype)
+    r_pad = np.zeros((2*sig2, data2.shape[1]), data2.dtype)
     data2 = np.vstack([data2, r_pad])
     data2 = np.vstack([r_pad, data2])
-    c_pad = np.zeros((r1, 2*sig2), data2.dtype)
+    c_pad = np.zeros((data2.shape[0], 2*sig2), data2.dtype)
     data2 = np.hstack([data2, c_pad])
     data2 = np.hstack([c_pad, data2])
     

@@ -1,5 +1,19 @@
 import numpy as np
 
+class arrayWrapper(object):
+    
+    def __init__(self, array, name):
+        self.array = array
+        self.name = name
+        self.isgpu = True
+        
+    def __getattr__(self, x):
+        if x == 'name':
+            return self.name
+        if x == 'isgpu':
+            return self.isgpu
+        return getattr(self.array, x)
+    
 class common:
     """ A superset class for the various unified cpu/gpu modules. The purpose
     of this class is just to hold those methods which are common to all gpu
@@ -8,18 +22,17 @@ class common:
     def __init__(self):
         pass
 
-    def _allocate(self,size,dtype,name=None):
+    def _allocate(self, size, dtype, name=None):
         """ Wrapper to define new arrays whether gpu or cpu path"""
         if self.use_gpu:
             import pyopencl.array as cla
-            x = cla.empty(self.queue,size,dtype)
-            x.name = name # basically we need a name to run _kexec
-            x.isgpu = True
-            return x 
+            x = cla.empty(self.queue, size, dtype)
+            y = arrayWrapper(x, name)
+            return y
         else:
-            return np.zeros(size,dtype)
+            return np.zeros(size, dtype)
         
-    def _allocate_local(self,size,name=None):
+    def _allocate_local(self, size, name=None):
         if self.use_gpu:
             import pyopencl
             x = pyopencl.LocalMemory(size)
@@ -28,7 +41,7 @@ class common:
         else:
             return None
     
-    def _cl_abs(self,in1,out,square=False):
+    def _cl_abs(self, in1, out, square=False):
         """ Wrapper func to the various abs kernels. Checks types of in1 and out
         to select appropriate kernel. """
         
@@ -58,7 +71,7 @@ class common:
         
         self._kexec(func,in1,out)
    
-    def _cl_add(self,in1,in2,out,**kwargs):
+    def _cl_add(self, in1, in2, out, **kwargs):
         d1, d2, d3 = in1.dtype, in2.dtype, out.dtype
         assert d1 in self.array_dtypes, "in1 dtype not recognized; is %s"%d1
         assert d2 in self.array_dtypes, "in2 dtype not recognized; is %s"%d2
@@ -92,9 +105,9 @@ class common:
                 arg1 = in1
                 arg2 = in2
                 
-        self._kexec(func,arg1,arg2,out,**kwargs)
+        self._kexec(func, arg1, arg2, out, **kwargs)
         
-    def _cl_copy(self,in1,out):
+    def _cl_copy(self, in1, out):
         d1, d2 = in1.dtype, out.dtype
         assert d1 in self.array_dtypes, "in1 dtype not recognized"
         assert d2 in self.array_dtypes, "out dtype not recognized"
@@ -305,7 +318,7 @@ class common:
                 except AttributeError:
                     pass
             shape = '(%s,)'%max(sizes)
-            
+
         if 'local' in kwargs:
             local = kwargs['local']
             assert isinstance(local,(tuple,type(None)))
@@ -313,16 +326,18 @@ class common:
                 for x in local: assert isinstance(x,int)
             except TypeError: pass
         else:
-            local=None
-        
+            local = None
+
         # build the command string for execution
         cmd = 'self.%s.execute(self.queue,%s,%s'%(name,shape,local)
+        
         for arg in args:
-            if isinstance(arg, cla.Array):       cmd += ',self.%s.data'%arg.name
-            if isinstance(arg, cl_.LocalMemory): cmd += ',self.%s'%arg.name
-            if isinstance(arg, self.ints):       cmd += ',np.int32(%s)'%arg
-            if isinstance(arg, self.floats):     cmd += ',np.float32(%s)'%arg
-            if isinstance(arg, self.float2s):    cmd += ',np.complex64(%s)'%arg # not tested
+            if   isinstance(arg, (arrayWrapper, cla.Array)):       cmd += ',self.%s.data'%arg.name
+            elif isinstance(arg, cl_.LocalMemory): cmd += ',self.%s'%arg.name
+            elif isinstance(arg, self.ints):       cmd += ',np.int32(%s)'%arg
+            elif isinstance(arg, self.floats):     cmd += ',np.float32(%s)'%arg
+            elif isinstance(arg, self.float2s):    cmd += ',np.complex64(%s)'%arg # not tested
+            else: print('no matched instance in cmd %s'%name)
         cmd += ').wait()'
 
         # try to run the command. this fails if the kernel hasnt yet been built
@@ -331,7 +346,7 @@ class common:
         except AttributeError:
         
             # try to build the kernel
-            cmd1 = "self.%s = build_kernel_file(self.context, self.device, self.kp+'%s_%s.cl')"%(name,self.project, name)
+            cmd1 = "self.%s = build_kernel_file(self.context, self.device, self.kp+'%s_%s.cl')"%(name, self.project, name)
             cmd2 = "self.%s = build_kernel_file(self.context, self.device, self.kp+'common_%s.cl')"%(name, name)
             
             try:
@@ -358,7 +373,7 @@ class common:
         assert what.dtype == where.dtype, "incompatible types %s %s"%(what.dtype, where.dtype)
         if self.use_gpu:
             import pyopencl.array as cla
-            where.set(what,queue=self.queue)
+            where.set(what, queue=self.queue)
         else:
             where = what
         return where

@@ -225,7 +225,7 @@ class phasing(common):
         case those iterations where iteration%silent == 0 will report.
         """
         
-        if debug_on == None:
+        if debug_on is None:
             debug_on = ()
              
         if not self.can_iterate:
@@ -241,7 +241,7 @@ class phasing(common):
         assert isinstance(order, (type(None), list, tuple)),\
         "algorithm order must be iterable"
         
-        if order == None:
+        if order is None:
             order = (('hio', 99), ('er', 1))
 
         tmp = []
@@ -255,7 +255,7 @@ class phasing(common):
             tmp.append([t for j in range(i)])
         order_list = [x for entry in tmp for x in entry]
         k = len(order_list)
-                
+
         # run the iterations
         for iteration in range(iterations):
 
@@ -340,7 +340,7 @@ class phasing(common):
         ### first, do all the loading that has no dependencies
         
         # load the modulus. should be (NxN) array. N should be a power of 2.
-        if modulus != None:
+        if modulus is not None:
             # modulus is the master from which all the other arrays take
             # their required size
             
@@ -358,7 +358,7 @@ class phasing(common):
                 
                 # allocate memory for the modulus
                 self.modulus = self._allocate(self.shape, np.float32, 'modulus')
-                
+
                 # allocate NxN complex buffers for iterations
                 names = ('psi_in', 'psi_out', 'psi_fourier', 'fourier_div',\
                          'fourier_tmp', 'challenge')
@@ -379,7 +379,7 @@ class phasing(common):
             
         # load or replace the support. should be a 2d array. size must be
         # smaller than modulus in all dimensions (or equally sized to modulus)
-        if support != None:
+        if support is not None:
             
             assert support.ndim == 2, "support is %s-dim"%support.ndim
             
@@ -406,13 +406,13 @@ class phasing(common):
             self.support_state = 1
             
         # get the number of trials into memory. unlimited (limited by memory)
-        if numtrials != None:
+        if numtrials is not None:
             self.numtrials = int(numtrials)
             if self.buffer_state == 0:
                 self.buffer_state = 1
             
         # load or replace ipsf. should be same size as modulus.
-        if ipsf != None:
+        if ipsf is not None:
             
             assert ipsf.ndim == 2
             assert ipsf.shape[0] == ipsf.shape[1]
@@ -427,7 +427,7 @@ class phasing(common):
         # load or replace energy spectrum. energy spectrum must be an array
         # with shape (2, N), where N is the number of sampling points in the
         # spectrum. format of spectrum is [(energies),(weights)]
-        if spectrum != None:
+        if spectrum is not None:
             
             assert isinstance(spectrum, np.ndarray)
             assert spectrum.ndim == 2
@@ -842,7 +842,7 @@ class phasing(common):
                 pass
             
             # if modulus is on gpu, take if off
-            if modulus == None:
+            if modulus is None:
                 modulus = self.modulus
             try:
                 modulus.isgpu
@@ -929,7 +929,8 @@ class phasing(common):
         if method == 'richardson_lucy':
             return _finalize_rl()
 
-    def reconstruct(self, iterations=100, rounds=1, order=None, refine_support=True, refinement_parameters=None):
+    def reconstruct(self, iterations=100, rounds=1, order=None, refine_support=True,
+                    refinement_parameters=None):
         """ Wrap the seeding and iterating behind a single method.
         
         If refine_support = True, the support will be refined at the
@@ -970,7 +971,7 @@ class phasing(common):
                 rp = {'local_threshold':0.08, 'blur_sigma':3, 'global_threshold':0.0,
                       'kill_weakest':False}
                 
-                if refinement_parameters != None:
+                if refinement_parameters is not None:
                     rp.update(refinement_parameters)
                 
                 refined = refine_support(
@@ -986,7 +987,7 @@ class phasing(common):
                 # load the refined support
                 self.load(support=new_support)
 
-    def seed(self, supplied=None):
+    def seed(self, val=None, supplied=None):
         """ Replaces self.psi_in with random numbers. Use this method to
         restart the simulation without having to copy a whole bunch of
         extra data like the support and the speckle modulus.
@@ -995,14 +996,16 @@ class phasing(common):
             supplied - (optional) can set the seed with a precomputed array.
         """
         
-        assert self.N != None, \
+        assert self.N is not None, \
         "cannot seed without N being set. load data first."
         
-        if supplied == None:
-            supplied = np.random.rand(self.N, self.N)
-            supplied += 1j*np.random.rand(self.N, self.N)
+        if val is not None:
+            np.random.seed(val)
+        
+        if supplied is None:
+            supplied  = np.random.rand(self.N, self.N)+1j*np.random.rand(self.N, self.N)
             
-        if supplied != None:
+        else:
             # if a guess is supplied, first make it the correct size
             # through embedding (if necessary), then by rolling to
             # align with the support
@@ -1184,11 +1187,11 @@ class phasing(common):
         def _fourier_constraint(data, out):
             """ Enforce the Fourier constraint (modulus replacement) """
             s = np.fft.fftshift
-            
+
             # 1. fourier transform the data. store in psi_fourier
             self.psi_fourier = self._fft2(data, self.psi_fourier)
             if debug:
-                io.save('i%s psi_fourier_1.fits'%iteration, \
+                io.save('%s i%s psi_fourier_1.fits'%(self.compute_device, iteration), \
                         s(self.get(self.psi_fourier)), components='polar')
 
             # 2. from the data in psi_fourier, build the divisor. partial
@@ -1199,7 +1202,7 @@ class phasing(common):
             # gpu codepath.
             self.fourier_div = _build_divisor()
             if debug:
-                io.save('i%s fourier_div.fits'%iteration, \
+                io.save('%s i%s fourier_div.fits'%(self.compute_device, iteration), \
                         s(self.get(self.fourier_div)), components='polar')
             
             # 3. execute the magnitude replacement
@@ -1213,16 +1216,16 @@ class phasing(common):
                 else:
                     self.psi_fourier = m*pf/np.abs(fd)
             if debug:
-                io.save('i%s psi_fourier_2.fits'%iteration, \
+                io.save('%s i%s psi_fourier_2.fits'%(self.compute_device, iteration), \
                         s(self.get(self.psi_fourier)), components='polar')
-                
+
             # 4. inverse fourier transform the new fourier estimate
             out = self._fft2(self.psi_fourier, out, inverse=True)
             if debug:
-                io.save('i%s out.fits'%iteration, \
-                        s(self.get(self.psi_fourier)), components='polar')
-            
-            return out
+                io.save('%s i%s out.fits'%(self.compute_device, iteration), \
+                           self.get(out), components='cartesian')
+
+            return(out)
               
         #### define the algorithm functions
         def _hio(psi_in, psi_out, support):
@@ -1230,12 +1233,18 @@ class phasing(common):
             if self.use_gpu:
                 self._kexec('hio', np.float32(beta), support, \
                             psi_in, psi_out, psi_in)
+ 
             else:
                 if HAVE_NUMEXPR:
                     s = "(1-support)*(psi_in-beta*psi_out)+support*psi_out"
                     psi_in = numexpr.evaluate(s)
                 else:
                     psi_in = (1-support)*(psi_in-beta*psi_out)+support*psi_out
+               
+            if debug:
+                    io.save('%s i%s hio update.fits'%(self.compute_device, iteration), \
+                           self.get(psi_in), components='cartesian')
+                    
             return psi_in
             
         def _er(psi_in, psi_out, support):
@@ -1317,7 +1326,7 @@ class phasing(common):
                     t2 = psi_in-beta*psi_out
                     psi_in = support*t1+(1-support)*t2
             return psi_in
-            
+
         # check algorithm request
         algos = {'hio':_hio, 'er':_er, 'raar':_raar, 'sf':_sf, 'dm':_dm}
         
@@ -1327,11 +1336,21 @@ class phasing(common):
         # 1. enforce the fourier constraint. this is the same for all
         # algorithms. however, the way the constraint is satisfied depends
         # on coherence information.
-        self.psi_out = _fourier_constraint(self.psi_in, self.psi_out).astype(np.complex64)
-        
+        out = _fourier_constraint(self.psi_in, self.psi_out).astype(np.complex64)
+        try:
+            self.psi_out.isgpu
+            self.psi_out.array = out
+        except:
+            self.psi_out = out
+
         # 2. enforce the real space constraint. algorithm can be changed
         # based on incoming keyword
-        self.psi_in = algos[algorithm](self.psi_in, self.psi_out, self.support).astype(np.complex64)
+        new_in = algos[algorithm](self.psi_in, self.psi_out, self.support).astype(np.complex64)
+        try:
+            self.psi_in.isgpu
+            self.psi_in.array = new_in
+        except:
+            self.psi_in = new_in        
         
 def align_global_phase(data_in):
     """ Phase retrieval is degenerate to a global phase factor. This function
@@ -1416,7 +1435,7 @@ def prtf(estimates, N=None, silent=True, prtfq=False):
     shift = np.fft.fftshift
     
     f, r, c = estimates.shape
-    if N == None:
+    if N is None:
         N = max([r, c])
     
     # compute the prtf by averaging the phase of all the trials
@@ -1545,7 +1564,7 @@ def rftf(estimate, goal_modulus, hot_pixels=False, ipsf=None,
     fourier = np.abs(np.fft.fft2(new))
     N = goal_modulus.shape[0]
     
-    if ipsf != None:
+    if ipsf is not None:
         assert isinstance(ipsf, np.ndarray)
         assert ipsf.ndim == 2
         assert ipsf.shape == goal_modulus.shape
@@ -1614,7 +1633,7 @@ def gpu_rftf(gpuinfo, estimates, goal_modulus, ipsf=None, rftfq=False):
     assert goal_modulus.ndim == 2
     assert goal_modulus.shape[0] == goal_modulus.shape[1]
     
-    if ipsf != None:
+    if ipsf is not None:
         assert isinstance(ipsf, np.ndarray)
         assert ipsf.shape == goal_modulus.shape
         
@@ -1646,7 +1665,7 @@ def gpu_rftf(gpuinfo, estimates, goal_modulus, ipsf=None, rftfq=False):
     new[:, :es.shape[1], :es.shape[2]] = estimates.astype(np.complex64)
     
     frames = cla.to_device(queue, new)
-    if ipsf != None:
+    if ipsf is not None:
         gpu_ipsf = cla.to_device(queue, ipsf.astype(np.float32))
     modulus = cla.to_device(queue, goal_modulus.astype(np.float32))
     
@@ -1654,7 +1673,7 @@ def gpu_rftf(gpuinfo, estimates, goal_modulus, ipsf=None, rftfq=False):
     fftplan.execute(data_in=frames.data, data_out=transformtmp.data, batch=L)
     
     # if we have an ipsf, do the convolution of the abs2
-    if ipsf != None:
+    if ipsf is not None:
         abs2.execute(queue, (L*N*N,), None, transformtmp.data,
                      transformtmp.data)
         
@@ -1670,7 +1689,7 @@ def gpu_rftf(gpuinfo, estimates, goal_modulus, ipsf=None, rftfq=False):
         sqrt.execute(queue, (L*N*N,), None, transformtmp.data,
                      transformtmp.data)
         
-    if ipsf == None:
+    if ipsf is None:
         abs1.execute(queue, (L*N*N,), None, transformtmp.data,
                      transformtmp.data)
 
@@ -1926,7 +1945,7 @@ def covar_results(gpuinfo, data, threshold=0.85, mask=None):
     # check types
     assert isinstance(gpuinfo, tuple) and len(gpuinfo) == 4
     assert isinstance(data, np.ndarray) and data.ndim == 3
-    if mask == None:
+    if mask is None:
         mask = 1.0
     assert isinstance(mask, (np.ndarray, float, np.float32, np.float64))
     
