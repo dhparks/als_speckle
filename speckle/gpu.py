@@ -329,15 +329,23 @@ class common:
             local = None
 
         # build the command string for execution
-        cmd = 'self.%s.execute(self.queue,%s,%s'%(name,shape,local)
-        
+        cmd = 'self.%s.execute(self.queue,%s,%s'%(name, shape, local)
+
         for arg in args:
-            if   isinstance(arg, (arrayWrapper, cla.Array)):       cmd += ',self.%s.data'%arg.name
-            elif isinstance(arg, cl_.LocalMemory): cmd += ',self.%s'%arg.name
-            elif isinstance(arg, self.ints):       cmd += ',np.int32(%s)'%arg
-            elif isinstance(arg, self.floats):     cmd += ',np.float32(%s)'%arg
-            elif isinstance(arg, self.float2s):    cmd += ',np.complex64(%s)'%arg # not tested
-            else: print('no matched instance in cmd %s'%name)
+            if   isinstance(arg, (arrayWrapper, cla.Array)):
+                cmd += ',self.%s.data'%arg.name
+            elif isinstance(arg, cl_.LocalMemory):
+                cmd += ',self.%s'%arg.name
+            elif isinstance(arg, self.ints):
+                cmd += ',np.int32(%s)'%arg
+            elif isinstance(arg, self.floats):
+                cmd += ',np.float32(%s)'%arg
+            elif isinstance(arg, self.float2s):
+                cmd += ',np.complex64(%s)'%arg # not tested
+            elif isinstance(arg, dict):
+                pass
+            else:
+                print('no matched instance in cmd %s'%name)
         cmd += ').wait()'
 
         # try to run the command. this fails if the kernel hasnt yet been built
