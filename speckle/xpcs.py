@@ -362,7 +362,7 @@ def _g2_numerator(data, batch_size=64, gpu_info=None):
             tmp = np.abs(tmp)**2
             tmp = cpu_d['IDFT'](tmp, axes=(1,))
             tmp = np.abs(tmp)
-            return tmp[:, :fr].real
+            return tmp[:, :fr].real*run_on.shape[1]
         
         # move data to pre-allocated memory. correlate.
         if gpu_info == None:
